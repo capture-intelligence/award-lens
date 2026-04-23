@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Federal Awards Dashboard</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <!-- Order matters: config.js → app.js (defines window.dashboard) → Alpine.
+       Alpine's `x-data="dashboard()"` is evaluated at Alpine.start(), so the
+       dashboard() function MUST be on the global scope by then. Putting
+       app.js before Alpine (and keeping it sync) guarantees that. -->
+  <script src="/config.js"></script>
+  <script src="/app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+</head>
+<body>
+<div class="app" x-data="dashboard()" x-init="init()">
+
+  <!-- Top bar -->
+  <header class="topbar">
+    <h1>Federal Awards Dashboard</h1>
+    <div class="config">
+      <label style="color: var(--muted); font-size: 12px;">API</label>
+      <input
+        x-model="apiBaseInput"
+        placeholder="https://api-worker.<sub>.workers.dev"
+      />
+      <button @click="saveApiBase()">Save</button>
+    </div>
+  </header>
+
+  <!-- Sidebar nav -->
+  <nav class="sidebar">
+    <a :class="{ active: active === 'overview' }"   @click="go('overview')">Overview</a>
+    <a :class="{ active: active === 'awards' }"     @click="go('awards')">Awards</a>
+    <a :class="{ active: active === 'expiring' }"   @click="go('expiring')">Expiring (18mo)</a>
+    <a :class="{ active: active === 'vendors' }"    @click="go('vendors')">Vendors</a>
+    <a :class="{ active: active === 'exclusions' }"    @click="go('exclusions')">Exclusions</a>
+    <a :class="{ active: active === 'opportunities' }" @click="go('opportunities')">Opportunities</a>
+    <a :class="{ active: active === 'dataquality' }"   @click="go('dataquality')">Data Quality</a>
+    <a :class="{ active: active === 'schedule' }"      @click="go('schedule')">Schedule</a>
+    <a :class="{ active: active === 'pull' }"          @click="go('pull')">Pull Data</a>
+    <a :class="{ active: active === 'runs' }"          @click="go('runs')">Ingestion Runs</a>
+  </nav>
+
+  <!-- Main content -->
+  <main class="content">
+    <template x-if="error">
+      <div class="error"
+           x-text="'Error: ' + error + ' — check that the API URL is set correctly.'"></div>
+    </template>
+
+    <template x-if="loading && !error">
+      <div class="loading">Loading…</div>
+    </template>
+
+    <!-- ============ OVERVIEW ============ -->
+    <template x-if="active === 'overview' && !loading && overview">
+      <div>
+        <div class="section-head"><h2>Overview</h2></div>
+        <div class="grid cols-4" style="margin-bottom: 24px;">
+          <div class="card">
+            <h3>Awards</h3>
+            <div class="big" x-text="fmtInt(overview.awards)"></div>
+          </div>
+          <div class="card">
+            <h3>Vendors</h3>
+            <div class="big" x-text="fmtInt(overview.vendors)"></div>
+          </div>
+          <div class="card">
+            <h3>Organizations</h3>
+            <div class="big" x-text="fmtInt(overview.organizations)"></div>
+          </div>
+          <div class="card">
+            <h3>Total Obligated</h3>
+            <div class="big" x-text="fmtMoney(overview.total_obligated_usd)"></div>
+          </div>
+        </div>
+
+        <div class="grid cols-2">
+          <div class="card">
+            <h3>Top 10 Vendors</h3>
+            <table>
+              <thead><tr><th>Vendor</th><th># Awards</th><th>Total</th></tr></thead>
+              <tbody>
+                <template x-for="v in topVendors" :key="v.vendor_id">
+                  <tr>
+                    <td>
+                      <a @click="go('vendors'); $nextTick(() => openVendor(v.vendor_id))"
+                         x-text="v.legal_name"></a>
+                    </td>
+                    <td class="num" x-text="fmtInt(v.num_awards)"></td>
+                    <td class="num" x-text="fmtMoney(v.total_value)"></td>
+                  </tr>
+                </template>
+                <tr x-show="topVendors.length === 0">
+                  <td colspan="3" class="empty">No data yet. Trigger a workflow run.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
+            <h3>Top Agencies</h3>
+            <canvas id="agencyChart" height="320"></canvas>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- ============ AWARDS ============ -->
+    <template x-if="active === 'awards' && !loading">
+      <div>
+        <div class="section-head"><h2>Awards</h2></div>
+        <div class="filters">
+          <input placeholder="keyword in description / PIID" x-model="awardFilters.q" />
+          <input placeholder="awarding org" x-model="awardFilters.awarding_org" />
+          <input placeholder="vendor" x-model="awardFilters.vendor" />
+          <input placeholder="min value" type="number" x-model="awardFilters.min_value" />
+          <button @click="loadAwards()">Search</button>
+        </div>
+        <div class="card" style="padding: 0; overflow: hidden;">
+          <div style="max-height: calc(100vh - 280px); overflow: auto;">
+            <table>
+              <thead><tr>
+                <th>PIID</th><th>Vendor</th><th>Awarding Org</th>
+                <th>Description</th><th>Value</th><th>End Date</th><th>Status</th>
+              </tr></thead>
+              <tbody>
+                <template x-for="a in awards" :key="a.award_id">
+                  <tr>
+                    <td><span x-text="a.award_piid || '—'"></span></td>
+                    <td x-text="a.vendor_name || '—'"></td>
+                    <td x-text="a.awarding_org_name || '—'"></td>
+                    <td style="max-width: 380px;" x-text="(a.description || '').slice(0, 160)"></td>
+                    <td class="num" x-text="fmtMoney(a.current_value)"></td>
+                    <td class="num" x-text="fmtDate(a.pop_end_date)"></td>
+                    <td x-html="daysBadge(a.days_to_expiry)"></td>
+                  </tr>
+                </template>
+                <tr x-show="awards.length === 0">
+                  <td colspan="7" class="empty">No awards match. Try clearing filters or running an ingestion.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- ============ EXPIRING ============ -->
+    <template x-if="active === 'expiring' && !loading">
+      <div>
+        <div class="section-head">
+          <h2>Expiring Awards</h2>
+          <div>
+            <label style="color: var(--muted); margin-right: 8px;">Window (months):</label>
+            <select x-model.number="expiringMonths" @change="loadExpiring()">
+              <option value="6">6</option><option value="12">12</option>
+              <option value="18">18</option><option value="24">24</option>
+              <option value="36">36</option>
+            </select>
+          </div>
+        </div>
+        <div class="card" style="padding: 0; overflow: hidden;">
+          <div style="max-height: calc(100vh - 220px); overflow: auto;">
+            <table>
+              <thead><tr>
+                <th>PIID</th><th>Vendor</th><th>Awarding Org</th>
+                <th>Description</th><th>Value</th><th>End Date</th><th>Days Left</th>
+              </tr></thead>
+              <tbody>
+                <template x-for="a in expiring" :key="a.award_id">
+                  <tr>
+                    <td x-text="a.award_piid || '—'"></td>
+                    <td x-text="a.vendor_name || '—'"></td>
+                    <td x-text="a.awarding_org_name || '—'"></td>
+                    <td style="max-width: 380px;" x-text="(a.description || '').slice(0, 160)"></td>
+                    <td class="num" x-text="fmtMoney(a.current_value)"></td>
+                    <td class="num" x-text="fmtDate(a.pop_end_date)"></td>
+                    <td x-html="daysBadge(a.days_to_expiry)"></td>
+                  </tr>
+                </template>
+                <tr x-show="expiring.length === 0">
+                  <td colspan="7" class="empty">Nothing expiring in this window.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- ============ VENDORS ============ -->
+    <template x-if="active === 'vendors' && !loading">
+      <div>
+        <div class="section-head"><h2>Vendors</h2></div>
+        <div class="filters">
+          <input placeholder="search by name" x-model="vendorQuery" />
+          <button @click="loadVendors()">Search</button>
+        </div>
+        <div class="grid cols-2">
+          <div class="card" style="padding: 0; overflow: hidden;">
+            <div style="max-height: calc(100vh - 280px); overflow: auto;">
+              <table>
+                <thead><tr><th>Name</th><th>UEI</th><th>#</th><th>Total</th></tr></thead>
+                <tbody>
+                  <template x-for="v in vendors" :key="v.vendor_id">
+                    <tr @click="openVendor(v.vendor_id)" style="cursor: pointer;">
+                      <td x-text="v.legal_name"></td>
+                      <td style="font-family: monospace; font-size: 11px;" x-text="v.uei || '—'"></td>
+                      <td class="num" x-text="fmtInt(v.num_awards)"></td>
+                      <td class="num" x-text="fmtMoney(v.total_value)"></td>
+                    </tr>
+                  </template>
+                  <tr x-show="vendors.length === 0">
+                    <td colspan="4" class="empty">No vendors. Run an ingestion first.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card">
+            <template x-if="!vendorDetail">
+              <div class="empty">Click a vendor to see details.</div>
+            </template>
+            <template x-if="vendorDetail">
+              <div>
+                <h3 x-text="vendorDetail.vendor.legal_name"></h3>
+                <div style="color: var(--muted); font-size: 12px; margin-bottom: 12px;">
+                  UEI: <span x-text="vendorDetail.vendor.uei || '—'"></span>
+                  &nbsp;•&nbsp;
+                  <span x-text="fmtInt(vendorDetail.vendor.num_awards)"></span> awards
+                  &nbsp;•&nbsp;
+                  <span x-text="fmtMoney(vendorDetail.vendor.total_value)"></span>
+                </div>
+
+                <!-- SAM enrichment row -->
+                <div style="display: flex; gap: 8px; align-items: center; margin: 12px 0; flex-wrap: wrap;">
+                  <button
+                    @click="enrichVendor(vendorDetail.vendor.vendor_id, 'queue')"
+                    :disabled="!vendorDetail.vendor.uei"
+                    style="background: var(--accent); color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;"
+                    :style="!vendorDetail.vendor.uei ? 'opacity: 0.5; cursor: not-allowed;' : ''"
+                  >Enrich via SAM (queue)</button>
+                  <button
+                    @click="enrichVendor(vendorDetail.vendor.vendor_id, 'sync')"
+                    :disabled="!vendorDetail.vendor.uei || (samBudget && samBudget.remaining <= 0)"
+                    style="background: var(--panel-2); color: var(--text); border: 1px solid var(--border); padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;"
+                  >Sync now</button>
+                  <span x-show="samBudget" style="color: var(--muted); font-size: 12px;">
+                    SAM budget:
+                    <span x-text="samBudget?.used || 0"></span>/<span x-text="samBudget?.limit"></span> used
+                  </span>
+                </div>
+                <div x-show="enrichStatus" style="margin: 8px 0;">
+                  <span class="badge"
+                        :class="{ ok: enrichStatus?.state==='ok', warn: enrichStatus?.state==='warn', danger: enrichStatus?.state==='error', info: enrichStatus?.state==='pending' }"
+                        x-text="enrichStatus?.msg"></span>
+                </div>
+
+                <div style="margin: 12px 0;">
+                  <template x-for="c in vendorDetail.classifications" :key="c.classification">
+                    <span class="badge info" style="margin-right: 4px;" x-text="c.classification"></span>
+                  </template>
+                </div>
+                <h3 style="margin-top: 16px;">Top Awards</h3>
+                <table>
+                  <thead><tr><th>PIID</th><th>Org</th><th>Value</th><th>Ends</th></tr></thead>
+                  <tbody>
+                    <template x-for="a in vendorDetail.top_awards" :key="a.award_id">
+                      <tr>
+                        <td x-text="a.award_piid || '—'"></td>
+                        <td x-text="a.awarding_org_name || '—'"></td>
+                        <td class="num" x-text="fmtMoney(a.current_value)"></td>
+                        <td class="num" x-text="fmtDate(a.pop_end_date)"></td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- ============ EXCLUSIONS ============ -->
+    <template x-if="active === 'exclusions' && !loading">
+      <div>
+        <div class="section-head"><h2>SAM.gov Exclusions</h2></div>
+        <div class="filters">
+          <input placeholder="name or UEI" x-model="exclusionQuery" />
+          <label style="color: var(--muted); display: flex; align-items: center; gap: 4px;">
+            <input type="checkbox" x-model="exclusionsActiveOnly" /> active only
+          </label>
+          <button @click="loadExclusions()">Search</button>
+        </div>
+        <div class="card" style="padding: 0; overflow: hidden;">
+          <div style="max-height: calc(100vh - 280px); overflow: auto;">
+            <table>
+              <thead><tr>
+                <th>Name</th><th>UEI</th><th>Type</th><th>Class</th>
+                <th>Agency</th><th>Active</th><th>Terminates</th><th>Status</th>
+              </tr></thead>
+              <tbody>
+                <template x-for="e in exclusions" :key="e.exclusion_id">
+                  <tr>
+                    <td x-text="e.legal_name"></td>
+                    <td style="font-family: monospace; font-size: 11px;" x-text="e.uei || '—'"></td>
+                    <td x-text="e.exclusion_type || '—'"></td>
+                    <td x-text="e.classification || '—'"></td>
+                    <td x-text="e.excluding_agency || '—'"></td>
+                    <td class="num" x-text="fmtDate(e.active_date)"></td>
+                    <td class="num" x-text="fmtDate(e.termination_date) || 'Indefinite'"></td>
+                    <td>
+                      <span x-show="e.is_active" class="badge danger">active</span>
+                      <span x-show="!e.is_active" class="badge info">inactive</span>
+                    </td>
+                  </tr>
+                </template>
+                <tr x-show="exclusions.length === 0">
+                  <td colspan="8" class="empty">No exclusions. Trigger the SAM bulk workflow to load the extract.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- ============ OPPORTUNITIES ============ -->
+    <template x-if="active === 'opportunities' && !loading">
+      <div>
+        <div class="section-head"><h2>Grant Opportunities</h2></div>
+        <div class="filters">
+          <input placeholder="keyword in title / number / description" x-model="oppFilters.q" />
+          <input placeholder="agency code (e.g., HHS-CDC)" x-model="oppFilters.agency" />
+          <select x-model="oppFilters.status">
+            <option value="posted">Posted</option>
+            <option value="forecasted">Forecasted</option>
+            <option value="closed">Closed</option>
+            <option value="any">Any</option>
+          </select>
+          <button @click="loadOpportunities()">Search</button>
+        </div>
+        <div class="grid cols-2">
+          <div class="card" style="padding: 0; overflow: hidden;">
+            <div style="max-height: calc(100vh - 280px); overflow: auto;">
+              <table>
+                <thead><tr>
+                  <th>Title</th><th>Agency</th><th>Number</th>
+                  <th>Closes</th><th>Ceiling</th><th>Status</th>
+                </tr></thead>
+                <tbody>
+                  <template x-for="o in opportunities" :key="o.opportunity_id">
+                    <tr>
+                      <td style="max-width: 320px;">
+                        <a :href="o.opportunity_url" target="_blank" rel="noopener"
+                           x-text="o.title"></a>
+                      </td>
+                      <td x-text="o.agency_code || o.agency_name || '—'"></td>
+                      <td style="font-family: monospace; font-size: 11px;"
+                          x-text="o.opportunity_number || '—'"></td>
+                      <td class="num" x-text="fmtDate(o.close_date)"></td>
+                      <td class="num" x-text="fmtMoney(o.award_ceiling)"></td>
+                      <td x-html="daysBadge(o.days_to_close)"></td>
+                    </tr>
+                  </template>
+                  <tr x-show="opportunities.length === 0">
+                    <td colspan="6" class="empty">No opportunities. Trigger the Grants.gov workflow.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Top Agencies by Open Funding</h3>
+            <table>
+              <thead><tr><th>Agency</th><th># Open</th><th>Total Est. $</th></tr></thead>
+              <tbody>
+                <template x-for="a in oppByAgency" :key="a.agency">
+                  <tr>
+                    <td x-text="a.agency || '—'"></td>
+                    <td class="num" x-text="fmtInt(a.num_open)"></td>
+                    <td class="num" x-text="fmtMoney(a.total_funding)"></td>
+                  </tr>
+                </template>
+                <tr x-show="oppByAgency.length === 0">
+                  <td colspan="3" class="empty">No data yet.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- ============ DATA QUALITY ============ -->
+    <template x-if="active === 'dataquality' && !loading">
+      <div>
+        <div class="section-head">
+          <h2>Data Quality — Reconciliation</h2>
+        </div>
+        <div class="grid cols-4" style="margin-bottom: 24px;" x-show="reconcileSummary">
+          <div class="card">
+            <h3>OK</h3>
+            <div class="big" style="color: var(--accent-2);"
+                 x-text="fmtInt(reconcileSummary?.ok_count)"></div>
+          </div>
+          <div class="card">
+            <h3>Drift</h3>
+            <div class="big" style="color: var(--warn);"
+                 x-text="fmtInt(reconcileSummary?.drift_count)"></div>
+          </div>
+          <div class="card">
+            <h3>Errors</h3>
+            <div class="big" style="color: var(--danger);"
+                 x-text="fmtInt(reconcileSummary?.error_count)"></div>
+          </div>
+          <div class="card">
+            <h3>Last Check</h3>
+            <div style="font-size: 18px; font-weight: 500;"
+                 x-text="fmtDate(reconcileSummary?.last_check) + ' ' + (reconcileSummary?.last_check || '').slice(11, 19)"></div>
+            <div class="sub">warehouse totals vs source rollups</div>
+          </div>
+        </div>
+        <div class="card" style="padding: 0; overflow: hidden;">
+          <div style="max-height: calc(100vh - 340px); overflow: auto;">
+            <table>
+              <thead><tr>
+                <th>Dimension</th><th>FY</th><th>Warehouse</th><th>Source</th>
+                <th>Drift</th><th>Status</th><th>Notes</th>
+              </tr></thead>
+              <tbody>
+                <template x-for="r in reconcileRows" :key="r.dimension_value + '::' + r.fiscal_year">
+                  <tr>
+                    <td x-text="r.dimension_value"></td>
+                    <td class="num" x-text="r.fiscal_year || '—'"></td>
+                    <td class="num" x-text="fmtMoney(r.warehouse_total)"></td>
+                    <td class="num" x-text="fmtMoney(r.source_total)"></td>
+                    <td class="num"
+                        x-text="r.drift_pct !== null ? ((r.drift_pct * 100).toFixed(1) + '%') : '—'"></td>
+                    <td>
+                      <span class="badge"
+                            :class="{ ok: r.status==='ok', warn: r.status==='drift', danger: r.status==='error', info: r.status==='no_data' }"
+                            x-text="r.status"></span>
+                    </td>
+                    <td style="max-width: 340px; color: var(--muted); font-size: 12px;"
+                        x-text="r.notes || ''"></td>
+                  </tr>
+                </template>
+                <tr x-show="reconcileRows.length === 0">
+                  <td colspan="7" class="empty">No reconciliation checks yet. Trigger one via POST /trigger/reconcile on the scheduler.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- ============ SCHEDULE ============ -->
+    <template x-if="active === 'schedule' && !loading">
+      <div>
+        <div class="section-head">
+          <h2>Refresh Schedule &amp; Status</h2>
+          <div style="color: var(--muted); font-size: 12px;">
+            Auto-refreshes every 60s &nbsp;•&nbsp;
+            as of <span x-text="(scheduleAsOf || '').slice(11, 19) + ' UTC'"></span>
+          </div>
+        </div>
+
+        <!-- Summary cards -->
+        <div class="grid cols-4" style="margin-bottom: 24px;" x-show="scheduleSummary">
+          <div class="card">
+            <h3>Healthy</h3>
+            <div class="big" style="color: var(--accent-2);"
+                 x-text="fmtInt(scheduleSummary?.healthy)"></div>
+          </div>
+          <div class="card">
+            <h3>Running / Stale</h3>
+            <div class="big">
+              <span style="color: var(--accent);" x-text="fmtInt(scheduleSummary?.running)"></span>
+              <span style="color: var(--muted); font-size: 18px;"> / </span>
+              <span style="color: var(--warn);" x-text="fmtInt(scheduleSummary?.stale)"></span>
+            </div>
+            <div class="sub">in progress / past threshold</div>
+          </div>
+          <div class="card">
+            <h3>Errors / Never Run</h3>
+            <div class="big">
+              <span style="color: var(--danger);" x-text="fmtInt(scheduleSummary?.error)"></span>
+              <span style="color: var(--muted); font-size: 18px;"> / </span>
+              <span style="color: var(--warn);" x-text="fmtInt(scheduleSummary?.never_run)"></span>
+            </div>
+            <div class="sub">failed / awaiting first run</div>
+          </div>
+          <div class="card">
+            <h3>SAM API Budget</h3>
+            <template x-if="scheduleBudget">
+              <div>
+                <div class="big">
+                  <span x-text="scheduleBudget.used"></span>/<span x-text="scheduleBudget.limit"></span>
+                </div>
+                <div class="sub">
+                  <span x-text="scheduleBudget.remaining"></span> remaining &nbsp;•&nbsp;
+                  resets <span x-text="relTime(scheduleBudget.resetsAt)"></span>
+                </div>
+              </div>
+            </template>
+            <template x-if="!scheduleBudget">
+              <div>
+                <div class="big" style="color: var(--muted);">—</div>
+                <div class="sub">sam-api-worker not deployed or unreachable</div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- Schedule table -->
+        <div class="card" style="padding: 0; overflow: hidden;">
+          <div style="overflow: auto;">
+            <table>
+              <thead><tr>
+                <th>Source</th>
+                <th>Schedule</th>
+                <th>Last Run</th>
+                <th>Last Rows</th>
+                <th>Next Run</th>
+                <th>Health</th>
+                <th>Notes</th>
+              </tr></thead>
+              <tbody>
+                <template x-for="s in scheduleRows" :key="s.source_id">
+                  <tr>
+                    <td>
+                      <div style="font-weight: 500;" x-text="s.display_name"></div>
+                      <div style="color: var(--muted); font-size: 11px; font-family: monospace;"
+                           x-text="s.source_id"></div>
+                    </td>
+                    <td>
+                      <div x-text="s.interval_human"></div>
+                      <div style="color: var(--muted); font-size: 11px; font-family: monospace;"
+                           x-text="s.cron"></div>
+                    </td>
+                    <td>
+                      <template x-if="s.last_run">
+                        <div>
+                          <div x-text="relTime(s.last_run.started_at)"></div>
+                          <div style="color: var(--muted); font-size: 11px;"
+                               x-text="(s.last_run.started_at || '').replace('T', ' ').slice(0, 19)"></div>
+                        </div>
+                      </template>
+                      <template x-if="!s.last_run">
+                        <div style="color: var(--muted);">never</div>
+                      </template>
+                    </td>
+                    <td class="num">
+                      <template x-if="s.last_run">
+                        <div>
+                          <div x-text="fmtInt(s.last_run.rows_upserted)"></div>
+                          <div style="color: var(--muted); font-size: 11px;"
+                               x-text="'fetched ' + fmtInt(s.last_run.rows_fetched)"></div>
+                        </div>
+                      </template>
+                      <template x-if="!s.last_run">—</template>
+                    </td>
+                    <td>
+                      <template x-if="s.enabled && s.next_run_estimated">
+                        <div>
+                          <div x-text="relTime(s.next_run_estimated)"></div>
+                          <div style="color: var(--muted); font-size: 11px;"
+                               x-text="(s.next_run_estimated || '').replace('T', ' ').slice(0, 19)"></div>
+                        </div>
+                      </template>
+                      <template x-if="!s.enabled">
+                        <span style="color: var(--muted);">on-demand</span>
+                      </template>
+                    </td>
+                    <td>
+                      <span class="badge" :class="healthBadgeClass(s.health)"
+                            x-text="s.health"></span>
+                    </td>
+                    <td style="max-width: 280px; color: var(--muted); font-size: 12px;"
+                        x-text="s.health_reason"></td>
+                  </tr>
+                </template>
+                <tr x-show="scheduleRows.length === 0">
+                  <td colspan="7" class="empty">No schedule config loaded yet.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Legend -->
+        <div style="margin-top: 16px; color: var(--muted); font-size: 12px;">
+          <strong style="color: var(--text);">Health legend:</strong>
+          <span class="badge ok">healthy</span> = within threshold &nbsp;
+          <span class="badge info">running</span> = in progress &nbsp;
+          <span class="badge warn">stale</span> = past its stale threshold &nbsp;
+          <span class="badge danger">error</span> = last run failed &nbsp;
+          <span class="badge warn">never_run</span> = no ingestions recorded &nbsp;
+          <span class="badge info">disabled</span> = on-demand (no cron)
+        </div>
+      </div>
+    </template>
+
+    <!-- ============ PULL DATA ============ -->
+    <template x-if="active === 'pull' && !loading">
+      <div>
+        <div class="section-head">
+          <h2>Pull Data — Scoped USAspending Ingestion</h2>
+        </div>
+
+        <div class="card" style="margin-bottom: 16px;">
+          <div class="grid cols-2" style="gap: 12px; margin-bottom: 12px;">
+            <div>
+              <label style="color: var(--muted); font-size: 12px;">Date range — from</label>
+              <input type="date" x-model="pullForm.sinceDate"
+                     style="width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px;" />
+            </div>
+            <div>
+              <label style="color: var(--muted); font-size: 12px;">Date range — to</label>
+              <input type="date" x-model="pullForm.untilDate"
+                     style="width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px;" />
+            </div>
+            <div>
+              <label style="color: var(--muted); font-size: 12px;">Mode</label>
+              <select x-model="pullForm.mode"
+                      style="width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px;">
+                <option value="backfill">backfill (explicit date range)</option>
+                <option value="incremental">incremental (from last watermark)</option>
+              </select>
+            </div>
+            <div>
+              <label style="color: var(--muted); font-size: 12px;">Max pages (safety cap — 100 records each)</label>
+              <input type="number" min="1" max="1000" x-model.number="pullForm.maxPages"
+                     style="width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px;" />
+            </div>
+
+            <div style="grid-column: span 2;">
+              <label style="color: var(--muted); font-size: 12px;">Agencies — toptier (comma-separated, blank = all)</label>
+              <input x-model="pullForm.agencies" placeholder="Department of Health and Human Services"
+                     style="width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px;" />
+            </div>
+            <div style="grid-column: span 2;">
+              <label style="color: var(--muted); font-size: 12px;">Sub-agencies (comma-separated, blank = all)</label>
+              <input x-model="pullForm.subtier_agencies" placeholder="Centers for Disease Control and Prevention"
+                     style="width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px;" />
+              <div style="color: var(--muted); font-size: 11px; margin-top: 4px;">
+                For CDC centers (NCHS, OCIO, NCHHSTP) — USAspending's API doesn't filter by office directly.
+                Put CDC here <strong>and</strong> the center's name/acronym in Keywords below.
+              </div>
+            </div>
+
+            <div>
+              <label style="color: var(--muted); font-size: 12px;">Min award value ($)</label>
+              <input type="number" min="0" x-model="pullForm.award_amount_min" placeholder="e.g., 4000000"
+                     style="width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px;" />
+            </div>
+            <div>
+              <label style="color: var(--muted); font-size: 12px;">Max award value ($)</label>
+              <input type="number" min="0" x-model="pullForm.award_amount_max" placeholder="blank = no cap"
+                     style="width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px;" />
+            </div>
+
+            <div style="grid-column: span 2;">
+              <label style="color: var(--muted); font-size: 12px;">Keywords (comma-separated, optional)</label>
+              <input x-model="pullForm.keywords" placeholder="HIV, tuberculosis, surveillance — or NCHS, OCIO, NCHHSTP"
+                     style="width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px;" />
+              <div style="color: var(--muted); font-size: 11px; margin-top: 4px;">
+                Matches description/PIID. For office-level narrowing (e.g., CDC → NCHS),
+                put the center's name and acronym here after setting Sub-agencies.
+              </div>
+            </div>
+            <div>
+              <label style="color: var(--muted); font-size: 12px;">NAICS codes (comma-separated)</label>
+              <input x-model="pullForm.naics_codes" placeholder="541511, 541712"
+                     style="width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px;" />
+            </div>
+            <div>
+              <label style="color: var(--muted); font-size: 12px;">PSC codes (comma-separated)</label>
+              <input x-model="pullForm.psc_codes" placeholder="R408, Q301"
+                     style="width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px;" />
+            </div>
+            <div style="grid-column: span 2;">
+              <label style="color: var(--muted); font-size: 12px;">Recipient name contains</label>
+              <input x-model="pullForm.recipient_search_text" placeholder="Lantana"
+                     style="width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px;" />
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 8px; align-items: center; margin-top: 16px;">
+            <button @click="triggerPull()" :disabled="pullForm.busy"
+                    style="background: var(--accent); color: white; border: none; padding: 8px 20px; border-radius: 4px; cursor: pointer; font-weight: 500;"
+                    :style="pullForm.busy ? 'opacity:0.5;cursor:wait;' : ''">
+              <span x-text="pullForm.busy ? 'Triggering…' : 'Search / Trigger Pull'"></span>
+            </button>
+            <button @click="resetPullForm()"
+                    style="background: var(--panel-2); color: var(--text); border: 1px solid var(--border); padding: 8px 16px; border-radius: 4px; cursor: pointer;">
+              Reset
+            </button>
+            <span style="color: var(--muted); font-size: 12px; margin-left: auto;">
+              All filters optional. Leave blank = "all" in that dimension.
+            </span>
+          </div>
+
+          <div x-show="pullResult" style="margin-top: 16px;">
+            <div x-show="pullResult && pullResult.id">
+              <span class="badge ok">Triggered workflow</span>
+              <code style="font-family: monospace; font-size: 12px; margin-left: 8px;" x-text="pullResult?.id"></code>
+              <div style="color: var(--muted); font-size: 11px; margin-top: 4px;">
+                Status will appear in the table below in a few seconds. Also visible on the Schedule and Ingestion Runs tabs.
+              </div>
+            </div>
+            <div x-show="pullResult && pullResult.error">
+              <span class="badge danger">Failed to trigger</span>
+              <span style="color: var(--danger); margin-left: 8px;" x-text="pullResult?.error"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recent USAspending runs -->
+        <div class="section-head">
+          <h2 style="font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted);">
+            Recent USAspending runs
+          </h2>
+          <button @click="loadPull()"
+                  style="background: var(--panel-2); color: var(--text); border: 1px solid var(--border); padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;">
+            Refresh
+          </button>
+        </div>
+        <div class="card" style="padding: 0; overflow: hidden;">
+          <table>
+            <thead><tr>
+              <th>Run</th><th>Started</th><th>Status</th>
+              <th>Fetched</th><th>Upserted</th><th>Window</th><th></th>
+            </tr></thead>
+            <tbody>
+              <template x-for="r in pullRecentRuns" :key="r.run_id">
+                <tr>
+                  <td x-text="r.run_id"></td>
+                  <td style="font-size: 12px;" x-text="(r.started_at || '').replace('T', ' ').slice(0, 19)"></td>
+                  <td>
+                    <span class="badge"
+                          :class="{ ok: r.status==='success', warn: r.status==='running', danger: r.status==='failed' }"
+                          x-text="r.status"></span>
+                  </td>
+                  <td class="num" x-text="fmtInt(r.rows_fetched)"></td>
+                  <td class="num" x-text="fmtInt(r.rows_upserted)"></td>
+                  <td style="font-size: 11px; color: var(--muted);"
+                      x-text="(r.watermark_before || '').slice(0, 10) + ' → ' + (r.watermark_after || '').slice(0, 10)"></td>
+                  <td style="white-space: nowrap;">
+                    <button x-show="r.status === 'running'"
+                            @click="cancelRun(r.run_id)"
+                            style="background: var(--danger); color: white; border: none; padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 11px;">
+                      Cancel
+                    </button>
+                  </td>
+                </tr>
+              </template>
+              <tr x-show="pullRecentRuns.length === 0">
+                <td colspan="7" class="empty">No USAspending runs yet. Trigger one above.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </template>
+
+    <!-- ============ RUNS ============ -->
+    <template x-if="active === 'runs' && !loading">
+      <div>
+        <div class="section-head">
+          <h2>Ingestion Runs</h2>
+          <button @click="cancelAllRunning()"
+                  style="background: var(--danger); color: white; border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 12px;">
+            Cancel all running
+          </button>
+        </div>
+        <div class="grid cols-2">
+          <div class="card" style="padding: 0; overflow: hidden;">
+            <div style="max-height: calc(100vh - 220px); overflow: auto;">
+              <table>
+                <thead><tr>
+                  <th>ID</th><th>Source</th><th>Started</th>
+                  <th>Status</th><th>Rows</th><th></th>
+                </tr></thead>
+                <tbody>
+                  <template x-for="r in runs" :key="r.run_id">
+                    <tr>
+                      <td @click="openRun(r.run_id)" style="cursor: pointer;" x-text="r.run_id"></td>
+                      <td @click="openRun(r.run_id)" style="cursor: pointer;" x-text="r.source_id"></td>
+                      <td @click="openRun(r.run_id)" style="cursor: pointer;" x-text="fmtDate(r.started_at) + ' ' + (r.started_at || '').slice(11, 19)"></td>
+                      <td @click="openRun(r.run_id)" style="cursor: pointer;">
+                        <span class="badge"
+                              :class="{ ok: r.status==='success', warn: r.status==='running', danger: r.status==='failed' }"
+                              x-text="r.status"></span>
+                      </td>
+                      <td @click="openRun(r.run_id)" style="cursor: pointer;" class="num" x-text="fmtInt(r.rows_upserted)"></td>
+                      <td style="white-space: nowrap;">
+                        <button x-show="r.status === 'running'"
+                                @click.stop="cancelRun(r.run_id)"
+                                style="background: var(--danger); color: white; border: none; padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 11px;">
+                          Cancel
+                        </button>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card">
+            <template x-if="!runDetail">
+              <div class="empty">Click a run to see staging details.</div>
+            </template>
+            <template x-if="runDetail">
+              <div>
+                <h3>Run <span x-text="runDetail.run.run_id"></span> — <span x-text="runDetail.run.source_id"></span></h3>
+                <div style="color: var(--muted); font-size: 12px; margin-bottom: 12px;">
+                  <span x-text="runDetail.run.started_at"></span> → <span x-text="runDetail.run.finished_at || '(still running)'"></span>
+                </div>
+                <div style="margin-bottom: 12px;">
+                  <span class="badge info">fetched: <span x-text="fmtInt(runDetail.run.rows_fetched)"></span></span>
+                  <span class="badge ok">upserted: <span x-text="fmtInt(runDetail.run.rows_upserted)"></span></span>
+                  <span class="badge danger" x-show="runDetail.run.rows_failed">failed: <span x-text="fmtInt(runDetail.run.rows_failed)"></span></span>
+                </div>
+                <h3 style="margin-top: 16px;">Staging records (<span x-text="runDetail.staging.length"></span>)</h3>
+                <template x-for="s in runDetail.staging.slice(0, 50)" :key="s.staging_id">
+                  <details>
+                    <summary>
+                      <span x-text="s.r2_key"></span>
+                      &nbsp;
+                      <span class="badge"
+                            :class="{ ok: s.status==='parsed', warn: s.status==='pending', danger: s.status==='failed' }"
+                            x-text="s.status"></span>
+                    </summary>
+                    <pre x-show="s.failure_reason" x-text="s.failure_reason"></pre>
+                  </details>
+                </template>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+    </template>
+
+  </main>
+</div>
+</body>
+</html>

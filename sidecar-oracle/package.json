@@ -1,0 +1,11 @@
+{
+  "name": "@awards/sidecar-oracle",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Node.js sidecar for Oracle Cloud VM that fetches USAspending data and POSTs pages to the Cloudflare api-worker.",
+  "scripts": {
+    "start": "node ingest-usaspending.mjs",
+    "dry-run": "node ingest-usaspending.mjs --dry-run"
+  }
+}

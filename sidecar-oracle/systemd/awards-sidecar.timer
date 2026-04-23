@@ -1,0 +1,16 @@
+[Unit]
+Description=Daily USAspending ingest via Oracle sidecar
+Requires=awards-sidecar.service
+
+[Timer]
+# Fire daily at 06:00 UTC. Matches the (now-disabled) Cloudflare cron.
+# Change to `OnCalendar=hourly` or `OnCalendar=*:00/30` for more frequent runs.
+OnCalendar=*-*-* 06:00:00 UTC
+# If the VM was off at the scheduled time, run as soon as it's back up.
+Persistent=true
+# Jitter so load doesn't align with other tenants on shared Always-Free infra.
+RandomizedDelaySec=5min
+Unit=awards-sidecar.service
+
+[Install]
+WantedBy=timers.target

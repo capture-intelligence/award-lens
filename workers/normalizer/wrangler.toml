@@ -1,0 +1,27 @@
+name = "normalizer-worker"
+main = "src/index.ts"
+compatibility_date = "2026-04-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "awards-warehouse"
+database_id = "c3aec4e5-f052-4deb-94f8-9625337d8e94"
+
+[[r2_buckets]]
+binding = "STAGING"
+bucket_name = "awards-staging"
+
+[[queues.consumers]]
+queue = "normalize-queue"
+max_batch_size = 10
+max_batch_timeout = 30
+max_retries = 3
+dead_letter_queue = "dlq"
+
+[[queues.producers]]
+queue = "upsert-queue"
+binding = "UPSERT_QUEUE"
+
+[observability]
+enabled = true

@@ -1,0 +1,24 @@
+[Unit]
+Description=Awards Pipeline — USAspending Sidecar Ingest
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=awards
+Group=awards
+WorkingDirectory=/opt/awards-pipeline/sidecar-oracle
+EnvironmentFile=/opt/awards-pipeline/sidecar-oracle/.env
+ExecStart=/usr/bin/node /opt/awards-pipeline/sidecar-oracle/ingest-usaspending.mjs
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=awards-sidecar
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/awards-pipeline/sidecar-oracle
+# Resource caps — this job is tiny
+MemoryMax=256M
+TimeoutStartSec=20min
