@@ -28,3 +28,7 @@ id_ed25519*
 # Claude Code session-local state
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
+
+# Misc transient
+diag-result.json
+/install.ps1
