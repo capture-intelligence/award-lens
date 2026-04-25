@@ -39,14 +39,32 @@ Dashboard sees new data immediately.
 
 ## Step 0 — Set the INGEST_TOKEN shared secret (one-time, on your machine)
 
-```bash
-# Generate a strong random token
-openssl rand -hex 32
-# → e.g. c8f3a4e...  (64 hex chars). COPY THIS.
+Generate a strong 64-hex-char token using whatever is available on your machine:
 
-# Register it with the Cloudflare Worker
+**PowerShell (Windows):**
+```powershell
+$bytes = [byte[]]::new(32)
+[System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+-join ($bytes | ForEach-Object { '{0:x2}' -f $_ })
+```
+
+**Node (any OS, already installed):**
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+**OpenSSL (Git Bash, Linux, macOS):**
+```bash
+openssl rand -hex 32
+```
+
+Copy the output — this is your `INGEST_TOKEN`. Then register it with the Worker:
+
+```powershell
+# PowerShell (paste your token when prompted, or pipe it)
 cd C:/Users/Tejas/past-awards-dashboard/workers/api
-echo "<paste the token here>" | npx wrangler secret put INGEST_TOKEN
+$token = "<paste-your-64-hex-char-token-here>"
+$token | npx wrangler secret put INGEST_TOKEN
 npx wrangler deploy
 ```
 

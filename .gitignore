@@ -12,3 +12,19 @@ coverage/
 .bootstrap-state
 .bootstrap-state.json
 *.bak
+
+# SSH keys, cloud-provider key downloads, etc.
+keys/
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+*-private-key*
+*ssh-key*
+
+# Temp work files (OCI CLI JSON inputs, etc.)
+.oci-tmp/
+
+# Claude Code session-local state
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
