@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { prettyJSON } from 'hono/pretty-json';
-import { UsaspendingAdapter, buildUpsertStatements, hitToDbRow, nowIso } from '@awards/core';
+import { hitToDbRow, nowIso } from '@awards/core';
 import { buildScheduleStatus } from './schedule.js';
 import { backfillToptierCodes } from './admin/toptier-backfill.js';
 import { runReconciliation } from './admin/reconciliation.js';
@@ -483,103 +483,6 @@ app.post('/import/exclusions', async (c) => {
     `).bind(now, runId).run();
   }
   return c.json({ run_id: runId, fetched: records.length, upserted });
-});
-
-// ---------- Local-ingest import endpoint ----------
-// Accepts raw USAspending response pages from a local CLI (bypasses the
-// Cloudflare-edge → USAspending 525 issue), normalizes + upserts them.
-//
-// Flow: local script POSTs each page with `finalize: false`, then sends
-// one final POST with `finalize: true` (and empty response) to close out.
-
-app.post('/import/awards', async (c) => {
-  // Optional shared-secret auth. If INGEST_TOKEN is set on the Worker,
-  // require a matching Bearer token. If unset (dev), allow all.
-  const expected = c.env.INGEST_TOKEN;
-  if (expected) {
-    const auth = c.req.header('authorization') ?? '';
-    const supplied = auth.replace(/^Bearer\s+/i, '').trim();
-    // Constant-time compare to avoid timing side channels.
-    if (!supplied || supplied.length !== expected.length) {
-      return c.json({ error: 'unauthorized' }, 401);
-    }
-    let eq = 0;
-    for (let i = 0; i < supplied.length; i++) {
-      eq |= supplied.charCodeAt(i) ^ expected.charCodeAt(i);
-    }
-    if (eq !== 0) return c.json({ error: 'unauthorized' }, 401);
-  }
-
-  const body = await c.req.json().catch(() => null) as {
-    run_id?: number;
-    response?: { results: unknown[]; page_metadata?: unknown };
-    finalize?: boolean;
-    metadata?: Record<string, unknown>;  // filters used, for audit
-  } | null;
-  if (!body) return c.json({ error: 'invalid JSON body' }, 400);
-
-  const now = new Date().toISOString();
-
-  // Open or reuse ingestion_run
-  let runId = body.run_id;
-  if (!runId) {
-    const res = await c.env.DB.prepare(`
-      INSERT INTO ingestion_run (source_id, started_at, status, error_summary)
-      VALUES ('usaspending', ?, 'running', ?)
-      RETURNING run_id
-    `).bind(now, 'local-ingest').first<{ run_id: number }>();
-    if (!res) return c.json({ error: 'failed to open run' }, 500);
-    runId = res.run_id;
-  }
-
-  // Normalize + upsert
-  const adapter = new UsaspendingAdapter();
-  let upserted = 0;
-  let failed = 0;
-  const failures: Array<{ award: string; reason: string }> = [];
-  const results = body.response?.results ?? [];
-  if (results.length) {
-    const canonical = adapter.parse({
-      endpoint: '(local-ingest)',
-      requestParams: body.metadata ?? {},
-      response: body.response,
-      responseHash: '',
-    });
-    for (const award of canonical) {
-      try {
-        const stmts = await buildUpsertStatements(c.env.DB, 'usaspending', award);
-        await c.env.DB.batch(stmts);
-        upserted++;
-      } catch (e) {
-        failed++;
-        if (failures.length < 10) {
-          failures.push({
-            award: award.external_id,
-            reason: e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200),
-          });
-        }
-      }
-    }
-    await c.env.DB.prepare(`
-      UPDATE ingestion_run
-      SET rows_fetched  = rows_fetched + ?,
-          rows_upserted = rows_upserted + ?,
-          rows_failed   = rows_failed + ?
-      WHERE run_id = ?
-    `).bind(results.length, upserted, failed, runId).run();
-  }
-
-  if (body.finalize) {
-    await c.env.DB.prepare(`
-      UPDATE ingestion_run
-      SET status = 'success',
-          finished_at = ?,
-          error_summary = COALESCE(error_summary, 'local-ingest complete')
-      WHERE run_id = ?
-    `).bind(now, runId).run();
-  }
-
-  return c.json({ run_id: runId, fetched: results.length, upserted, failed, failures });
 });
 
 // ---------- Mark stuck runs as failed (manual cleanup, no workflow termination) ----------
