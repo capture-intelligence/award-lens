@@ -1,9 +1,11 @@
 /**
- * Schedule catalog — keep in sync with workers/scheduler/wrangler.toml.
+ * Schedule catalog — VM systemd timers (Path B).
  *
- * Expressed in a minimal shape the API worker can introspect without shelling
- * out to a cron parser. Each entry has a `nextFire()` function that computes
- * the next UTC firing time for the specific cron pattern.
+ * All ingestion now runs from the Oracle Cloud sidecar VM, not Cloudflare.
+ * This catalog mirrors the *.timer files in sidecar-oracle/systemd/ for the
+ * Schedule tab's "next run" estimation.
+ *
+ * Keep in sync with sidecar-oracle/systemd/awards-*.timer.
  */
 
 export type Health = 'healthy' | 'stale' | 'running' | 'never_run' | 'error' | 'disabled';
@@ -58,11 +60,11 @@ export const SCHEDULES: ScheduleDef[] = [
   {
     source_id: 'sam_bulk',
     display_name: 'SAM.gov bulk (exclusions)',
-    cron: '15 7 * * *',
-    interval_human: 'Daily at 07:15 UTC',
-    enabled: true,
-    stale_threshold_hours: 28,
-    nextFire: nextDaily(7, 15),
+    cron: '(disabled — URL needs maintenance)',
+    interval_human: 'On-demand (sidecar script not yet built)',
+    enabled: false,
+    stale_threshold_hours: 24 * 365,
+    nextFire: () => new Date(0),
   },
   {
     source_id: 'grants_gov',
@@ -86,8 +88,8 @@ export const SCHEDULES: ScheduleDef[] = [
     source_id: 'sam_api',
     display_name: 'SAM.gov API (on-demand)',
     cron: '(none — on-demand)',
-    interval_human: 'On-demand via queue / dashboard',
-    enabled: false,   // toggle if you enable the rotation cron in sam-api/wrangler.toml
+    interval_human: 'On-demand via dashboard "Enrich" button',
+    enabled: false,
     stale_threshold_hours: 24 * 365,
     nextFire: () => new Date(0),
   },

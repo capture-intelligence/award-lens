@@ -40,7 +40,6 @@
     <a :class="{ active: active === 'opportunities' }" @click="go('opportunities')">Opportunities</a>
     <a :class="{ active: active === 'dataquality' }"   @click="go('dataquality')">Data Quality</a>
     <a :class="{ active: active === 'schedule' }"      @click="go('schedule')">Schedule</a>
-    <a :class="{ active: active === 'pull' }"          @click="go('pull')">Pull Data</a>
     <a :class="{ active: active === 'runs' }"          @click="go('runs')">Ingestion Runs</a>
   </nav>
 
@@ -607,178 +606,11 @@
       </div>
     </template>
 
-    <!-- ============ PULL DATA ============ -->
-    <template x-if="active === 'pull' && !loading">
-      <div>
-        <div class="section-head">
-          <h2>Pull Data — Scoped USAspending Ingestion</h2>
-        </div>
-
-        <div class="card" style="margin-bottom: 16px;">
-          <div class="grid cols-2" style="gap: 12px; margin-bottom: 12px;">
-            <div>
-              <label style="color: var(--muted); font-size: 12px;">Date range — from</label>
-              <input type="date" x-model="pullForm.sinceDate"
-                     style="width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px;" />
-            </div>
-            <div>
-              <label style="color: var(--muted); font-size: 12px;">Date range — to</label>
-              <input type="date" x-model="pullForm.untilDate"
-                     style="width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px;" />
-            </div>
-            <div>
-              <label style="color: var(--muted); font-size: 12px;">Mode</label>
-              <select x-model="pullForm.mode"
-                      style="width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px;">
-                <option value="backfill">backfill (explicit date range)</option>
-                <option value="incremental">incremental (from last watermark)</option>
-              </select>
-            </div>
-            <div>
-              <label style="color: var(--muted); font-size: 12px;">Max pages (safety cap — 100 records each)</label>
-              <input type="number" min="1" max="1000" x-model.number="pullForm.maxPages"
-                     style="width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px;" />
-            </div>
-
-            <div style="grid-column: span 2;">
-              <label style="color: var(--muted); font-size: 12px;">Agencies — toptier (comma-separated, blank = all)</label>
-              <input x-model="pullForm.agencies" placeholder="Department of Health and Human Services"
-                     style="width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px;" />
-            </div>
-            <div style="grid-column: span 2;">
-              <label style="color: var(--muted); font-size: 12px;">Sub-agencies (comma-separated, blank = all)</label>
-              <input x-model="pullForm.subtier_agencies" placeholder="Centers for Disease Control and Prevention"
-                     style="width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px;" />
-              <div style="color: var(--muted); font-size: 11px; margin-top: 4px;">
-                For CDC centers (NCHS, OCIO, NCHHSTP) — USAspending's API doesn't filter by office directly.
-                Put CDC here <strong>and</strong> the center's name/acronym in Keywords below.
-              </div>
-            </div>
-
-            <div>
-              <label style="color: var(--muted); font-size: 12px;">Min award value ($)</label>
-              <input type="number" min="0" x-model="pullForm.award_amount_min" placeholder="e.g., 4000000"
-                     style="width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px;" />
-            </div>
-            <div>
-              <label style="color: var(--muted); font-size: 12px;">Max award value ($)</label>
-              <input type="number" min="0" x-model="pullForm.award_amount_max" placeholder="blank = no cap"
-                     style="width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px;" />
-            </div>
-
-            <div style="grid-column: span 2;">
-              <label style="color: var(--muted); font-size: 12px;">Keywords (comma-separated, optional)</label>
-              <input x-model="pullForm.keywords" placeholder="HIV, tuberculosis, surveillance — or NCHS, OCIO, NCHHSTP"
-                     style="width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px;" />
-              <div style="color: var(--muted); font-size: 11px; margin-top: 4px;">
-                Matches description/PIID. For office-level narrowing (e.g., CDC → NCHS),
-                put the center's name and acronym here after setting Sub-agencies.
-              </div>
-            </div>
-            <div>
-              <label style="color: var(--muted); font-size: 12px;">NAICS codes (comma-separated)</label>
-              <input x-model="pullForm.naics_codes" placeholder="541511, 541712"
-                     style="width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px;" />
-            </div>
-            <div>
-              <label style="color: var(--muted); font-size: 12px;">PSC codes (comma-separated)</label>
-              <input x-model="pullForm.psc_codes" placeholder="R408, Q301"
-                     style="width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px;" />
-            </div>
-            <div style="grid-column: span 2;">
-              <label style="color: var(--muted); font-size: 12px;">Recipient name contains</label>
-              <input x-model="pullForm.recipient_search_text" placeholder="Lantana"
-                     style="width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px;" />
-            </div>
-          </div>
-
-          <div style="display: flex; gap: 8px; align-items: center; margin-top: 16px;">
-            <button @click="triggerPull()" :disabled="pullForm.busy"
-                    style="background: var(--accent); color: white; border: none; padding: 8px 20px; border-radius: 4px; cursor: pointer; font-weight: 500;"
-                    :style="pullForm.busy ? 'opacity:0.5;cursor:wait;' : ''">
-              <span x-text="pullForm.busy ? 'Triggering…' : 'Search / Trigger Pull'"></span>
-            </button>
-            <button @click="resetPullForm()"
-                    style="background: var(--panel-2); color: var(--text); border: 1px solid var(--border); padding: 8px 16px; border-radius: 4px; cursor: pointer;">
-              Reset
-            </button>
-            <span style="color: var(--muted); font-size: 12px; margin-left: auto;">
-              All filters optional. Leave blank = "all" in that dimension.
-            </span>
-          </div>
-
-          <div x-show="pullResult" style="margin-top: 16px;">
-            <div x-show="pullResult && pullResult.id">
-              <span class="badge ok">Triggered workflow</span>
-              <code style="font-family: monospace; font-size: 12px; margin-left: 8px;" x-text="pullResult?.id"></code>
-              <div style="color: var(--muted); font-size: 11px; margin-top: 4px;">
-                Status will appear in the table below in a few seconds. Also visible on the Schedule and Ingestion Runs tabs.
-              </div>
-            </div>
-            <div x-show="pullResult && pullResult.error">
-              <span class="badge danger">Failed to trigger</span>
-              <span style="color: var(--danger); margin-left: 8px;" x-text="pullResult?.error"></span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Recent USAspending runs -->
-        <div class="section-head">
-          <h2 style="font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted);">
-            Recent USAspending runs
-          </h2>
-          <button @click="loadPull()"
-                  style="background: var(--panel-2); color: var(--text); border: 1px solid var(--border); padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;">
-            Refresh
-          </button>
-        </div>
-        <div class="card" style="padding: 0; overflow: hidden;">
-          <table>
-            <thead><tr>
-              <th>Run</th><th>Started</th><th>Status</th>
-              <th>Fetched</th><th>Upserted</th><th>Window</th><th></th>
-            </tr></thead>
-            <tbody>
-              <template x-for="r in pullRecentRuns" :key="r.run_id">
-                <tr>
-                  <td x-text="r.run_id"></td>
-                  <td style="font-size: 12px;" x-text="(r.started_at || '').replace('T', ' ').slice(0, 19)"></td>
-                  <td>
-                    <span class="badge"
-                          :class="{ ok: r.status==='success', warn: r.status==='running', danger: r.status==='failed' }"
-                          x-text="r.status"></span>
-                  </td>
-                  <td class="num" x-text="fmtInt(r.rows_fetched)"></td>
-                  <td class="num" x-text="fmtInt(r.rows_upserted)"></td>
-                  <td style="font-size: 11px; color: var(--muted);"
-                      x-text="(r.watermark_before || '').slice(0, 10) + ' → ' + (r.watermark_after || '').slice(0, 10)"></td>
-                  <td style="white-space: nowrap;">
-                    <button x-show="r.status === 'running'"
-                            @click="cancelRun(r.run_id)"
-                            style="background: var(--danger); color: white; border: none; padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 11px;">
-                      Cancel
-                    </button>
-                  </td>
-                </tr>
-              </template>
-              <tr x-show="pullRecentRuns.length === 0">
-                <td colspan="7" class="empty">No USAspending runs yet. Trigger one above.</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </template>
-
     <!-- ============ RUNS ============ -->
     <template x-if="active === 'runs' && !loading">
       <div>
         <div class="section-head">
           <h2>Ingestion Runs</h2>
-          <button @click="cancelAllRunning()"
-                  style="background: var(--danger); color: white; border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 12px;">
-            Cancel all running
-          </button>
         </div>
         <div class="grid cols-2">
           <div class="card" style="padding: 0; overflow: hidden;">
@@ -786,27 +618,20 @@
               <table>
                 <thead><tr>
                   <th>ID</th><th>Source</th><th>Started</th>
-                  <th>Status</th><th>Rows</th><th></th>
+                  <th>Status</th><th>Rows</th>
                 </tr></thead>
                 <tbody>
                   <template x-for="r in runs" :key="r.run_id">
-                    <tr>
-                      <td @click="openRun(r.run_id)" style="cursor: pointer;" x-text="r.run_id"></td>
-                      <td @click="openRun(r.run_id)" style="cursor: pointer;" x-text="r.source_id"></td>
-                      <td @click="openRun(r.run_id)" style="cursor: pointer;" x-text="fmtDate(r.started_at) + ' ' + (r.started_at || '').slice(11, 19)"></td>
-                      <td @click="openRun(r.run_id)" style="cursor: pointer;">
+                    <tr @click="openRun(r.run_id)" style="cursor: pointer;">
+                      <td x-text="r.run_id"></td>
+                      <td x-text="r.source_id"></td>
+                      <td x-text="fmtDate(r.started_at) + ' ' + (r.started_at || '').slice(11, 19)"></td>
+                      <td>
                         <span class="badge"
                               :class="{ ok: r.status==='success', warn: r.status==='running', danger: r.status==='failed' }"
                               x-text="r.status"></span>
                       </td>
-                      <td @click="openRun(r.run_id)" style="cursor: pointer;" class="num" x-text="fmtInt(r.rows_upserted)"></td>
-                      <td style="white-space: nowrap;">
-                        <button x-show="r.status === 'running'"
-                                @click.stop="cancelRun(r.run_id)"
-                                style="background: var(--danger); color: white; border: none; padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 11px;">
-                          Cancel
-                        </button>
-                      </td>
+                      <td class="num" x-text="fmtInt(r.rows_upserted)"></td>
                     </tr>
                   </template>
                 </tbody>

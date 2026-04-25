@@ -1,6 +1,8 @@
-# Federal Awards Data Pipeline — Cloudflare Edition
+# Federal Awards Data Pipeline — Cloudflare Free + Oracle Sidecar Edition
 
-A Cloudflare-native pipeline that replicates federal contracting data from **USAspending.gov**, **Grants.gov**, and (optionally) **SAM.gov** into a queryable warehouse. Runs entirely on Cloudflare Workers + D1 + R2 + Queues + Workflows. No servers, no container runtime, ~$5–15/month at small scale.
+A hybrid pipeline that replicates federal contracting data from **USAspending.gov**, **Grants.gov**, and (optionally) **SAM.gov** into a queryable warehouse. Cloudflare's Free tier hosts the API + dashboard + D1 warehouse; an Oracle Cloud Always-Free VM runs the daily ingestion via systemd timers.
+
+**Cost: ~$0/month forever** (Cloudflare Free tier + Oracle Always Free).
 
 > **Status:** Production-deployed reference implementation. The setup walkthroughs below assume you'll fork and stand up your own Cloudflare account; nothing in this repo grants access to anyone else's deployment.
 
@@ -22,40 +24,43 @@ Both are loaded via `wrangler secret put` (production) or `.dev.vars` (local). S
 
 | Component | Path | Role |
 |---|---|---|
-| Shared types, adapter, upsert logic | `packages/core` | TypeScript package imported by every worker |
-| D1 migrations | `packages/migrations` | Full schema + SAM exclusion table |
-| USAspending ingestion workflow | `workers/usaspending-workflow` | Durable paginated fetch → R2 staging → queue |
-| SAM bulk ingestion workflow | `workers/sam-bulk-workflow` | Downloads public extracts (no API key), parses CSV inside ZIP |
-| Grants.gov ingestion workflow | `workers/grants-gov-workflow` | Pulls open/forecasted opportunities (no API key), optional per-opportunity enrichment |
-| SAM.gov API worker | `workers/sam-api` | On-demand vendor enrichment under a 10-requests/day Durable-Object budget |
-| Cron scheduler | `workers/scheduler` | Daily USAspending + nightly SAM + daily Grants.gov + weekly reconciliation + toptier backfill |
-| Normalizer | `workers/normalizer` | Parses staged JSON → canonical DTOs |
-| Upsert worker | `workers/upsert` | Writes canonical DTOs to D1 atomically |
-| Read API | `workers/api` | Hono REST endpoints over D1 |
-| Dashboard | `web/public` | Cloudflare Pages static site (Alpine + Chart.js, no build step) |
+| Shared types, adapters, upsert logic | `packages/core` | TypeScript package imported by api-worker |
+| D1 migrations | `packages/migrations` | Schema + SAM exclusion + sam_api_budget tables |
+| **Read API + admin endpoints** | `workers/api` | Hono REST API; ingestion + reconciliation orchestrated via token-protected `/admin/*` and `/import/*` routes |
+| **SAM API enrichment** | `workers/sam-api` | Stateless on-demand vendor enrichment, D1-backed daily 10-req budget |
+| **Dashboard** | `web/public` | Cloudflare Pages static site (Alpine + Chart.js, no build step) |
+| **Oracle VM sidecar** | `sidecar-oracle/` | Node scripts on systemd timers — handle all ingestion (USAspending, Grants.gov, reconciliation) |
 
-## Architecture
+## Architecture (Path B — hybrid)
 
 ```
-cron ──► scheduler ──► UsaspendingSyncWorkflow ──► R2 (staging) ──► normalize-queue
-                                │                                          │
-                                └── ingestion_run audit ──► D1             ▼
-                                                                    normalizer-worker
-                                                                           │
-                                                                   upsert-queue
-                                                                           ▼
-                                                                     upsert-worker
-                                                                           │
-                                                                           ▼
-                                                                          D1 ──► api-worker
+                         Oracle Cloud Always-Free VM
+                  ┌──────────────────────────────────┐
+                  │ systemd timers (daily UTC):       │
+                  │   awards-sidecar       06:00      │  → USAspending API
+                  │   awards-grants        08:30      │  → Grants.gov API
+                  │   awards-reconcile     Sun 12:00  │  → reconciliation
+                  └────────────────┬─────────────────┘
+                                   │  HTTPS + Bearer INGEST_TOKEN
+                                   ▼
+                  ┌──────────────────────────────────┐
+                  │ Cloudflare Free tier              │
+                  │   api-worker  (REST + /admin/*)   │
+                  │   sam-api-worker (on-demand)      │
+                  │   D1 (warehouse) + KV (META) + R2 │
+                  │   Pages (dashboard)               │
+                  └────────────────┬─────────────────┘
+                                   │ reads
+                                   ▼
+                          https://awards-dashboard.pages.dev
 ```
 
 Key design choices:
-- **Workflows** make paginated ingestion restart-safe. Each page is a durable step.
-- **Queues** decouple fetch → parse → upsert so any stage can be retried independently.
-- **R2** stages raw JSON so you can replay normalization without re-hitting APIs.
-- **External ID mapping** lets every source coexist in one warehouse.
-- **Deterministic internal IDs** keep upserts idempotent across re-runs.
+- **Compute on Oracle, data on Cloudflare.** The VM does work that requires unrestricted egress (USAspending's WAF rejects Cloudflare edge IPs at TLS layer); the warehouse + dashboard live on Cloudflare's edge for low-latency reads.
+- **Token-authed import endpoints.** Sidecar scripts post normalized batches to `/admin/*` and `/import/*` with `Authorization: Bearer $INGEST_TOKEN`.
+- **Atomic D1 upserts.** Every batch is `db.batch([...])` so it's all-or-nothing per record.
+- **External ID mapping.** Source-agnostic schema; adding a new data source is one adapter + one VM script.
+- **Deterministic internal IDs.** Re-runs are idempotent.
 
 ## Secret Management
 

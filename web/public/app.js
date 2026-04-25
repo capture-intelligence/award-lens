@@ -98,25 +98,6 @@ function dashboard() {
     scheduleAutoRefresh: null,
     scheduleAsOf: null,
 
-    // Pull Data form
-    pullForm: {
-      mode: 'backfill',
-      sinceDate: '2024-01-01',
-      untilDate: '2024-12-31',
-      maxPages: 5,
-      agencies: '',
-      subtier_agencies: '',
-      keywords: '',
-      naics_codes: '',
-      psc_codes: '',
-      recipient_search_text: '',
-      award_amount_min: '',
-      award_amount_max: '',
-      busy: false,
-    },
-    pullResult: null,
-    pullRecentRuns: [],
-
     // Runs
     runs: [],
     runDetail: null,
@@ -156,7 +137,6 @@ function dashboard() {
           case 'opportunities': await this.loadOpportunities(); break;
           case 'dataquality':   await this.loadDataQuality(); break;
           case 'schedule':      await this.loadSchedule(); break;
-          case 'pull':          await this.loadPull(); break;
           case 'runs':          await this.loadRuns(); break;
         }
         // Stop auto-refresh whenever we leave the schedule tab
@@ -343,115 +323,9 @@ function dashboard() {
       return future ? `in ${val}${unit}` : `${val}${unit} ago`;
     },
 
-    async loadPull() {
-      const res = await apiGet('/runs');
-      this.pullRecentRuns = (res.results || [])
-        .filter((r) => r.source_id === 'usaspending')
-        .slice(0, 10);
-    },
-
-    splitCsv(s) {
-      return (s || '').split(',').map((x) => x.trim()).filter(Boolean);
-    },
-
-    async triggerPull() {
-      this.pullForm.busy = true;
-      this.pullResult = null;
-      try {
-        const f = this.pullForm;
-        const filters = {};
-        const a = this.splitCsv(f.agencies);           if (a.length) filters.agencies = a;
-        const s = this.splitCsv(f.subtier_agencies);   if (s.length) filters.subtier_agencies = s;
-        const k = this.splitCsv(f.keywords);           if (k.length) filters.keywords = k;
-        const n = this.splitCsv(f.naics_codes);        if (n.length) filters.naics_codes = n;
-        const p = this.splitCsv(f.psc_codes);          if (p.length) filters.psc_codes = p;
-        if (f.recipient_search_text.trim()) filters.recipient_search_text = f.recipient_search_text.trim();
-        if (f.award_amount_min !== '' && f.award_amount_min !== null) filters.award_amount_min = Number(f.award_amount_min);
-        if (f.award_amount_max !== '' && f.award_amount_max !== null) filters.award_amount_max = Number(f.award_amount_max);
-
-        const body = {
-          mode: f.mode,
-          sinceIso: new Date(f.sinceDate + 'T00:00:00Z').toISOString(),
-          untilIso: new Date(f.untilDate + 'T23:59:59Z').toISOString(),
-          maxPages: Number(f.maxPages) || 5,
-        };
-        if (Object.keys(filters).length) body.filters = filters;
-
-        const base = apiBase();
-        if (!base) { this.pullResult = { error: 'API URL not set (top-right)' }; return; }
-        const r = await fetch(base.replace(/\/$/, '') + '/pull/usaspending', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        const data = await r.json().catch(() => ({ error: 'non-JSON response' }));
-        if (!r.ok) {
-          this.pullResult = { error: data.error || `${r.status}: ${JSON.stringify(data)}` };
-        } else {
-          this.pullResult = { id: data.id, params: body };
-          setTimeout(() => this.loadPull(), 2000);
-        }
-      } catch (e) {
-        this.pullResult = { error: e.message || String(e) };
-      } finally {
-        this.pullForm.busy = false;
-      }
-    },
-
-    resetPullForm() {
-      this.pullForm = {
-        mode: 'backfill',
-        sinceDate: '2024-01-01',
-        untilDate: '2024-12-31',
-        maxPages: 5,
-        agencies: '',
-        subtier_agencies: '',
-        keywords: '',
-        naics_codes: '',
-        psc_codes: '',
-        recipient_search_text: '',
-        award_amount_min: '',
-        award_amount_max: '',
-        busy: false,
-      };
-      this.pullResult = null;
-    },
-
     async loadRuns() {
       const res = await apiGet('/runs');
       this.runs = res.results;
-    },
-
-    async cancelRun(runId) {
-      if (!confirm(`Cancel run #${runId}?`)) return;
-      const base = apiBase();
-      try {
-        const r = await fetch(base.replace(/\/$/, '') + `/runs/${runId}/cancel`, { method: 'POST' });
-        const body = await r.json().catch(() => ({}));
-        if (!r.ok) { alert(`Cancel failed: ${body.error || r.status}`); return; }
-        // Reload whichever tab is open
-        if (this.active === 'runs')     await this.loadRuns();
-        if (this.active === 'pull')     await this.loadPull();
-        if (this.active === 'schedule') await this.loadSchedule();
-      } catch (e) {
-        alert(`Cancel failed: ${e.message || e}`);
-      }
-    },
-
-    async cancelAllRunning() {
-      if (!confirm('Cancel ALL running workflow instances? This will terminate every in-flight ingestion.')) return;
-      const base = apiBase();
-      try {
-        const r = await fetch(base.replace(/\/$/, '') + '/runs/cancel-all', { method: 'POST' });
-        const body = await r.json().catch(() => ({}));
-        if (!r.ok) { alert(`Cancel-all failed: ${body.error || r.status}`); return; }
-        alert(`Cancelled ${body.count} run(s).`);
-        if (this.active === 'runs')     await this.loadRuns();
-        if (this.active === 'pull')     await this.loadPull();
-        if (this.active === 'schedule') await this.loadSchedule();
-      } catch (e) {
-        alert(`Cancel-all failed: ${e.message || e}`);
-      }
     },
 
     async openRun(id) {
