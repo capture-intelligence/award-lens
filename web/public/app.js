@@ -14,7 +14,22 @@ async function apiGet(path, params = {}) {
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
   }
-  const r = await fetch(url.toString());
+  // credentials:'include' — sends the session cookie cross-origin (CORS allows credentials)
+  const r = await fetch(url.toString(), { credentials: 'include' });
+  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+  return r.json();
+}
+
+async function apiPost(path, body) {
+  const base = apiBase();
+  if (!base) throw new Error('API base not configured');
+  const url = new URL(path, base);
+  const r = await fetch(url.toString(), {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'content-type': 'application/json' },
+    body: body == null ? undefined : JSON.stringify(body),
+  });
   if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
   return r.json();
 }
@@ -55,6 +70,19 @@ function dashboard() {
     active: 'overview',
     loading: false,
     error: null,
+
+    // Authentication state
+    auth: {
+      status: 'loading',     // 'loading' | 'unauthenticated' | 'pending' | 'rejected' | 'approved'
+      user: null,            // { user_id, email, display_name, avatar_url, role, ... }
+      error: null,
+    },
+    userMenuOpen: false,
+
+    // Users admin tab state
+    users: [],
+    usersFilter: '',
+    usersStats: null,
 
     // Overview
     overview: null,
@@ -102,9 +130,50 @@ function dashboard() {
     runs: [],
     runDetail: null,
 
-    init() {
-      this.navigateFromHash();
+    async init() {
+      // Surface OAuth callback errors that arrived as ?auth_error=
+      const params = new URLSearchParams(location.search);
+      if (params.has('auth_error')) {
+        this.auth.error = `Sign-in failed: ${params.get('auth_error').replace(/_/g, ' ')}`;
+        history.replaceState({}, '', location.pathname);
+      }
+
+      // Resolve auth status before showing the dashboard.
+      await this.refreshAuth();
       window.addEventListener('hashchange', () => this.navigateFromHash());
+      if (this.auth.status === 'approved') this.navigateFromHash();
+    },
+
+    async refreshAuth() {
+      try {
+        const me = await apiGet('/auth/me');
+        if (!me.authenticated) {
+          this.auth = { status: 'unauthenticated', user: null, error: this.auth.error };
+          return;
+        }
+        const u = me.user;
+        let status = 'approved';
+        if (u.role === 'pending')  status = 'pending';
+        if (u.role === 'rejected') status = 'rejected';
+        this.auth = { status, user: u, error: null };
+      } catch (e) {
+        // API unreachable or misconfigured. Show sign-in with diagnostic.
+        this.auth = { status: 'unauthenticated', user: null,
+                      error: `Cannot reach API at ${apiBase()} — ${e.message}` };
+      }
+    },
+
+    signIn(provider) {
+      const base = apiBase();
+      if (!base) { this.auth.error = 'API URL not configured.'; return; }
+      // Server redirects back to the dashboard after OAuth round-trip.
+      location.href = `${base.replace(/\/$/, '')}/auth/${provider}`;
+    },
+
+    async signOut() {
+      try { await apiPost('/auth/logout', {}); } catch { /* ignore */ }
+      this.auth = { status: 'unauthenticated', user: null, error: null };
+      location.hash = '';
     },
 
     navigateFromHash() {
@@ -138,6 +207,7 @@ function dashboard() {
           case 'dataquality':   await this.loadDataQuality(); break;
           case 'schedule':      await this.loadSchedule(); break;
           case 'runs':          await this.loadRuns(); break;
+          case 'users':         await this.loadUsers(); break;
         }
         // Stop auto-refresh whenever we leave the schedule tab
         if (section !== 'schedule' && this.scheduleAutoRefresh) {
@@ -321,6 +391,40 @@ function dashboard() {
         val = Math.round(abs / 86400); unit = 'd';
       }
       return future ? `in ${val}${unit}` : `${val}${unit} ago`;
+    },
+
+    // ─── Admin: user management ─────────────────────────────────────────
+    async loadUsers() {
+      const params = this.usersFilter ? { role: this.usersFilter } : {};
+      const [list, stats] = await Promise.all([
+        apiGet('/admin/users', params),
+        apiGet('/admin/stats/users'),
+      ]);
+      this.users = list.results || [];
+      this.usersStats = stats;
+    },
+
+    async approveUser(userId) {
+      try {
+        await apiPost(`/admin/users/${userId}/approve`, {});
+        await this.loadUsers();
+      } catch (e) { alert(`Approve failed: ${e.message}`); }
+    },
+
+    async rejectUser(userId) {
+      const reason = prompt('Optional reason for rejection (visible in audit log):') || undefined;
+      try {
+        await apiPost(`/admin/users/${userId}/reject`, { reason });
+        await this.loadUsers();
+      } catch (e) { alert(`Reject failed: ${e.message}`); }
+    },
+
+    async changeRole(userId, role) {
+      const reason = prompt(`Optional reason for changing role to "${role}":`) || undefined;
+      try {
+        await apiPost(`/admin/users/${userId}/role`, { role, reason });
+        await this.loadUsers();
+      } catch (e) { alert(`Role change failed: ${e.message}`); }
     },
 
     async loadRuns() {

@@ -6,8 +6,11 @@ import { hitToDbRow, nowIso } from '@awards/core';
 import { buildScheduleStatus } from './schedule.js';
 import { backfillToptierCodes } from './admin/toptier-backfill.js';
 import { runReconciliation } from './admin/reconciliation.js';
+import { authApp, type AuthEnv } from './auth/routes.js';
+import { adminUsersApp } from './auth/admin.js';
+import { authMiddleware, requireApproved, type AuthVars } from './auth/session.js';
 
-export interface Env {
+export interface Env extends AuthEnv {
   DB: D1Database;
   META: KVNamespace;
   SAM_API: Fetcher;
@@ -15,18 +18,53 @@ export interface Env {
   INGEST_TOKEN?: string;
 }
 
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<{ Bindings: Env; Variables: AuthVars }>();
 
 app.use('*', logger());
 app.use('*', prettyJSON());
-app.use('*', cors());
+// CORS — allow the dashboard origin to send credentials (the session cookie).
+app.use('*', cors({
+  origin: (origin) => origin && /^https:\/\/([a-z0-9-]+\.)?awards-dashboard\.pages\.dev$/.test(origin)
+    ? origin
+    : 'https://awards-dashboard.pages.dev',
+  credentials: true,
+  allowHeaders: ['Content-Type', 'Authorization'],
+  exposeHeaders: ['Content-Length'],
+}));
+// Hydrate c.var.user from session cookie on every request.
+app.use('*', authMiddleware);
 
-// ---------- Health ----------
+// Mount auth + admin user-management subrouters.
+app.route('/auth', authApp);
+app.route('/admin', adminUsersApp);
+
+// ---------- Public routes (no auth) ----------
 app.get('/', (c) => c.json({
   service: 'awards-api',
   status: 'ok',
   time: new Date().toISOString(),
 }));
+
+// ---------- Approved-user gate ----------
+// Read endpoints below this line require a session whose role is user/admin.
+// Auth routes (/auth/*), admin user-mgmt (/admin/users*), and token-protected
+// machine endpoints (/admin/reconcile, /import/*) handle their own auth and
+// must NOT be gated here — they're matched by exact path before this prefix
+// gate fires.
+const SESSION_GATED_PREFIXES = [
+  '/awards', '/vendors', '/organizations', '/runs', '/stats',
+  '/exclusions', '/opportunities', '/reconciliation', '/schedule',
+  '/sam-api', '/health',
+];
+app.use('*', async (c, next) => {
+  const path = c.req.path;
+  for (const prefix of SESSION_GATED_PREFIXES) {
+    if (path === prefix || path.startsWith(prefix + '/')) {
+      return requireApproved(c, next);
+    }
+  }
+  await next();
+});
 
 app.get('/health', async (c) => {
   const [runCount, lastRun, reconcile] = await Promise.all([

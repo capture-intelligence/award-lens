@@ -62,12 +62,101 @@ Key design choices:
 - **External ID mapping.** Source-agnostic schema; adding a new data source is one adapter + one VM script.
 - **Deterministic internal IDs.** Re-runs are idempotent.
 
+## Authentication & Access Control
+
+The dashboard requires a signed-in, admin-approved user. Two OAuth providers are wired in; you only need to configure one.
+
+| Setting | Where it lives | Required? |
+|---|---|---|
+| `INGEST_TOKEN` | api-worker secret | **Required** — protects `/admin/*` and `/import/*` machine endpoints |
+| `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` | api-worker secrets | Optional — disable Google sign-in if not set |
+| `MICROSOFT_CLIENT_ID` + `MICROSOFT_CLIENT_SECRET` | api-worker secrets | Optional — disable Microsoft sign-in if not set |
+| `MICROSOFT_TENANT_ID` | api-worker var | Optional — defaults to `common` (any Entra tenant + personal MSA accounts) |
+| `AUTH_REDIRECT_URL` | api-worker var | Optional — the dashboard URL to land on after sign-in. Defaults to `https://awards-dashboard.pages.dev` |
+
+### How approval works
+
+1. Anyone visits the dashboard → sees the sign-in screen
+2. They click **Continue with Google** or **Continue with Microsoft**
+3. After OAuth, they land on a **"Awaiting approval"** page
+4. An admin (the `algocrat@gmail.com` account is auto-promoted on first login) goes to **User Management** in the dashboard sidebar
+5. Admin clicks **Approve** — that user can now access the dashboard
+6. Admin can also reject, demote, or change roles. Rejected users see an "access denied" screen and their sessions are revoked.
+
+### Roles
+
+| Role | Can sign in? | Can read warehouse? | Can manage users? |
+|---|---|---|---|
+| `pending` | yes — sees waiting screen | no | no |
+| `user` | yes | yes | no |
+| `admin` | yes | yes | yes |
+| `rejected` | sees denied screen | no | no |
+
+### Setting up Google OAuth (5 minutes)
+
+1. Go to https://console.cloud.google.com/apis/credentials
+2. **Create credentials** → **OAuth 2.0 Client ID**
+3. Application type: **Web application**
+4. Name: `Awards Dashboard`
+5. **Authorized redirect URIs**: add `https://api-worker.<your-subdomain>.workers.dev/auth/google`
+6. Click **Create**, copy the Client ID and Client secret
+7. Set them on the worker:
+
+```powershell
+cd workers/api
+echo "<your-client-id>"     | npx wrangler secret put GOOGLE_CLIENT_ID
+echo "<your-client-secret>" | npx wrangler secret put GOOGLE_CLIENT_SECRET
+npx wrangler deploy
+```
+
+### Setting up Microsoft OAuth (5 minutes)
+
+1. Go to https://portal.azure.com → **Microsoft Entra ID** → **App registrations**
+2. **New registration**
+   - Name: `Awards Dashboard`
+   - Supported account types: pick the right one for your needs (most common: "Accounts in any organizational directory and personal Microsoft accounts")
+   - Redirect URI: **Web** → `https://api-worker.<your-subdomain>.workers.dev/auth/microsoft`
+3. Click **Register**, copy the **Application (client) ID** from the overview page
+4. Left sidebar → **Certificates & secrets** → **New client secret** → copy the **Value** (not the ID)
+5. Left sidebar → **API permissions** → confirm **Microsoft Graph → User.Read** is granted (it's the default)
+6. Set on the worker:
+
+```powershell
+cd workers/api
+echo "<application-client-id>" | npx wrangler secret put MICROSOFT_CLIENT_ID
+echo "<client-secret-value>"   | npx wrangler secret put MICROSOFT_CLIENT_SECRET
+# Optional — restrict to a single Entra tenant. Use 'common' for any tenant + personal accounts.
+echo "common"                  | npx wrangler secret put MICROSOFT_TENANT_ID
+npx wrangler deploy
+```
+
+### Bootstrap admin
+
+The hardcoded email `algocrat@gmail.com` becomes admin on its first sign-in (regardless of provider). Change `ADMIN_BOOTSTRAP_EMAIL` in `workers/api/src/auth/routes.ts` if you fork this repo.
+
+### Auth API endpoints
+
+| Endpoint | Auth | Purpose |
+|---|---|---|
+| `GET /auth/me` | none | returns `{ authenticated, user }` |
+| `GET /auth/google` | none | starts Google OAuth (or handles callback) |
+| `GET /auth/microsoft` | none | starts Microsoft OAuth (or handles callback) |
+| `POST /auth/logout` | session | clears the session |
+| `GET /admin/users` | admin role | list all users (filter `?role=pending`) |
+| `GET /admin/users/:id` | admin role | single user + audit trail |
+| `POST /admin/users/:id/approve` | admin role | mark as `user` |
+| `POST /admin/users/:id/reject` | admin role | mark as `rejected`, revoke sessions |
+| `POST /admin/users/:id/role` | admin role | set role to any value |
+| `GET /admin/stats/users` | admin role | counts by role |
+
 ## Secret Management
 
 | Item | Type | Where it lives | In git? |
 |---|---|---|---|
 | `SAM_GOV_API_KEY` | Secret | `wrangler secret put` (prod), `workers/sam-api/.dev.vars` (local) | ❌ Never |
 | `INGEST_TOKEN` | Secret | `wrangler secret put` (prod api-worker), `sidecar-oracle/.env` on the VM | ❌ Never |
+| `GOOGLE_CLIENT_ID` / `_SECRET` | Secret | `wrangler secret put` on api-worker | ❌ Never |
+| `MICROSOFT_CLIENT_ID` / `_SECRET` | Secret | `wrangler secret put` on api-worker | ❌ Never |
 | Cloudflare D1 / KV IDs | Public identifier | `workers/*/wrangler.toml` | ✅ Yes (they're not credentials — knowing them grants no access) |
 | `algocrat.workers.dev` URLs | Public identifier | various source files | ✅ Yes (you should swap to your own subdomain when forking) |
 | Account-specific OCIDs | Public identifier | none committed | ✅ Yes when needed |

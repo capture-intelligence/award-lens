@@ -4,44 +4,136 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Federal Awards Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
   <link rel="stylesheet" href="/styles.css" />
-  <!-- Order matters: config.js → app.js (defines window.dashboard) → Alpine.
-       Alpine's `x-data="dashboard()"` is evaluated at Alpine.start(), so the
-       dashboard() function MUST be on the global scope by then. Putting
-       app.js before Alpine (and keeping it sync) guarantees that. -->
   <script src="/config.js"></script>
   <script src="/app.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
 </head>
-<body>
-<div class="app" x-data="dashboard()" x-init="init()">
+<body x-data="dashboard()" x-init="init()">
 
-  <!-- Top bar -->
-  <header class="topbar">
-    <h1>Federal Awards Dashboard</h1>
-    <div class="config">
-      <label style="color: var(--muted); font-size: 12px;">API</label>
-      <input
-        x-model="apiBaseInput"
-        placeholder="https://api-worker.<sub>.workers.dev"
-      />
-      <button @click="saveApiBase()">Save</button>
+  <!-- ============ AUTH GATES (full-screen, before main app) ============ -->
+
+  <!-- Loading -->
+  <div class="gate" x-show="auth.status === 'loading'" x-cloak>
+    <div class="gate-card" style="text-align: center;">
+      <div class="spinner" style="margin: 0 auto 18px;"></div>
+      <div style="color: var(--muted);">Loading…</div>
     </div>
-  </header>
+  </div>
 
-  <!-- Sidebar nav -->
-  <nav class="sidebar">
-    <a :class="{ active: active === 'overview' }"   @click="go('overview')">Overview</a>
-    <a :class="{ active: active === 'awards' }"     @click="go('awards')">Awards</a>
-    <a :class="{ active: active === 'expiring' }"   @click="go('expiring')">Expiring (18mo)</a>
-    <a :class="{ active: active === 'vendors' }"    @click="go('vendors')">Vendors</a>
-    <a :class="{ active: active === 'exclusions' }"    @click="go('exclusions')">Exclusions</a>
-    <a :class="{ active: active === 'opportunities' }" @click="go('opportunities')">Opportunities</a>
-    <a :class="{ active: active === 'dataquality' }"   @click="go('dataquality')">Data Quality</a>
-    <a :class="{ active: active === 'schedule' }"      @click="go('schedule')">Schedule</a>
-    <a :class="{ active: active === 'runs' }"          @click="go('runs')">Ingestion Runs</a>
-  </nav>
+  <!-- Sign in -->
+  <div class="gate" x-show="auth.status === 'unauthenticated'" x-cloak>
+    <div class="gate-card">
+      <div class="gate-mark">FA</div>
+      <h1 class="gate-title">Federal Awards</h1>
+      <p class="gate-subtitle">
+        Sign in to access the procurement intelligence dashboard.
+        Access is granted on approval.
+      </p>
+      <template x-if="auth.error">
+        <div class="error-banner" x-text="auth.error"></div>
+      </template>
+
+      <button class="oauth-btn" @click="signIn('google')">
+        <svg class="icon" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20.4H24v7.2h11.3c-1.5 4.2-5.5 7.2-11.3 7.2-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3l5.1-5.1C33.6 5.6 29 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l5.9 4.3C13.9 15.1 18.5 12 24 12c3.1 0 5.9 1.2 8 3l5.1-5.1C33.6 5.6 29 4 24 4 16.1 4 9.3 8.4 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5 0 9.5-1.9 12.9-5l-5.9-5c-2 1.4-4.4 2.2-7 2.2-5.7 0-10.6-3.7-12.3-8.8l-6 4.6C8.7 39.4 15.8 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20.4H24v7.2h11.3c-.7 2-2 3.7-3.6 5l5.9 5C40.2 34.2 44 29.6 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
+        Continue with Google
+      </button>
+
+      <button class="oauth-btn" @click="signIn('microsoft')">
+        <svg class="icon" viewBox="0 0 23 23"><path fill="#f25022" d="M1 1h10v10H1z"/><path fill="#00a4ef" d="M1 12h10v10H1z"/><path fill="#7fba00" d="M12 1h10v10H12z"/><path fill="#ffb900" d="M12 12h10v10H12z"/></svg>
+        Continue with Microsoft
+      </button>
+
+      <div class="gate-foot">
+        First-time users: signing in registers your account.
+        An admin will review and approve access.
+      </div>
+    </div>
+  </div>
+
+  <!-- Pending approval -->
+  <div class="gate" x-show="auth.status === 'pending'" x-cloak>
+    <div class="gate-card" style="text-align: center;">
+      <div class="gate-mark" style="background: linear-gradient(135deg, var(--c-sage) 0%, var(--c-terracotta) 100%);">⏳</div>
+      <h1 class="gate-title">Awaiting approval</h1>
+      <p class="gate-subtitle">
+        Your account <strong x-text="auth.user?.email"></strong> is registered and waiting for an administrator to approve access.
+        You'll be able to sign in normally once approved — there's nothing more for you to do right now.
+      </p>
+      <button class="btn btn-ghost" @click="signOut()" style="width: 100%;">Sign out</button>
+      <div class="gate-foot">
+        Need expedited access? Contact your administrator directly.
+      </div>
+    </div>
+  </div>
+
+  <!-- Rejected -->
+  <div class="gate" x-show="auth.status === 'rejected'" x-cloak>
+    <div class="gate-card" style="text-align: center;">
+      <div class="gate-mark" style="background: linear-gradient(135deg, var(--c-vermilion) 0%, var(--c-terracotta) 100%);">!</div>
+      <h1 class="gate-title">Access denied</h1>
+      <p class="gate-subtitle">
+        Your request for access was not approved. If you believe this is an error, please contact an administrator.
+      </p>
+      <button class="btn btn-ghost" @click="signOut()" style="width: 100%;">Sign out</button>
+    </div>
+  </div>
+
+  <!-- ============ MAIN APP (only when approved) ============ -->
+  <div class="app" x-show="auth.status === 'approved'" x-cloak>
+
+    <!-- Top bar -->
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">FA</div>
+        <div>
+          Federal Awards
+          <div class="brand-tag">Procurement Intelligence</div>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <div class="user-pill" @click="userMenuOpen = !userMenuOpen" x-show="auth.user">
+          <template x-if="auth.user?.avatar_url">
+            <img :src="auth.user.avatar_url" alt="" />
+          </template>
+          <template x-if="!auth.user?.avatar_url">
+            <div class="avatar-fallback" x-text="(auth.user?.display_name || auth.user?.email || '?').charAt(0).toUpperCase()"></div>
+          </template>
+          <div>
+            <div style="font-weight: 600;" x-text="auth.user?.display_name || auth.user?.email"></div>
+            <div style="font-size: 11px; color: var(--muted); margin-top: -2px;">
+              <span class="role-badge" :class="auth.user?.role" x-text="auth.user?.role"></span>
+            </div>
+          </div>
+        </div>
+        <button class="btn btn-ghost btn-sm" @click="signOut()">Sign out</button>
+      </div>
+    </header>
+
+    <!-- Sidebar nav -->
+    <nav class="sidebar">
+      <div class="sidebar-section">Explore</div>
+      <a :class="{ active: active === 'overview' }"   @click="go('overview')">Overview</a>
+      <a :class="{ active: active === 'awards' }"     @click="go('awards')">Awards</a>
+      <a :class="{ active: active === 'expiring' }"   @click="go('expiring')">Expiring · 18mo</a>
+      <a :class="{ active: active === 'vendors' }"    @click="go('vendors')">Vendors</a>
+      <a :class="{ active: active === 'exclusions' }"    @click="go('exclusions')">Exclusions</a>
+      <a :class="{ active: active === 'opportunities' }" @click="go('opportunities')">Opportunities</a>
+      <div class="sidebar-section">Operate</div>
+      <a :class="{ active: active === 'dataquality' }"   @click="go('dataquality')">Data Quality</a>
+      <a :class="{ active: active === 'schedule' }"      @click="go('schedule')">Schedule</a>
+      <a :class="{ active: active === 'runs' }"          @click="go('runs')">Ingestion Runs</a>
+      <template x-if="auth.user?.role === 'admin'">
+        <div>
+          <div class="sidebar-section">Admin</div>
+          <a :class="{ active: active === 'users' }" @click="go('users')">User Management</a>
+        </div>
+      </template>
+    </nav>
 
   <!-- Main content -->
   <main class="content">
@@ -673,7 +765,98 @@
       </div>
     </template>
 
+    <!-- ============ USERS (admin) ============ -->
+    <template x-if="active === 'users' && !loading && auth.user?.role === 'admin'">
+      <div>
+        <div class="section-head">
+          <h2>User Management</h2>
+          <div class="sub" x-text="usersStats ? `${usersStats.user + usersStats.admin} approved · ${usersStats.pending} pending · ${usersStats.rejected} rejected` : ''"></div>
+        </div>
+
+        <div class="grid cols-4" style="margin-bottom: 24px;" x-show="usersStats">
+          <div class="card">
+            <h3>Pending</h3>
+            <div class="big" style="color: var(--warn);" x-text="fmtInt(usersStats?.pending)"></div>
+            <div class="sub">Awaiting your review</div>
+          </div>
+          <div class="card">
+            <h3>Active Users</h3>
+            <div class="big" x-text="fmtInt(usersStats?.user)"></div>
+            <div class="sub">Approved, non-admin</div>
+          </div>
+          <div class="card">
+            <h3>Admins</h3>
+            <div class="big" style="color: var(--c-vermilion-soft);" x-text="fmtInt(usersStats?.admin)"></div>
+          </div>
+          <div class="card">
+            <h3>Rejected</h3>
+            <div class="big" style="color: var(--muted);" x-text="fmtInt(usersStats?.rejected)"></div>
+          </div>
+        </div>
+
+        <div class="filters">
+          <select x-model="usersFilter" @change="loadUsers()">
+            <option value="">All users</option>
+            <option value="pending">Pending only</option>
+            <option value="user">Approved (user)</option>
+            <option value="admin">Admins</option>
+            <option value="rejected">Rejected</option>
+          </select>
+          <button class="btn btn-ghost" @click="loadUsers()">Refresh</button>
+        </div>
+
+        <div class="card" style="padding: 0; overflow: hidden;">
+          <table>
+            <thead><tr>
+              <th>User</th><th>Email</th><th>Provider</th>
+              <th>Role</th><th>Registered</th><th style="text-align: right;">Actions</th>
+            </tr></thead>
+            <tbody>
+              <template x-for="u in users" :key="u.user_id">
+                <tr>
+                  <td>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                      <template x-if="u.avatar_url">
+                        <img :src="u.avatar_url" style="width: 32px; height: 32px; border-radius: 50%;" />
+                      </template>
+                      <template x-if="!u.avatar_url">
+                        <div class="avatar-fallback" style="width: 32px; height: 32px;" x-text="(u.display_name || u.email).charAt(0).toUpperCase()"></div>
+                      </template>
+                      <div>
+                        <div style="font-weight: 600;" x-text="u.display_name || '(no name)'"></div>
+                        <div style="font-size: 11px; color: var(--muted);" x-text="u.user_id.slice(0, 8)"></div>
+                      </div>
+                    </div>
+                  </td>
+                  <td x-text="u.email"></td>
+                  <td>
+                    <span class="badge info" style="text-transform: capitalize;" x-text="u.provider"></span>
+                  </td>
+                  <td>
+                    <span class="badge"
+                          :class="{ ok: u.role === 'user', warn: u.role === 'pending', danger: u.role === 'rejected', info: u.role === 'admin' }"
+                          x-text="u.role"></span>
+                  </td>
+                  <td style="font-size: 12px; color: var(--muted);" x-text="(u.created_at || '').slice(0, 10)"></td>
+                  <td style="text-align: right; white-space: nowrap;">
+                    <button class="btn btn-success btn-sm" x-show="u.role === 'pending'" @click="approveUser(u.user_id)">Approve</button>
+                    <button class="btn btn-danger btn-sm" x-show="u.role === 'pending' || u.role === 'user' || u.role === 'admin'" @click="rejectUser(u.user_id)" :disabled="u.user_id === auth.user?.user_id">Reject</button>
+                    <button class="btn btn-ghost btn-sm" x-show="u.role === 'user'" @click="changeRole(u.user_id, 'admin')">Make admin</button>
+                    <button class="btn btn-ghost btn-sm" x-show="u.role === 'admin' && u.user_id !== auth.user?.user_id" @click="changeRole(u.user_id, 'user')">Demote</button>
+                    <button class="btn btn-ghost btn-sm" x-show="u.role === 'rejected'" @click="changeRole(u.user_id, 'pending')">Reset to pending</button>
+                  </td>
+                </tr>
+              </template>
+              <tr x-show="users.length === 0">
+                <td colspan="6" class="empty">No users match the selected filter.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </template>
+
   </main>
-</div>
+  </div> <!-- /.app -->
 </body>
 </html>
