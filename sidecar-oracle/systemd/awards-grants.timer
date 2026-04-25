@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily Grants.gov sync via Oracle sidecar
+Requires=awards-grants.service
+
+[Timer]
+OnCalendar=*-*-* 08:30:00 UTC
+Persistent=true
+RandomizedDelaySec=2min
+Unit=awards-grants.service
+
+[Install]
+WantedBy=timers.target

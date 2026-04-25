@@ -3,15 +3,16 @@ main = "src/index.ts"
 compatibility_date = "2026-04-01"
 compatibility_flags = ["nodejs_compat"]
 
-# Budget tracker — one global DO keeps atomic count across all callers
-[[durable_objects.bindings]]
-name = "BUDGET"
-class_name = "SamApiBudget"
-script_name = "sam-api-worker"
-
+# v1 created the SamApiBudget Durable Object class.
+# v2 retires it — budget tracking moved to D1 (sam_api_budget table) so the
+# worker can run on Cloudflare Free tier (Durable Objects require Paid).
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["SamApiBudget"]
+
+[[migrations]]
+tag = "v2"
+deleted_classes = ["SamApiBudget"]
 
 [[d1_databases]]
 binding = "DB"
@@ -21,27 +22,6 @@ database_id = "c3aec4e5-f052-4deb-94f8-9625337d8e94"
 [[kv_namespaces]]
 binding = "META"
 id = "40195caf76f34e4aa043530a3b0c5f3c"
-
-# ── Queue: on-demand enrichment from API/dashboard/other workers ──────
-[[queues.consumers]]
-queue = "sam-enrich-queue"
-max_batch_size = 5
-max_batch_timeout = 30
-max_retries = 3
-dead_letter_queue = "dlq"
-
-# ── Optional cron for "top-N vendor rotation" ─────────────────────────
-# Uncomment ONE of these to enable scheduled refresh.
-# Default = disabled (purely on-demand).
-#
-# Conservative:    1 call/day (100 top vendors refreshed daily), 9/day left for ad-hoc
-# [triggers]
-# crons = ["45 9 * * *"]    # 09:45 UTC daily
-#
-# Aggressive:      10 calls/day (1000 top vendors/day)
-# [triggers]
-# crons = ["45 9 * * *", "50 9 * * *", "55 9 * * *", "0 10 * * *", "5 10 * * *",
-#          "10 10 * * *", "15 10 * * *", "20 10 * * *", "25 10 * * *", "30 10 * * *"]
 
 # Secret set via: wrangler secret put SAM_GOV_API_KEY
 # (see .dev.vars.example for local development)

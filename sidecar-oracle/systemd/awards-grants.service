@@ -1,0 +1,22 @@
+[Unit]
+Description=Awards Pipeline — Grants.gov sync (sidecar)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=awards
+Group=awards
+WorkingDirectory=/opt/awards-pipeline/sidecar-oracle
+EnvironmentFile=/opt/awards-pipeline/sidecar-oracle/.env
+ExecStart=/usr/bin/node /opt/awards-pipeline/sidecar-oracle/sync-grants-gov.mjs
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=awards-grants
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/awards-pipeline/sidecar-oracle
+MemoryMax=256M
+TimeoutStartSec=15min

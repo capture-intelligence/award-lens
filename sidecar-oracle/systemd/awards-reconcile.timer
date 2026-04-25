@@ -1,0 +1,12 @@
+[Unit]
+Description=Weekly reconciliation via Oracle sidecar
+Requires=awards-reconcile.service
+
+[Timer]
+OnCalendar=Sun *-*-* 12:00:00 UTC
+Persistent=true
+RandomizedDelaySec=5min
+Unit=awards-reconcile.service
+
+[Install]
+WantedBy=timers.target

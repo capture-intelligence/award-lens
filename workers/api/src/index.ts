@@ -2,19 +2,16 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { prettyJSON } from 'hono/pretty-json';
-import type { SamEnrichMsg } from '@awards/core';
-import { UsaspendingAdapter, buildUpsertStatements } from '@awards/core';
+import { UsaspendingAdapter, buildUpsertStatements, hitToDbRow, nowIso } from '@awards/core';
 import { buildScheduleStatus } from './schedule.js';
+import { backfillToptierCodes } from './admin/toptier-backfill.js';
+import { runReconciliation } from './admin/reconciliation.js';
 
 export interface Env {
   DB: D1Database;
   META: KVNamespace;
-  SAM_ENRICH_QUEUE: Queue<SamEnrichMsg>;
   SAM_API: Fetcher;
-  USASPENDING_WORKFLOW: Workflow;
-  SAM_BULK_WORKFLOW: Workflow;
-  GRANTS_GOV_WORKFLOW: Workflow;
-  /** Optional shared secret; if set, /import/awards requires Authorization: Bearer <token>. */
+  /** Shared secret for ingest/admin endpoints. Required in production. */
   INGEST_TOKEN?: string;
 }
 
@@ -316,6 +313,178 @@ app.get('/diag/usaspending', async (c) => {
   });
 });
 
+// ---------- INGEST_TOKEN auth helper (for admin/import endpoints) ----------
+function checkIngestToken(c: { req: { header: (k: string) => string | undefined }; env: Env }): string | null {
+  const expected = c.env.INGEST_TOKEN;
+  if (!expected) return null; // dev mode: no token required
+  const supplied = (c.req.header('authorization') ?? '').replace(/^Bearer\s+/i, '').trim();
+  if (!supplied || supplied.length !== expected.length) return 'unauthorized';
+  let eq = 0;
+  for (let i = 0; i < supplied.length; i++) eq |= supplied.charCodeAt(i) ^ expected.charCodeAt(i);
+  return eq === 0 ? null : 'unauthorized';
+}
+
+// ---------- Admin: backfill toptier codes (called by VM cron) ----------
+app.post('/admin/backfill-toptier-codes', async (c) => {
+  const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
+  const result = await backfillToptierCodes(c.env.DB);
+  return c.json(result);
+});
+
+// ---------- Admin: reconciliation (called by VM cron) ----------
+app.post('/admin/reconcile', async (c) => {
+  const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
+  const result = await runReconciliation(c.env.DB, c.env.META);
+  return c.json(result);
+});
+
+// ---------- Import: Grants.gov opportunities (called by VM cron) ----------
+app.post('/import/opportunities', async (c) => {
+  const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
+  const body = await c.req.json().catch(() => null) as {
+    run_id?: number;
+    hits?: unknown[];
+    details?: Record<string, unknown>;
+    finalize?: boolean;
+  } | null;
+  if (!body) return c.json({ error: 'invalid JSON body' }, 400);
+
+  const now = nowIso();
+  let runId = body.run_id;
+  if (!runId) {
+    const r = await c.env.DB.prepare(`
+      INSERT INTO ingestion_run (source_id, started_at, status, error_summary)
+      VALUES ('grants_gov', ?, 'running', 'vm-import')
+      RETURNING run_id
+    `).bind(now).first<{ run_id: number }>();
+    if (!r) return c.json({ error: 'failed to open run' }, 500);
+    runId = r.run_id;
+  }
+
+  const hits = body.hits ?? [];
+  const detailsMap = new Map(Object.entries(body.details ?? {}));
+  const extractDate = now.slice(0, 10);
+  let upserted = 0;
+
+  for (let i = 0; i < hits.length; i += 100) {
+    const chunk = hits.slice(i, i + 100);
+    const stmts: D1PreparedStatement[] = [];
+    for (const hit of chunk) {
+      const detail = detailsMap.get(String((hit as { id: unknown }).id)) ?? null;
+      const r = hitToDbRow(hit as Parameters<typeof hitToDbRow>[0], detail as Parameters<typeof hitToDbRow>[1], extractDate);
+      stmts.push(c.env.DB.prepare(`
+        INSERT INTO grant_opportunity
+          (opportunity_id, opportunity_number, title, agency_code, agency_name,
+           category, funding_instrument, assistance_listings, posted_date, close_date,
+           archive_date, est_total_funding, award_ceiling, award_floor, expected_awards,
+           eligibility_codes, description, status, opportunity_url, doc_type,
+           extract_date, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(opportunity_id) DO UPDATE SET
+          opportunity_number  = excluded.opportunity_number,
+          title               = excluded.title,
+          agency_code         = COALESCE(excluded.agency_code, grant_opportunity.agency_code),
+          agency_name         = COALESCE(excluded.agency_name, grant_opportunity.agency_name),
+          posted_date         = COALESCE(excluded.posted_date, grant_opportunity.posted_date),
+          close_date          = COALESCE(excluded.close_date, grant_opportunity.close_date),
+          status              = excluded.status,
+          extract_date        = excluded.extract_date,
+          updated_at          = excluded.updated_at
+      `).bind(
+        r.opportunity_id, r.opportunity_number, r.title, r.agency_code, r.agency_name,
+        r.category, r.funding_instrument, r.assistance_listings, r.posted_date, r.close_date,
+        r.archive_date, r.est_total_funding, r.award_ceiling, r.award_floor, r.expected_awards,
+        r.eligibility_codes, r.description, r.status, r.opportunity_url, r.doc_type,
+        r.extract_date, now, now,
+      ));
+    }
+    if (stmts.length) await c.env.DB.batch(stmts);
+    upserted += chunk.length;
+  }
+
+  await c.env.DB.prepare(`
+    UPDATE ingestion_run SET rows_fetched = rows_fetched + ?, rows_upserted = rows_upserted + ?
+    WHERE run_id = ?
+  `).bind(hits.length, upserted, runId).run();
+
+  if (body.finalize) {
+    await c.env.DB.prepare(`
+      UPDATE ingestion_run SET status='success', finished_at=?, error_summary=COALESCE(error_summary,'vm-import complete')
+      WHERE run_id = ?
+    `).bind(now, runId).run();
+  }
+  return c.json({ run_id: runId, fetched: hits.length, upserted });
+});
+
+// ---------- Import: SAM exclusions (called by VM cron) ----------
+app.post('/import/exclusions', async (c) => {
+  const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
+  const body = await c.req.json().catch(() => null) as {
+    run_id?: number;
+    records?: Array<Record<string, unknown>>;
+    finalize?: boolean;
+  } | null;
+  if (!body) return c.json({ error: 'invalid JSON body' }, 400);
+
+  const now = nowIso();
+  let runId = body.run_id;
+  if (!runId) {
+    const r = await c.env.DB.prepare(`
+      INSERT INTO ingestion_run (source_id, started_at, status, error_summary)
+      VALUES ('sam_bulk', ?, 'running', 'vm-import')
+      RETURNING run_id
+    `).bind(now).first<{ run_id: number }>();
+    if (!r) return c.json({ error: 'failed to open run' }, 500);
+    runId = r.run_id;
+  }
+
+  const records = body.records ?? [];
+  let upserted = 0;
+  for (let i = 0; i < records.length; i += 100) {
+    const chunk = records.slice(i, i + 100);
+    const stmts: D1PreparedStatement[] = [];
+    for (const r of chunk) {
+      const get = (k: string) => (r[k] ?? null) as string | null;
+      stmts.push(c.env.DB.prepare(`
+        INSERT INTO sam_exclusion
+          (classification_type, exclusion_program, excluding_agency_name,
+           cage_code, npi, sam_number, name, prefix, first_name, middle_name,
+           last_name, suffix, address1, city, state_province, country,
+           zip_code, dunsbradstreet, ueisam, exclusion_type, additional_comments,
+           active_date, termination_date, record_status, cross_reference, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(sam_number) DO UPDATE SET
+          name = excluded.name, ueisam = excluded.ueisam, cage_code = excluded.cage_code,
+          active_date = excluded.active_date, termination_date = excluded.termination_date,
+          record_status = excluded.record_status
+      `).bind(
+        get('classification_type'), get('exclusion_program'), get('excluding_agency_name'),
+        get('cage_code'), get('npi'), get('sam_number'), get('name'), get('prefix'),
+        get('first_name'), get('middle_name'), get('last_name'), get('suffix'),
+        get('address1'), get('city'), get('state_province'), get('country'),
+        get('zip_code'), get('dunsbradstreet'), get('ueisam'), get('exclusion_type'),
+        get('additional_comments'), get('active_date'), get('termination_date'),
+        get('record_status'), get('cross_reference'), now,
+      ));
+    }
+    if (stmts.length) await c.env.DB.batch(stmts);
+    upserted += chunk.length;
+  }
+
+  await c.env.DB.prepare(`
+    UPDATE ingestion_run SET rows_fetched = rows_fetched + ?, rows_upserted = rows_upserted + ?
+    WHERE run_id = ?
+  `).bind(records.length, upserted, runId).run();
+
+  if (body.finalize) {
+    await c.env.DB.prepare(`
+      UPDATE ingestion_run SET status='success', finished_at=?, error_summary=COALESCE(error_summary,'vm-import complete')
+      WHERE run_id = ?
+    `).bind(now, runId).run();
+  }
+  return c.json({ run_id: runId, fetched: records.length, upserted });
+});
+
 // ---------- Local-ingest import endpoint ----------
 // Accepts raw USAspending response pages from a local CLI (bypasses the
 // Cloudflare-edge → USAspending 525 issue), normalizes + upserts them.
@@ -413,104 +582,36 @@ app.post('/import/awards', async (c) => {
   return c.json({ run_id: runId, fetched: results.length, upserted, failed, failures });
 });
 
-// ---------- Cancel runs ----------
-
-const WORKFLOW_BY_SOURCE: Record<string, keyof Env> = {
-  usaspending: 'USASPENDING_WORKFLOW',
-  sam_bulk:    'SAM_BULK_WORKFLOW',
-  grants_gov:  'GRANTS_GOV_WORKFLOW',
-};
-
-async function terminateInstance(env: Env, sourceId: string, instanceId: string | null): Promise<string | null> {
-  if (!instanceId) return 'no workflow_instance_id recorded';
-  const binding = WORKFLOW_BY_SOURCE[sourceId];
-  if (!binding) return `no workflow binding for source '${sourceId}'`;
-  try {
-    const wf = env[binding] as Workflow;
-    const inst = await wf.get(instanceId);
-    await inst.terminate();
-    return null;
-  } catch (e) {
-    return e instanceof Error ? e.message : String(e);
-  }
-}
+// ---------- Mark stuck runs as failed (manual cleanup, no workflow termination) ----------
+// In Path B (no Workflows), there's no async workflow to terminate. This endpoint
+// just closes orphaned ingestion_run rows so the dashboard reflects reality.
 
 app.post('/runs/:id/cancel', async (c) => {
+  const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
   const runId = Number(c.req.param('id'));
   const row = await c.env.DB.prepare(`
-    SELECT run_id, source_id, status, workflow_instance_id
-    FROM ingestion_run WHERE run_id = ?
-  `).bind(runId).first<{ run_id: number; source_id: string; status: string; workflow_instance_id: string | null }>();
+    SELECT run_id, status FROM ingestion_run WHERE run_id = ?
+  `).bind(runId).first<{ run_id: number; status: string }>();
   if (!row) return c.json({ error: 'run not found' }, 404);
   if (row.status !== 'running') return c.json({ error: `run is not running (status=${row.status})` }, 400);
 
-  const warn = await terminateInstance(c.env, row.source_id, row.workflow_instance_id);
   await c.env.DB.prepare(`
     UPDATE ingestion_run
-    SET status = 'failed',
-        finished_at = datetime('now'),
-        error_summary = ?
+    SET status = 'failed', finished_at = datetime('now'), error_summary = 'cancelled by user'
     WHERE run_id = ?
-  `).bind(warn ? `cancelled (${warn})` : 'cancelled by user', runId).run();
+  `).bind(runId).run();
 
-  return c.json({ cancelled: true, run_id: runId, warning: warn });
+  return c.json({ cancelled: true, run_id: runId });
 });
 
 app.post('/runs/cancel-all', async (c) => {
-  const runs = await c.env.DB.prepare(`
-    SELECT run_id, source_id, workflow_instance_id
-    FROM ingestion_run WHERE status = 'running'
-  `).all<{ run_id: number; source_id: string; workflow_instance_id: string | null }>();
-
-  const results: Array<{ run_id: number; terminated: boolean; warning?: string }> = [];
-  for (const r of runs.results) {
-    const warn = await terminateInstance(c.env, r.source_id, r.workflow_instance_id);
-    results.push({ run_id: r.run_id, terminated: !warn, warning: warn ?? undefined });
-  }
-
-  await c.env.DB.prepare(`
+  const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
+  const result = await c.env.DB.prepare(`
     UPDATE ingestion_run
     SET status = 'failed', finished_at = datetime('now'), error_summary = 'bulk cancel'
     WHERE status = 'running'
   `).run();
-
-  return c.json({ count: results.length, results });
-});
-
-// ---------- Scoped pulls (dashboard Pull tab) ----------
-
-app.post('/pull/usaspending', async (c) => {
-  const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
-  if (!body) return c.json({ error: 'invalid JSON body' }, 400);
-  try {
-    const instance = await c.env.USASPENDING_WORKFLOW.create({ params: body });
-    return c.json({ id: instance.id, params: body });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return c.json({ error: msg }, 500);
-  }
-});
-
-app.post('/pull/sam-bulk', async (c) => {
-  const body = await c.req.json().catch(() => ({ extracts: ['exclusions'] }));
-  try {
-    const instance = await c.env.SAM_BULK_WORKFLOW.create({ params: body });
-    return c.json({ id: instance.id });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return c.json({ error: msg }, 500);
-  }
-});
-
-app.post('/pull/grants-gov', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  try {
-    const instance = await c.env.GRANTS_GOV_WORKFLOW.create({ params: body });
-    return c.json({ id: instance.id });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return c.json({ error: msg }, 500);
-  }
+  return c.json({ count: result.meta.changes ?? 0 });
 });
 
 // ---------- Schedule status ----------
@@ -550,17 +651,12 @@ app.post('/vendors/:id/enrich', async (c) => {
   if (!vendor)        return c.json({ error: 'vendor not found' }, 404);
   if (!vendor.uei)    return c.json({ error: 'vendor has no UEI — cannot enrich' }, 422);
 
-  if (mode === 'sync') {
-    const res = await c.env.SAM_API.fetch(`https://sam/enrich/${vendor.uei}`, { method: 'POST' });
-    const body = await res.json();
-    return c.json(body, res.status as 200 | 400 | 429);
-  }
-
-  await c.env.SAM_ENRICH_QUEUE.send({
-    uei: vendor.uei,
-    requestedBy: c.req.header('cf-access-authenticated-user-email') ?? 'anonymous',
-  });
-  return c.json({ queued: true, uei: vendor.uei, vendor_id: vendor.vendor_id });
+  // Path B: synchronous-only (no Queues on Free tier).
+  // The sam-api-worker is itself synchronous; it returns 429 if the daily
+  // budget is exhausted. Operator can retry tomorrow.
+  const res = await c.env.SAM_API.fetch(`https://sam/enrich/${vendor.uei}`, { method: 'POST' });
+  const body = await res.json();
+  return c.json(body, res.status as 200 | 400 | 429);
 });
 
 app.get('/sam-api/status', async (c) => {

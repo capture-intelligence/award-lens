@@ -1,98 +1,92 @@
-import type { SamEnrichMsg } from '@awards/core';
-import { SamApiBudget } from './budget.js';
 import { lookupEntityByUei, applySamEntityToWarehouse } from './enrich.js';
-
-export { SamApiBudget };
 
 export interface Env {
   DB: D1Database;
   META: KVNamespace;
-  BUDGET: DurableObjectNamespace;
   SAM_GOV_API_KEY: string;
 }
 
-const BUDGET_KEY = 'global';
+const DAILY_LIMIT = 10;
+
+function dateKey(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+function nextResetIso(): string {
+  const d = new Date();
+  d.setUTCHours(24, 0, 0, 0);
+  return d.toISOString();
+}
 
 /**
- * SAM.gov API worker.
- *
- *   queue()     → drains sam-enrich-queue under the 10/day budget
- *   scheduled() → optional top-N vendor rotation (disabled by default)
- *   fetch()     → /status, /enrich/:uei (manual/API trigger)
+ * Atomic budget acquisition via SQLite's ON CONFLICT DO UPDATE WHERE.
+ * If the update is blocked by the WHERE clause (would exceed limit),
+ * RETURNING returns no rows → caller treats as 429.
  */
-export default {
-  async queue(batch: MessageBatch<SamEnrichMsg>, env: Env): Promise<void> {
-    const budgetStub = env.BUDGET.get(env.BUDGET.idFromName(BUDGET_KEY));
+async function tryAcquireBudget(db: D1Database): Promise<{
+  granted: boolean; used: number; limit: number; remaining: number; resetsAt: string;
+}> {
+  const date = dateKey();
+  const now = new Date().toISOString();
 
-    for (const msg of batch.messages) {
-      const acquire = await budgetStub.fetch('https://budget/acquire');
-      if (acquire.status === 429) {
-        // Budget exhausted — retry tomorrow
-        const body = await acquire.json<{ resetsAt?: string }>();
-        const retryAt = body?.resetsAt ? new Date(body.resetsAt) : null;
-        const delay = retryAt
-          ? Math.max(60, Math.floor((retryAt.getTime() - Date.now()) / 1000))
-          : 3600;
-        msg.retry({ delaySeconds: delay });
-        continue;
-      }
+  const claimed = await db.prepare(`
+    INSERT INTO sam_api_budget (date_utc, used, limit_total, last_call_at)
+    VALUES (?, 1, ?, ?)
+    ON CONFLICT(date_utc) DO UPDATE
+      SET used = sam_api_budget.used + 1, last_call_at = excluded.last_call_at
+      WHERE sam_api_budget.used < sam_api_budget.limit_total
+    RETURNING used, limit_total
+  `).bind(date, DAILY_LIMIT, now).first<{ used: number; limit_total: number }>();
 
-      try {
-        await enrichOne(env, msg.body.uei);
-        msg.ack();
-      } catch (err) {
-        const reason = err instanceof Error ? err.message : String(err);
-        console.error(`[sam-api] enrich failed for ${msg.body.uei}: ${reason}`);
-        // Return the slot so a retry isn't double-billed
-        await budgetStub.fetch('https://budget/release').catch(() => {});
-        msg.retry({ delaySeconds: 60 });
-      }
-    }
-  },
+  if (claimed) {
+    return {
+      granted: true,
+      used: claimed.used,
+      limit: claimed.limit_total,
+      remaining: claimed.limit_total - claimed.used,
+      resetsAt: nextResetIso(),
+    };
+  }
 
-  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    // "Top-up" rotation: each scheduled firing refreshes up to 100 vendors
-    // (one SAM API page) using one budget slot. Run multiple times/day if
-    // you've enabled the aggressive cron in wrangler.toml.
-    ctx.waitUntil(runRotation(env));
-  },
+  const cur = await db.prepare('SELECT used, limit_total FROM sam_api_budget WHERE date_utc = ?')
+    .bind(date).first<{ used: number; limit_total: number }>();
+  const limit = cur?.limit_total ?? DAILY_LIMIT;
+  const used = cur?.used ?? limit;
+  return {
+    granted: false,
+    used,
+    limit,
+    remaining: Math.max(0, limit - used),
+    resetsAt: nextResetIso(),
+  };
+}
 
-  async fetch(req: Request, env: Env): Promise<Response> {
-    const url = new URL(req.url);
-    const budgetStub = env.BUDGET.get(env.BUDGET.idFromName(BUDGET_KEY));
+async function releaseBudget(db: D1Database): Promise<void> {
+  // Best-effort decrement on call failure so retries aren't double-billed.
+  await db.prepare(`
+    UPDATE sam_api_budget
+    SET used = MAX(0, used - 1)
+    WHERE date_utc = ?
+  `).bind(dateKey()).run();
+}
 
-    if (url.pathname === '/status') {
-      const status = await budgetStub.fetch('https://budget/status').then((r) => r.json());
-      return Response.json(status);
-    }
-
-    if (url.pathname.startsWith('/enrich/') && req.method === 'POST') {
-      const uei = url.pathname.slice('/enrich/'.length);
-      if (!/^[A-Z0-9]{12}$/.test(uei)) {
-        return Response.json({ error: 'invalid UEI format' }, { status: 400 });
-      }
-      const acquire = await budgetStub.fetch('https://budget/acquire');
-      if (acquire.status === 429) {
-        const status = await acquire.json();
-        return Response.json({ error: 'budget exhausted', status }, { status: 429 });
-      }
-      try {
-        const out = await enrichOne(env, uei);
-        return Response.json({ uei, ...out });
-      } catch (e) {
-        await budgetStub.fetch('https://budget/release').catch(() => {});
-        throw e;
-      }
-    }
-
-    return new Response('sam-api-worker', { status: 200 });
-  },
-} satisfies ExportedHandler<Env>;
+async function getStatus(db: D1Database): Promise<{
+  used: number; limit: number; remaining: number; dateKey: string; resetsAt: string;
+}> {
+  const cur = await db.prepare('SELECT used, limit_total FROM sam_api_budget WHERE date_utc = ?')
+    .bind(dateKey()).first<{ used: number; limit_total: number }>();
+  const limit = cur?.limit_total ?? DAILY_LIMIT;
+  const used = cur?.used ?? 0;
+  return {
+    used,
+    limit,
+    remaining: Math.max(0, limit - used),
+    dateKey: dateKey(),
+    resetsAt: nextResetIso(),
+  };
+}
 
 async function enrichOne(env: Env, uei: string): Promise<{
-  found: boolean;
-  vendorsUpdated?: number;
-  classificationsAdded?: number;
+  found: boolean; vendorsUpdated?: number; classificationsAdded?: number;
 }> {
   const entity = await lookupEntityByUei(uei, env.SAM_GOV_API_KEY);
   if (!entity) return { found: false };
@@ -100,57 +94,35 @@ async function enrichOne(env: Env, uei: string): Promise<{
   return { found: true, ...res };
 }
 
-/**
- * Background rotation: refresh vendors whose SAM enrichment is stale or
- * missing, starting with the most-active (by current contract total).
- * Spends 1 budget slot per call (returns up to 100 entities).
- */
-async function runRotation(env: Env): Promise<void> {
-  const budgetStub = env.BUDGET.get(env.BUDGET.idFromName(BUDGET_KEY));
-  const acquire = await budgetStub.fetch('https://budget/acquire');
-  if (acquire.status === 429) {
-    console.log('[sam-api] rotation skipped: budget exhausted');
-    return;
-  }
+export default {
+  async fetch(req: Request, env: Env): Promise<Response> {
+    const url = new URL(req.url);
 
-  const staleVendors = await env.DB.prepare(`
-    SELECT v.uei
-    FROM vendor v
-    LEFT JOIN (
-      SELECT vendor_id, MAX(effective_from) AS last_sam
-      FROM vendor_classification
-      WHERE source_id = 'sam_api'
-      GROUP BY vendor_id
-    ) e ON e.vendor_id = v.vendor_id
-    JOIN v_vendor_rollup r ON r.vendor_id = v.vendor_id
-    WHERE v.uei IS NOT NULL
-      AND (e.last_sam IS NULL OR date(e.last_sam) < date('now', '-30 days'))
-    ORDER BY r.total_value DESC
-    LIMIT 100
-  `).all<{ uei: string }>();
+    if (url.pathname === '/status') {
+      return Response.json(await getStatus(env.DB));
+    }
 
-  const ueis = staleVendors.results.map((r) => r.uei).join(',');
-  if (!ueis) { console.log('[sam-api] rotation: no stale vendors'); return; }
+    if (url.pathname.startsWith('/enrich/') && req.method === 'POST') {
+      const uei = url.pathname.slice('/enrich/'.length);
+      if (!/^[A-Z0-9]{12}$/.test(uei)) {
+        return Response.json({ error: 'invalid UEI format' }, { status: 400 });
+      }
 
-  const url = new URL('https://api.sam.gov/entity-information/v4/entities');
-  url.searchParams.set('ueiSAM', ueis);
-  url.searchParams.set('api_key', env.SAM_GOV_API_KEY);
-  url.searchParams.set('includeSections', 'entityRegistration,coreData');
-  url.searchParams.set('pageSize', '100');
+      const budget = await tryAcquireBudget(env.DB);
+      if (!budget.granted) {
+        return Response.json({ error: 'budget exhausted', status: budget }, { status: 429 });
+      }
 
-  const res = await fetch(url.toString(), { headers: { 'Accept': 'application/json' } });
-  if (!res.ok) {
-    await budgetStub.fetch('https://budget/release').catch(() => {});
-    throw new Error(`SAM rotation ${res.status}`);
-  }
-  const data = await res.json() as { entityData?: Array<{ entityRegistration?: { ueiSAM?: string } }> };
-  let processed = 0;
-  for (const entity of data.entityData ?? []) {
-    const uei = entity.entityRegistration?.ueiSAM;
-    if (!uei) continue;
-    await applySamEntityToWarehouse(env.DB, uei, entity as Parameters<typeof applySamEntityToWarehouse>[2]);
-    processed++;
-  }
-  console.log(`[sam-api] rotation processed ${processed} vendors`);
-  await env.META.put('LAST_SAM_ROTATION', new Date().toISOString());
-}
+      try {
+        const out = await enrichOne(env, uei);
+        return Response.json({ uei, budget, ...out });
+      } catch (e) {
+        await releaseBudget(env.DB);
+        const msg = e instanceof Error ? e.message : String(e);
+        return Response.json({ error: msg }, { status: 500 });
+      }
+    }
+
+    return new Response('sam-api-worker', { status: 200 });
+  },
+} satisfies ExportedHandler<Env>;

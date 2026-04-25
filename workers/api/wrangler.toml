@@ -13,33 +13,11 @@ migrations_dir = "../../packages/migrations"
 binding = "META"
 id = "40195caf76f34e4aa043530a3b0c5f3c"
 
-[[queues.producers]]
-queue = "sam-enrich-queue"
-binding = "SAM_ENRICH_QUEUE"
-
-# Service binding → sam-api-worker (for on-demand /enrich calls + status)
+# Service binding to the (now stateless) sam-api-worker for on-demand vendor enrichment.
+# Optional — only needed if you keep the Enrich button working in the dashboard.
 [[services]]
 binding = "SAM_API"
 service = "sam-api-worker"
-
-# Workflow bindings — so the api-worker can trigger scoped pulls from the dashboard
-[[workflows]]
-name = "usaspending-sync"
-binding = "USASPENDING_WORKFLOW"
-class_name = "UsaspendingSyncWorkflow"
-script_name = "usaspending-workflow"
-
-[[workflows]]
-name = "sam-bulk-sync"
-binding = "SAM_BULK_WORKFLOW"
-class_name = "SamBulkSyncWorkflow"
-script_name = "sam-bulk-workflow"
-
-[[workflows]]
-name = "grants-gov-sync"
-binding = "GRANTS_GOV_WORKFLOW"
-class_name = "GrantsGovSyncWorkflow"
-script_name = "grants-gov-workflow"
 
 [observability]
 enabled = true
