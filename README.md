@@ -1,6 +1,22 @@
 # Federal Awards Data Pipeline — Cloudflare Edition
 
-A Cloudflare-native pipeline that replicates federal contracting data from **USAspending.gov** (and optionally SAM.gov) into a queryable warehouse. Runs entirely on Workers + D1 + R2 + Queues + Workflows. No servers, no container runtime, ~$15/month at small scale.
+A Cloudflare-native pipeline that replicates federal contracting data from **USAspending.gov**, **Grants.gov**, and (optionally) **SAM.gov** into a queryable warehouse. Runs entirely on Cloudflare Workers + D1 + R2 + Queues + Workflows. No servers, no container runtime, ~$5–15/month at small scale.
+
+> **Status:** Production-deployed reference implementation. The setup walkthroughs below assume you'll fork and stand up your own Cloudflare account; nothing in this repo grants access to anyone else's deployment.
+
+## License
+
+MIT — see [LICENSE](./LICENSE). Use freely, with no warranty. Cloudflare and US federal data sources have their own terms (USAspending and Grants.gov data are public domain; SAM.gov requires an account for some endpoints — see their TOS).
+
+## ⚠️ Required user-specific setup
+
+This repo intentionally commits placeholder Cloudflare resource IDs (`workers/*/wrangler.toml` `database_id`, `kv_namespaces.id`) that point at the original author's account. You **must** replace them with IDs from your own Cloudflare account before deploying — or run [`scripts/bootstrap.mjs`](./scripts/bootstrap.mjs) which does this automatically.
+
+Secrets that must be set in your own environment (never in code):
+- **`SAM_GOV_API_KEY`** — only if you use the SAM.gov enrichment worker
+- **`INGEST_TOKEN`** — shared secret between the api-worker and the Oracle sidecar (random 64 hex chars)
+
+Both are loaded via `wrangler secret put` (production) or `.dev.vars` (local). See the [Secret Management](#secret-management) section below.
 
 ## What's in the box
 
@@ -40,6 +56,25 @@ Key design choices:
 - **R2** stages raw JSON so you can replay normalization without re-hitting APIs.
 - **External ID mapping** lets every source coexist in one warehouse.
 - **Deterministic internal IDs** keep upserts idempotent across re-runs.
+
+## Secret Management
+
+| Item | Type | Where it lives | In git? |
+|---|---|---|---|
+| `SAM_GOV_API_KEY` | Secret | `wrangler secret put` (prod), `workers/sam-api/.dev.vars` (local) | ❌ Never |
+| `INGEST_TOKEN` | Secret | `wrangler secret put` (prod api-worker), `sidecar-oracle/.env` on the VM | ❌ Never |
+| Cloudflare D1 / KV IDs | Public identifier | `workers/*/wrangler.toml` | ✅ Yes (they're not credentials — knowing them grants no access) |
+| `algocrat.workers.dev` URLs | Public identifier | various source files | ✅ Yes (you should swap to your own subdomain when forking) |
+| Account-specific OCIDs | Public identifier | none committed | ✅ Yes when needed |
+
+**`.gitignore` enforcement** — `.dev.vars`, `.env`, `keys/`, `.bootstrap-state.json`, `.oci-tmp/`, and `*ssh-key*` are all blocked from accidental commit. Verify in your fork before pushing.
+
+If you ever **clone this repo and immediately push to your own GitHub**, do a quick audit:
+
+```bash
+git ls-files | xargs grep -lE "(SAM-[a-f0-9-]{36}|github_pat_|ghp_|sk-|AKIA[A-Z0-9]{16})" 2>/dev/null
+# (no output = clean)
+```
 
 ## Prerequisites
 
