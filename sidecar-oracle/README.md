@@ -110,26 +110,57 @@ ssh -i /path/to/your/private-key ubuntu@<PUBLIC_IP>
 
 ---
 
-## Step 3 — Run the installer
+## Step 3 — Clone the repo, then run the installer
+
+The installer doesn't clone the repo itself (sudo can't see your SSH deploy key). You clone manually first, then run install.sh.
+
+### 3a. Set up a GitHub deploy key on the VM (most secure, no PAT in shell history)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<you>/past-awards-dashboard/main/sidecar-oracle/install.sh \
-  | REPO_URL=https://github.com/<you>/past-awards-dashboard.git bash
+sudo apt-get update && sudo apt-get install -y git
+
+ssh-keygen -t ed25519 -f ~/.ssh/github-awards -N "" -C "oracle-vm-awards-sidecar"
+cat ~/.ssh/github-awards.pub
 ```
 
-Or, if you already cloned the repo:
+Copy the printed `ssh-ed25519 AAAA…` line.
+
+On your laptop (where `gh` CLI is logged in):
+
+```powershell
+echo "<the public-key line>" > /tmp/key.pub
+gh repo deploy-key add /tmp/key.pub --repo Algocrat/past-awards-dashboard --title "oracle-sidecar-vm"
+rm /tmp/key.pub
+```
+
+(Or browser: GitHub repo → Settings → Deploy keys → Add deploy key, leave write access UNCHECKED.)
+
+### 3b. Configure SSH on the VM to use the deploy key
 
 ```bash
-sudo git clone https://github.com/<you>/past-awards-dashboard.git /opt/awards-pipeline
+cat >> ~/.ssh/config <<'EOF'
+Host github.com
+  IdentityFile ~/.ssh/github-awards
+  IdentitiesOnly yes
+  StrictHostKeyChecking accept-new
+EOF
+chmod 600 ~/.ssh/config
+```
+
+### 3c. Clone + run the installer
+
+```bash
+git clone git@github.com:Algocrat/past-awards-dashboard.git /tmp/awards
+sudo mkdir -p /opt && sudo mv /tmp/awards /opt/awards-pipeline
 bash /opt/awards-pipeline/sidecar-oracle/install.sh
 ```
 
-The installer will:
-1. Install Node.js 20
-2. Create a service account `awards`
-3. Clone the repo to `/opt/awards-pipeline`
-4. Copy `env.example` → `.env`
-5. Install and enable the systemd service + timer
+The installer:
+1. Installs Node.js 20 (from NodeSource)
+2. Creates the `awards` service user
+3. Verifies the repo is in place (and tries a best-effort git pull as you, the cloner)
+4. Copies `env.example` → `.env`
+5. Installs and enables the systemd service + timer
 
 ---
 
@@ -243,12 +274,18 @@ sudo systemctl enable --now awards-sidecar-cdc.timer
 
 ### Upgrade to the latest repo version
 
+The repo on the VM is owned by the `awards` service user, but that user has no shell. Pull as your interactive user, then re-chown:
+
 ```bash
-cd /opt/awards-pipeline
-sudo -u awards git pull
-# Re-run installer in case systemd units changed
-bash sidecar-oracle/install.sh
+# Temporarily flip ownership so you can pull, then flip back
+sudo chown -R "$USER:$USER" /opt/awards-pipeline
+git -C /opt/awards-pipeline pull --ff-only
+
+# Re-run installer (idempotent — re-installs systemd units if they changed)
+bash /opt/awards-pipeline/sidecar-oracle/install.sh
 ```
+
+The installer's `sudo chown -R awards` step puts ownership back to the service user.
 
 ### Troubleshooting
 

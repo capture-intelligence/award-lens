@@ -1,24 +1,33 @@
 #!/usr/bin/env bash
 # =============================================================================
-# One-shot bootstrap for the Awards Pipeline sidecar on Oracle Cloud Always-Free
-# (Ubuntu 22.04+ or Oracle Linux 9+ on Arm A1.Flex or AMD E2.1.Micro).
+# Awards Pipeline sidecar — VM bootstrap (Oracle Cloud Always-Free or any
+# Ubuntu 22.04+ / Oracle Linux 9+ host).
 #
-# What it does:
-#   1. Installs Node.js 20 (from NodeSource)
-#   2. Creates a dedicated `awards` system user
-#   3. Clones the repo to /opt/awards-pipeline
-#   4. Copies env.example → .env (you edit it once)
-#   5. Installs + enables the systemd service + timer
+# Prereq: clone the repo to /opt/awards-pipeline AS YOUR NORMAL USER first.
+# This script does NOT clone (sudo git can't see your SSH deploy key), it just
+# bootstraps Node, the service user, .env, and systemd.
 #
-# Run as your sudo-capable user (NOT root):
-#   curl -fsSL https://raw.githubusercontent.com/<you>/<repo>/main/sidecar-oracle/install.sh | bash
-# or, after cloning manually:
+# Typical flow on a fresh VM (see sidecar-oracle/README.md for full walkthrough):
+#
+#   sudo apt-get update && sudo apt-get install -y git
+#   ssh-keygen -t ed25519 -f ~/.ssh/github-awards -N "" -C "vm-name"
+#   # Add the .pub via:  gh repo deploy-key add ~/.ssh/github-awards.pub --repo OWNER/REPO
+#   cat >> ~/.ssh/config <<'EOF'
+#   Host github.com
+#     IdentityFile ~/.ssh/github-awards
+#     IdentitiesOnly yes
+#     StrictHostKeyChecking accept-new
+#   EOF
+#   chmod 600 ~/.ssh/config
+#   git clone git@github.com:OWNER/REPO.git /tmp/awards
+#   sudo mkdir -p /opt && sudo mv /tmp/awards /opt/awards-pipeline
 #   bash /opt/awards-pipeline/sidecar-oracle/install.sh
+#
+# Run this as your sudo-capable user, NOT as root.
 # =============================================================================
 
 set -euo pipefail
 
-REPO_URL="${REPO_URL:-https://github.com/REPLACE_ME/past-awards-dashboard.git}"
 INSTALL_DIR="/opt/awards-pipeline"
 SIDECAR_DIR="$INSTALL_DIR/sidecar-oracle"
 SERVICE_USER="awards"
@@ -58,15 +67,37 @@ else
 fi
 
 # ── 3. Repo ──
-step "Syncing repo at $INSTALL_DIR"
-sudo mkdir -p "$INSTALL_DIR"
+# We deliberately do NOT clone or pull from inside this script — it would have
+# to run `sudo git ...` which then can't see the user's SSH deploy key or PAT.
+# Instead, you (the operator) clone the repo as your normal user before running
+# this script (see README step 3). This script only:
+#   - verifies the repo is present
+#   - chowns it to the service user
+#   - tries an optional best-effort `git pull` as the original cloner so
+#     re-running install.sh on a previously installed VM picks up updates.
+step "Repo at $INSTALL_DIR"
 if [[ ! -d "$INSTALL_DIR/.git" ]]; then
-  sudo git clone "$REPO_URL" "$INSTALL_DIR"
-else
-  sudo git -C "$INSTALL_DIR" pull --ff-only
+  die "$INSTALL_DIR is not a git repo. Clone first:
+    git clone git@github.com:<owner>/<repo>.git $INSTALL_DIR
+  (See sidecar-oracle/README.md step 3 for the deploy-key flow.)"
 fi
+
+# Best-effort pull as whichever user originally owns the repo dir (they have
+# the SSH config for github.com). Skip silently if it fails — the operator
+# can `git pull` manually before re-running.
+ORIG_OWNER="$(stat -c '%U' "$INSTALL_DIR")"
+if [[ "$ORIG_OWNER" != "$SERVICE_USER" && "$ORIG_OWNER" != "root" ]]; then
+  if sudo -u "$ORIG_OWNER" git -C "$INSTALL_DIR" pull --ff-only --quiet 2>/dev/null; then
+    ok "repo synced (pulled as $ORIG_OWNER)"
+  else
+    warn "git pull failed or no upstream changes — continuing with current checkout"
+  fi
+else
+  note "skipping git pull (repo is owned by $ORIG_OWNER, no SSH config available)"
+fi
+
 sudo chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
-ok "repo ready"
+ok "repo ready (owned by $SERVICE_USER)"
 
 # ── 4. .env ──
 step "Environment file"
