@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    min-height: 100vh;
+    height: 100%;
+  }
+  body {
+    background: #0d1f25;
+    background-image:
+      radial-gradient(ellipse 900px 600px at 100% -10%, rgba(230, 72, 51, 0.12), transparent 60%),
+      radial-gradient(ellipse 800px 500px at 0% 110%, rgba(144, 174, 173, 0.10), transparent 60%),
+      linear-gradient(180deg, #0d1f25 0%, #112730 60%, #173039 100%);
+    background-attachment: fixed;
+    font-feature-settings: 'cv11', 'ss01', 'ss03', 'cv03';
+  }
+  ::selection { background: rgba(230, 72, 51, 0.35); color: #FBE9D0; }
+
+  /* Subtle grain overlay for depth */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.04 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.4;
+  }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(144, 174, 173, 0.18); border-radius: 5px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(144, 174, 173, 0.32); }
+}
+
+@layer utilities {
+  .glass {
+    background: rgba(36, 72, 85, 0.55);
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    border: 1px solid rgba(144, 174, 173, 0.18);
+  }
+  .glass-strong {
+    background: rgba(36, 72, 85, 0.85);
+    backdrop-filter: blur(24px) saturate(150%);
+    -webkit-backdrop-filter: blur(24px) saturate(150%);
+    border: 1px solid rgba(144, 174, 173, 0.28);
+  }
+  .text-balance { text-wrap: balance; }
+  .text-pretty  { text-wrap: pretty;  }
+  .ring-vermilion { box-shadow: 0 0 0 1px rgba(230, 72, 51, 0.35), 0 0 0 4px rgba(230, 72, 51, 0.10); }
+}

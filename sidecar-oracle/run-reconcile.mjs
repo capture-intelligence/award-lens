@@ -28,11 +28,11 @@ async function call(path) {
   log('info', 'reconciliation start', { api: API });
   try {
     const t0 = Date.now();
-    const backfill = await call('/admin/backfill-toptier-codes');
+    const backfill = await call('/internal/backfill-toptier-codes');
     log('info', 'toptier backfill', { ms: Date.now() - t0, ...backfill });
 
     const t1 = Date.now();
-    const reconcile = await call('/admin/reconcile');
+    const reconcile = await call('/internal/reconcile');
     log('info', 'reconciliation complete', { ms: Date.now() - t1, ...reconcile });
 
     process.exit(0);

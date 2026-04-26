@@ -33,3 +33,6 @@ id_ed25519*
 diag-result.json
 /install.ps1
 NUL
+
+# TypeScript incremental build cache
+*.tsbuildinfo

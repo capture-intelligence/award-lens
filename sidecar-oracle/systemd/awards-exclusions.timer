@@ -1,0 +1,14 @@
+[Unit]
+Description=Daily SAM.gov Exclusions sync via Oracle sidecar
+Requires=awards-exclusions.service
+
+[Timer]
+# Fire daily at 04:00 UTC — before the 06:00 UTC USAspending pull, so any
+# new exclusions are visible the next time Awards/Vendors render.
+OnCalendar=*-*-* 04:00:00 UTC
+Persistent=true
+RandomizedDelaySec=5min
+Unit=awards-exclusions.service
+
+[Install]
+WantedBy=timers.target

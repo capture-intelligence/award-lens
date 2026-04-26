@@ -79,6 +79,10 @@ export async function createSession(
     nowIso(),
   ).run();
 
+  // The dashboard reaches this worker via a Pages Function proxy on the same
+  // origin (awards-dashboard.pages.dev), so the cookie is first-party. Lax is
+  // the right default — strict enough to thwart CSRF, lax enough to survive
+  // top-level OAuth redirects back from Google/Microsoft.
   setCookie(c, SESSION_COOKIE, sessionId, {
     httpOnly: true,
     secure: true,
@@ -122,7 +126,13 @@ export async function destroySession(
   if (sessionId) {
     await c.env.DB.prepare('DELETE FROM app_session WHERE session_id = ?').bind(sessionId).run();
   }
-  deleteCookie(c, SESSION_COOKIE, { path: '/' });
+  // Match the attributes used when setting the cookie, otherwise the browser
+  // won't recognize this delete as targeting the same cookie.
+  deleteCookie(c, SESSION_COOKIE, {
+    path: '/',
+    secure: true,
+    sameSite: 'None',
+  });
 }
 
 // ─── Middleware ──────────────────────────────────────────────────────────────

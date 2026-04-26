@@ -3,6 +3,14 @@ main = "src/index.ts"
 compatibility_date = "2026-04-01"
 compatibility_flags = ["nodejs_compat"]
 
+# Public-facing base URL where users actually load the dashboard.
+# The Cloudflare Pages site at this origin proxies /auth/* and /api/* to this
+# worker, which makes the session cookie first-party — required because
+# browsers (Edge tracking prevention, Safari ITP, Chrome 3rd-party blocking)
+# silently drop cross-site cookies.
+[vars]
+AUTH_PUBLIC_BASE_URL = "https://awards-dashboard.pages.dev"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "awards-warehouse"

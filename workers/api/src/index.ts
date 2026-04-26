@@ -2,13 +2,25 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { prettyJSON } from 'hono/pretty-json';
-import { hitToDbRow, nowIso } from '@awards/core';
+import {
+  hitToDbRow, nowIso,
+  UsaspendingAdapter, buildUpsertStatements, deterministicId,
+} from '@awards/core';
 import { buildScheduleStatus } from './schedule.js';
 import { backfillToptierCodes } from './admin/toptier-backfill.js';
 import { runReconciliation } from './admin/reconciliation.js';
 import { authApp, type AuthEnv } from './auth/routes.js';
 import { adminUsersApp } from './auth/admin.js';
 import { authMiddleware, requireApproved, type AuthVars } from './auth/session.js';
+import {
+  adminViewsApp, adminAccessApp, userViewsApp,
+  loadAccessibleView, listAccessibleViewIds,
+} from './views/routes.js';
+import {
+  adminRunsApp,
+  listSidecarRunRequests, claimSidecarRunRequest, completeSidecarRunRequest,
+} from './views/runs.js';
+import { resolveScope, composeAwardQuery } from './views/scope.js';
 
 export interface Env extends AuthEnv {
   DB: D1Database;
@@ -37,6 +49,19 @@ app.use('*', authMiddleware);
 // Mount auth + admin user-management subrouters.
 app.route('/auth', authApp);
 app.route('/admin', adminUsersApp);
+// Views: admin CRUD, admin access review, user-facing browse + request.
+app.route('/admin/views', adminViewsApp);
+app.route('/admin/access-requests', adminAccessApp);
+app.route('/views', userViewsApp);
+// Per-view "Run now" — admin trigger + recent-runs status (sub-app
+// composes onto /admin/views/:viewId/{run,runs}).
+app.route('/admin/views', adminRunsApp);
+// Sidecar polling endpoints (token-auth). MUST live OUTSIDE /admin/* —
+// Hono's sub-app middleware scoping means adminUsersApp's `requireAdmin`
+// captures everything under /admin/* even for routes registered directly.
+app.get ('/sidecar/run-requests',                      listSidecarRunRequests);
+app.post('/sidecar/run-requests/:requestId/claim',     claimSidecarRunRequest);
+app.post('/sidecar/run-requests/:requestId/complete',  completeSidecarRunRequest);
 
 // ---------- Public routes (no auth) ----------
 app.get('/', (c) => c.json({
@@ -54,7 +79,7 @@ app.get('/', (c) => c.json({
 const SESSION_GATED_PREFIXES = [
   '/awards', '/vendors', '/organizations', '/runs', '/stats',
   '/exclusions', '/opportunities', '/reconciliation', '/schedule',
-  '/sam-api', '/health',
+  '/sam-api', '/health', '/views',
 ];
 app.use('*', async (c, next) => {
   const path = c.req.path;
@@ -85,76 +110,123 @@ app.get('/health', async (c) => {
 // ---------- Awards ----------
 
 app.get('/awards', async (c) => {
+  const scope = await resolveScope(c);
+  if (scope.kind === 'error') return scope.response;
+
   const q = c.req.query('q');
   const org = c.req.query('awarding_org');
   const vendor = c.req.query('vendor');
   const minValue = Number(c.req.query('min_value') ?? 0);
   const limit = Math.min(Number(c.req.query('limit') ?? 50), 500);
 
-  const filters: string[] = [];
-  const params: unknown[] = [];
-
+  const userClauses: string[] = [];
+  const userParams: unknown[] = [];
   if (q) {
-    filters.push('(description LIKE ? OR award_piid LIKE ?)');
-    params.push(`%${q}%`, `%${q}%`);
+    userClauses.push('(va.description LIKE ? OR va.award_piid LIKE ?)');
+    userParams.push(`%${q}%`, `%${q}%`);
   }
   if (org) {
-    filters.push('awarding_org_name LIKE ?');
-    params.push(`%${org}%`);
+    userClauses.push('va.awarding_org_name LIKE ?');
+    userParams.push(`%${org}%`);
   }
   if (vendor) {
-    filters.push('vendor_name LIKE ?');
-    params.push(`%${vendor}%`);
+    userClauses.push('va.vendor_name LIKE ?');
+    userParams.push(`%${vendor}%`);
   }
   if (minValue > 0) {
-    filters.push('current_value >= ?');
-    params.push(minValue);
+    userClauses.push('va.current_value >= ?');
+    userParams.push(minValue);
   }
 
-  const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
-  const sql = `
-    SELECT * FROM v_award_current
-    ${where}
-    ORDER BY current_value DESC NULLS LAST
-    LIMIT ?
-  `;
-  params.push(limit);
+  const { sql, params } = composeAwardQuery({
+    scope,
+    selectClause: 'SELECT va.* FROM v_award_current va',
+    extraWhere: userClauses.length ? userClauses.join(' AND ') : undefined,
+    extraParams: userParams,
+    tail: 'ORDER BY va.current_value DESC LIMIT ?',
+    tailParams: [limit],
+  });
 
   const result = await c.env.DB.prepare(sql).bind(...params).all();
   return c.json({ count: result.results.length, results: result.results });
 });
 
 app.get('/awards/:id', async (c) => {
-  const row = await c.env.DB.prepare('SELECT * FROM v_award_current WHERE award_id = ?')
-    .bind(c.req.param('id')).first();
+  const scope = await resolveScope(c);
+  if (scope.kind === 'error') return scope.response;
+
+  // Single-award lookup must also honor scope so users can't peek across views.
+  const { sql, params } = composeAwardQuery({
+    scope,
+    selectClause: 'SELECT va.* FROM v_award_current va',
+    extraWhere: 'va.award_id = ?',
+    extraParams: [c.req.param('id')],
+    tail: 'LIMIT 1',
+  });
+  const row = await c.env.DB.prepare(sql).bind(...params).first();
   if (!row) return c.json({ error: 'not found' }, 404);
   return c.json(row);
 });
 
 app.get('/awards/expiring/:months', async (c) => {
+  const scope = await resolveScope(c);
+  if (scope.kind === 'error') return scope.response;
+
   const months = Math.min(Number(c.req.param('months') ?? 18), 60);
-  const result = await c.env.DB.prepare(`
-    SELECT * FROM v_award_current
-    WHERE pop_end_date IS NOT NULL
-      AND date(pop_end_date) BETWEEN date('now') AND date('now', ?)
-    ORDER BY current_value DESC
-    LIMIT 500
-  `).bind(`+${months} months`).all();
+
+  const { sql, params } = composeAwardQuery({
+    scope,
+    selectClause: 'SELECT va.* FROM v_award_current va',
+    extraWhere: `va.pop_end_date IS NOT NULL
+                 AND date(va.pop_end_date) BETWEEN date('now') AND date('now', ?)`,
+    extraParams: [`+${months} months`],
+    tail: 'ORDER BY va.current_value DESC LIMIT 500',
+  });
+  const result = await c.env.DB.prepare(sql).bind(...params).all();
   return c.json({ count: result.results.length, months, results: result.results });
 });
 
 // ---------- Vendors ----------
 
 app.get('/vendors', async (c) => {
+  const scope = await resolveScope(c);
+  if (scope.kind === 'error') return scope.response;
+
   const q = c.req.query('q');
   const limit = Math.min(Number(c.req.query('limit') ?? 50), 500);
-  let sql = 'SELECT * FROM v_vendor_rollup';
-  const params: unknown[] = [];
-  if (q) { sql += ' WHERE legal_name LIKE ?'; params.push(`%${q}%`); }
-  sql += ' ORDER BY total_value DESC LIMIT ?';
-  params.push(limit);
-  const result = await c.env.DB.prepare(sql).bind(...params).all();
-  return c.json({ count: result.results.length, results: result.results });
+
+  if (scope.kind === 'unscoped') {
+    let sql = 'SELECT * FROM v_vendor_rollup';
+    const params: unknown[] = [];
+    if (q) { sql += ' WHERE legal_name LIKE ?'; params.push(`%${q}%`); }
+    sql += ' ORDER BY total_value DESC LIMIT ?';
+    params.push(limit);
+    const r = await c.env.DB.prepare(sql).bind(...params).all();
+    return c.json({ count: r.results.length, results: r.results });
+  }
+
+  // Scoped: aggregate vendor rollup over only this view's awards.
+  const { sql, params } = composeAwardQuery({
+    scope,
+    selectClause: `
+      SELECT
+        v.vendor_id, v.uei, v.legal_name,
+        COUNT(va.award_id)                     AS num_awards,
+        COALESCE(SUM(va.current_value), 0)     AS total_value,
+        MIN(va.pop_start_date)                 AS first_award_date,
+        MAX(va.pop_end_date)                   AS last_pop_end
+      FROM v_award_current va
+      JOIN vendor v ON v.vendor_id = va.vendor_id
+    `,
+    extraWhere: q ? 'v.legal_name LIKE ?' : undefined,
+    extraParams: q ? [`%${q}%`] : [],
+    tail: `GROUP BY v.vendor_id, v.uei, v.legal_name
+           ORDER BY total_value DESC
+           LIMIT ?`,
+    tailParams: [limit],
+  });
+  const r = await c.env.DB.prepare(sql).bind(...params).all();
+  return c.json({ count: r.results.length, results: r.results });
 });
 
 app.get('/vendors/:idOrUei', async (c) => {
@@ -226,43 +298,113 @@ app.get('/runs/:id', async (c) => {
 // ---------- Aggregations / dashboard data ----------
 
 app.get('/stats/overview', async (c) => {
-  const [awards, vendors, orgs, spend] = await Promise.all([
-    c.env.DB.prepare('SELECT COUNT(*) AS n FROM award').first<{ n: number }>(),
-    c.env.DB.prepare('SELECT COUNT(*) AS n FROM vendor').first<{ n: number }>(),
-    c.env.DB.prepare('SELECT COUNT(*) AS n FROM organization').first<{ n: number }>(),
-    c.env.DB.prepare('SELECT COALESCE(SUM(current_value), 0) AS total FROM award').first<{ total: number }>(),
-  ]);
+  const scope = await resolveScope(c);
+  if (scope.kind === 'error') return scope.response;
+
+  if (scope.kind === 'unscoped') {
+    const [awards, vendors, orgs, spend] = await Promise.all([
+      c.env.DB.prepare('SELECT COUNT(*) AS n FROM award').first<{ n: number }>(),
+      c.env.DB.prepare('SELECT COUNT(*) AS n FROM vendor').first<{ n: number }>(),
+      c.env.DB.prepare('SELECT COUNT(*) AS n FROM organization').first<{ n: number }>(),
+      c.env.DB.prepare('SELECT COALESCE(SUM(current_value), 0) AS total FROM award').first<{ total: number }>(),
+    ]);
+    return c.json({
+      awards: awards?.n ?? 0,
+      vendors: vendors?.n ?? 0,
+      organizations: orgs?.n ?? 0,
+      total_obligated_usd: spend?.total ?? 0,
+    });
+  }
+
+  // Scoped: count + sum within the view's award set.
+  const { sql, params } = composeAwardQuery({
+    scope,
+    selectClause: `
+      SELECT
+        COUNT(DISTINCT va.award_id)            AS awards,
+        COUNT(DISTINCT va.vendor_id)           AS vendors,
+        COUNT(DISTINCT va.awarding_org_name)   AS organizations,
+        COALESCE(SUM(va.current_value), 0)     AS total_obligated_usd
+      FROM v_award_current va
+    `,
+    tail: '',
+  });
+  const r = await c.env.DB.prepare(sql).bind(...params).first<{
+    awards: number; vendors: number; organizations: number; total_obligated_usd: number;
+  }>();
   return c.json({
-    awards: awards?.n ?? 0,
-    vendors: vendors?.n ?? 0,
-    organizations: orgs?.n ?? 0,
-    total_obligated_usd: spend?.total ?? 0,
+    awards: r?.awards ?? 0,
+    vendors: r?.vendors ?? 0,
+    organizations: r?.organizations ?? 0,
+    total_obligated_usd: r?.total_obligated_usd ?? 0,
   });
 });
 
 app.get('/stats/top-vendors', async (c) => {
+  const scope = await resolveScope(c);
+  if (scope.kind === 'error') return scope.response;
+
   const limit = Math.min(Number(c.req.query('limit') ?? 10), 100);
-  const result = await c.env.DB.prepare(`
-    SELECT * FROM v_vendor_rollup
-    WHERE num_awards > 0
-    ORDER BY total_value DESC
-    LIMIT ?
-  `).bind(limit).all();
-  return c.json({ count: result.results.length, results: result.results });
+
+  if (scope.kind === 'unscoped') {
+    const r = await c.env.DB.prepare(`
+      SELECT * FROM v_vendor_rollup
+      WHERE num_awards > 0
+      ORDER BY total_value DESC
+      LIMIT ?
+    `).bind(limit).all();
+    return c.json({ count: r.results.length, results: r.results });
+  }
+
+  const { sql, params } = composeAwardQuery({
+    scope,
+    selectClause: `
+      SELECT
+        v.vendor_id, v.uei, v.legal_name,
+        COUNT(va.award_id)                 AS num_awards,
+        COALESCE(SUM(va.current_value), 0) AS total_value
+      FROM v_award_current va
+      JOIN vendor v ON v.vendor_id = va.vendor_id
+    `,
+    tail: `GROUP BY v.vendor_id, v.uei, v.legal_name
+           ORDER BY total_value DESC
+           LIMIT ?`,
+    tailParams: [limit],
+  });
+  const r = await c.env.DB.prepare(sql).bind(...params).all();
+  return c.json({ count: r.results.length, results: r.results });
 });
 
 app.get('/stats/by-agency', async (c) => {
-  const result = await c.env.DB.prepare(`
-    SELECT o.canonical_name AS agency,
-           COUNT(a.award_id) AS num_awards,
-           COALESCE(SUM(a.current_value), 0) AS total_value
-    FROM award a
-    JOIN organization o ON o.org_id = a.awarding_org_id
-    GROUP BY o.canonical_name
-    ORDER BY total_value DESC
-    LIMIT 50
-  `).all();
-  return c.json({ count: result.results.length, results: result.results });
+  const scope = await resolveScope(c);
+  if (scope.kind === 'error') return scope.response;
+
+  if (scope.kind === 'unscoped') {
+    const r = await c.env.DB.prepare(`
+      SELECT o.canonical_name AS agency,
+             COUNT(a.award_id) AS num_awards,
+             COALESCE(SUM(a.current_value), 0) AS total_value
+      FROM award a
+      JOIN organization o ON o.org_id = a.awarding_org_id
+      GROUP BY o.canonical_name
+      ORDER BY total_value DESC
+      LIMIT 50
+    `).all();
+    return c.json({ count: r.results.length, results: r.results });
+  }
+
+  const { sql, params } = composeAwardQuery({
+    scope,
+    selectClause: `
+      SELECT va.awarding_org_name AS agency,
+             COUNT(va.award_id)   AS num_awards,
+             COALESCE(SUM(va.current_value), 0) AS total_value
+      FROM v_award_current va
+    `,
+    tail: 'GROUP BY va.awarding_org_name ORDER BY total_value DESC LIMIT 50',
+  });
+  const r = await c.env.DB.prepare(sql).bind(...params).all();
+  return c.json({ count: r.results.length, results: r.results });
 });
 
 // ---------- Diagnostics: why does USAspending fail from the Worker? ----------
@@ -362,18 +504,152 @@ function checkIngestToken(c: { req: { header: (k: string) => string | undefined 
   return eq === 0 ? null : 'unauthorized';
 }
 
-// ---------- Admin: backfill toptier codes (called by VM cron) ----------
-app.post('/admin/backfill-toptier-codes', async (c) => {
+// ---------- Internal: backfill toptier codes (called by VM cron) ----------
+// Token-auth. Lives at /internal/* (not /admin/*) — adminUsersApp's
+// wildcard `requireAdmin` middleware would otherwise reject the caller.
+app.post('/internal/backfill-toptier-codes', async (c) => {
   const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
   const result = await backfillToptierCodes(c.env.DB);
   return c.json(result);
 });
 
-// ---------- Admin: reconciliation (called by VM cron) ----------
-app.post('/admin/reconcile', async (c) => {
+// ---------- Internal: reconciliation (called by VM cron) ----------
+app.post('/internal/reconcile', async (c) => {
   const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
   const result = await runReconciliation(c.env.DB, c.env.META);
   return c.json(result);
+});
+
+// ---------- Sidecar: read enabled views with their filters ----------
+//
+// Token-auth (NOT session). Returns one row per enabled view; the sidecar
+// loops over these and runs a USAspending pull per view, posting back to
+// /import/awards with view_id set. That's how each view "fills its bucket."
+//
+// Lives at /sidecar/* (not /admin/*) — adminUsersApp's wildcard
+// `requireAdmin` middleware would otherwise reject the token-auth caller.
+app.get('/sidecar/views', async (c) => {
+  const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
+  const r = await c.env.DB.prepare(`
+    SELECT view_id, name, description, filters_json
+    FROM data_view
+    WHERE enabled = 1
+    ORDER BY name ASC
+  `).all<{ view_id: string; name: string; description: string | null; filters_json: string }>();
+  return c.json({
+    count: r.results.length,
+    results: r.results.map((row) => ({
+      view_id: row.view_id,
+      name: row.name,
+      description: row.description,
+      filters: JSON.parse(row.filters_json),
+    })),
+  });
+});
+
+// ---------- Import: USAspending awards (called by VM sidecar, per view) ----------
+//
+// Body: { run_id?, view_id, response, finalize, metadata }
+//   run_id      — omit on first page; the worker creates one and returns it
+//   view_id     — required: every award gets tagged into view_award for this view
+//   response    — the parsed USAspending /search/spending_by_award/ JSON page
+//   finalize    — true on the last call (no response needed); marks run as success
+//   metadata    — free-form, stored in error_summary as JSON
+app.post('/import/awards', async (c) => {
+  const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
+  const body = await c.req.json().catch(() => null) as {
+    run_id?: number;
+    view_id?: string;
+    response?: unknown;
+    finalize?: boolean;
+    metadata?: Record<string, unknown>;
+  } | null;
+  if (!body) return c.json({ error: 'invalid JSON body' }, 400);
+  if (!body.view_id) return c.json({ error: 'view_id is required' }, 400);
+
+  // Validate the view exists and is enabled — protects against stale clients.
+  const view = await c.env.DB.prepare(
+    'SELECT view_id FROM data_view WHERE view_id = ? AND enabled = 1',
+  ).bind(body.view_id).first<{ view_id: string }>();
+  if (!view) return c.json({ error: 'view_not_found_or_disabled' }, 404);
+
+  const now = nowIso();
+  let runId = body.run_id;
+  if (!runId) {
+    const r = await c.env.DB.prepare(`
+      INSERT INTO ingestion_run (source_id, started_at, status, error_summary)
+      VALUES ('usaspending', ?, 'running', ?)
+      RETURNING run_id
+    `).bind(
+      now,
+      JSON.stringify({ view_id: body.view_id, ...(body.metadata ?? {}) }),
+    ).first<{ run_id: number }>();
+    if (!r) return c.json({ error: 'failed to open run' }, 500);
+    runId = r.run_id;
+  }
+
+  // Finalize-only call (sidecar end-of-loop signal).
+  if (!body.response) {
+    if (body.finalize) {
+      await c.env.DB.prepare(`
+        UPDATE ingestion_run SET status = 'success', finished_at = ? WHERE run_id = ?
+      `).bind(now, runId).run();
+    }
+    return c.json({ run_id: runId, upserted: 0, failed: 0 });
+  }
+
+  // Parse the page to canonical awards.
+  const adapter = new UsaspendingAdapter();
+  const canonical = adapter.parse({
+    endpoint: '/search/spending_by_award/',
+    requestParams: {},
+    response: body.response,
+    responseHash: '',
+  });
+
+  // Upsert each award (in its own batch so a single bad row doesn't kill the page).
+  let upserted = 0;
+  let failed = 0;
+  const awardIds: string[] = [];
+  for (const award of canonical) {
+    try {
+      const stmts = await buildUpsertStatements(c.env.DB, 'usaspending', award);
+      await c.env.DB.batch(stmts);
+      const awardId = await deterministicId('usaspending', `award::${award.external_id}`);
+      awardIds.push(awardId);
+      upserted++;
+    } catch {
+      failed++;
+    }
+  }
+
+  // Bucket the awards under this view.
+  if (awardIds.length > 0) {
+    const tagStmts = awardIds.map((awardId) =>
+      c.env.DB.prepare(`
+        INSERT OR IGNORE INTO view_award (view_id, award_id, added_at)
+        VALUES (?, ?, ?)
+      `).bind(body.view_id, awardId, now),
+    );
+    await c.env.DB.batch(tagStmts);
+  }
+
+  // Update run counters.
+  await c.env.DB.prepare(`
+    UPDATE ingestion_run
+    SET rows_fetched  = rows_fetched  + ?,
+        rows_upserted = rows_upserted + ?,
+        rows_failed   = rows_failed   + ?
+    WHERE run_id = ?
+  `).bind(canonical.length, upserted, failed, runId).run();
+
+  if (body.finalize) {
+    await c.env.DB.prepare(`
+      UPDATE ingestion_run SET status = 'success', finished_at = ? WHERE run_id = ?
+    `).bind(now, runId).run();
+  }
+
+  return c.json({ run_id: runId, upserted, failed });
 });
 
 // ---------- Import: Grants.gov opportunities (called by VM cron) ----------
@@ -455,21 +731,39 @@ app.post('/import/opportunities', async (c) => {
 });
 
 // ---------- Import: SAM exclusions (called by VM cron) ----------
+//
+// Body:
+//   {
+//     run_id?:        existing run id (omit on first batch — server creates one)
+//     extract_date:   ISO date the upstream extract was generated (required)
+//     records:        Array<{ sam_number?, uei?, duns?, cage_code?, legal_name,
+//                             classification?, exclusion_type?, ct_code?,
+//                             active_date?, termination_date?, excluding_agency?,
+//                             reason?, country_code?, state?, city?, address_line?,
+//                             zip?, is_active? }>
+//     finalize:       boolean — last batch closes the run
+//   }
+//
+// `exclusion_id` is derived as a stable hash of (sam_number || uei+name+active_date)
+// so re-pulls dedupe naturally via ON CONFLICT.
 app.post('/import/exclusions', async (c) => {
   const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
   const body = await c.req.json().catch(() => null) as {
     run_id?: number;
+    extract_date?: string;
     records?: Array<Record<string, unknown>>;
     finalize?: boolean;
   } | null;
   if (!body) return c.json({ error: 'invalid JSON body' }, 400);
 
   const now = nowIso();
+  const extractDate = body.extract_date ?? now.slice(0, 10);
+
   let runId = body.run_id;
   if (!runId) {
     const r = await c.env.DB.prepare(`
       INSERT INTO ingestion_run (source_id, started_at, status, error_summary)
-      VALUES ('sam_bulk', ?, 'running', 'vm-import')
+      VALUES ('sam_bulk', ?, 'running', 'vm-import sam-exclusions')
       RETURNING run_id
     `).bind(now).first<{ run_id: number }>();
     if (!r) return c.json({ error: 'failed to open run' }, 500);
@@ -478,50 +772,107 @@ app.post('/import/exclusions', async (c) => {
 
   const records = body.records ?? [];
   let upserted = 0;
+  let skipped  = 0;
   for (let i = 0; i < records.length; i += 100) {
     const chunk = records.slice(i, i + 100);
     const stmts: D1PreparedStatement[] = [];
     for (const r of chunk) {
-      const get = (k: string) => (r[k] ?? null) as string | null;
+      const str = (k: string): string | null => {
+        const v = r[k];
+        if (v === undefined || v === null) return null;
+        const s = String(v).trim();
+        return s.length === 0 ? null : s;
+      };
+      const num = (k: string): number | null => {
+        const v = r[k];
+        if (v === undefined || v === null || v === '') return null;
+        const n = Number(v);
+        return Number.isFinite(n) ? n : null;
+      };
+
+      const legalName = str('legal_name');
+      if (!legalName) { skipped++; continue; }
+
+      // Stable id: prefer SAM's row id; else hash of identity-defining fields.
+      const explicitId = str('sam_number') ?? str('source_row_id');
+      const fallbackKey =
+        (str('uei') ?? '') + '|' +
+        legalName + '|' +
+        (str('active_date') ?? '') + '|' +
+        (str('ct_code') ?? '');
+      const exclusionId = explicitId
+        ? `sam:${explicitId}`
+        : `sam:hash:${await sha256Hex(fallbackKey)}`;
+
+      const isActiveRaw = num('is_active');
+      const isActive = isActiveRaw === null ? 1 : (isActiveRaw ? 1 : 0);
+
       stmts.push(c.env.DB.prepare(`
         INSERT INTO sam_exclusion
-          (classification_type, exclusion_program, excluding_agency_name,
-           cage_code, npi, sam_number, name, prefix, first_name, middle_name,
-           last_name, suffix, address1, city, state_province, country,
-           zip_code, dunsbradstreet, ueisam, exclusion_type, additional_comments,
-           active_date, termination_date, record_status, cross_reference, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(sam_number) DO UPDATE SET
-          name = excluded.name, ueisam = excluded.ueisam, cage_code = excluded.cage_code,
-          active_date = excluded.active_date, termination_date = excluded.termination_date,
-          record_status = excluded.record_status
+          (exclusion_id, source_row_id, uei, duns, cage_code, legal_name,
+           classification, exclusion_type, ct_code, is_active,
+           active_date, termination_date, excluding_agency, reason,
+           country_code, state, city, address_line, zip,
+           extract_date, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(exclusion_id) DO UPDATE SET
+          source_row_id    = excluded.source_row_id,
+          uei              = COALESCE(excluded.uei,        sam_exclusion.uei),
+          duns             = COALESCE(excluded.duns,       sam_exclusion.duns),
+          cage_code        = COALESCE(excluded.cage_code,  sam_exclusion.cage_code),
+          legal_name       = excluded.legal_name,
+          classification   = COALESCE(excluded.classification,   sam_exclusion.classification),
+          exclusion_type   = COALESCE(excluded.exclusion_type,   sam_exclusion.exclusion_type),
+          ct_code          = COALESCE(excluded.ct_code,          sam_exclusion.ct_code),
+          is_active        = excluded.is_active,
+          active_date      = COALESCE(excluded.active_date,      sam_exclusion.active_date),
+          termination_date = excluded.termination_date,
+          excluding_agency = COALESCE(excluded.excluding_agency, sam_exclusion.excluding_agency),
+          reason           = COALESCE(excluded.reason,           sam_exclusion.reason),
+          country_code     = COALESCE(excluded.country_code,     sam_exclusion.country_code),
+          state            = COALESCE(excluded.state,            sam_exclusion.state),
+          city             = COALESCE(excluded.city,             sam_exclusion.city),
+          address_line     = COALESCE(excluded.address_line,     sam_exclusion.address_line),
+          zip              = COALESCE(excluded.zip,              sam_exclusion.zip),
+          extract_date     = excluded.extract_date,
+          updated_at       = excluded.updated_at
       `).bind(
-        get('classification_type'), get('exclusion_program'), get('excluding_agency_name'),
-        get('cage_code'), get('npi'), get('sam_number'), get('name'), get('prefix'),
-        get('first_name'), get('middle_name'), get('last_name'), get('suffix'),
-        get('address1'), get('city'), get('state_province'), get('country'),
-        get('zip_code'), get('dunsbradstreet'), get('ueisam'), get('exclusion_type'),
-        get('additional_comments'), get('active_date'), get('termination_date'),
-        get('record_status'), get('cross_reference'), now,
+        exclusionId, str('source_row_id') ?? str('sam_number'),
+        str('uei'), str('duns'), str('cage_code'), legalName,
+        str('classification'), str('exclusion_type'), str('ct_code'),
+        isActive,
+        str('active_date'), str('termination_date'),
+        str('excluding_agency'), str('reason'),
+        str('country_code'), str('state'), str('city'), str('address_line'), str('zip'),
+        extractDate, now, now,
       ));
     }
     if (stmts.length) await c.env.DB.batch(stmts);
-    upserted += chunk.length;
+    upserted += stmts.length;
   }
 
   await c.env.DB.prepare(`
-    UPDATE ingestion_run SET rows_fetched = rows_fetched + ?, rows_upserted = rows_upserted + ?
+    UPDATE ingestion_run
+    SET rows_fetched = rows_fetched + ?, rows_upserted = rows_upserted + ?, rows_failed = rows_failed + ?
     WHERE run_id = ?
-  `).bind(records.length, upserted, runId).run();
+  `).bind(records.length, upserted, skipped, runId).run();
 
   if (body.finalize) {
     await c.env.DB.prepare(`
-      UPDATE ingestion_run SET status='success', finished_at=?, error_summary=COALESCE(error_summary,'vm-import complete')
+      UPDATE ingestion_run
+      SET status='success', finished_at=?, error_summary=COALESCE(error_summary,'vm-import sam-exclusions complete')
       WHERE run_id = ?
     `).bind(now, runId).run();
   }
-  return c.json({ run_id: runId, fetched: records.length, upserted });
+  return c.json({ run_id: runId, fetched: records.length, upserted, skipped });
 });
+
+// Tiny helper used by exclusion id derivation when SAM doesn't supply one.
+async function sha256Hex(input: string): Promise<string> {
+  const buf = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest('SHA-256', buf);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
 
 // ---------- Mark stuck runs as failed (manual cleanup, no workflow termination) ----------
 // In Path B (no Workflows), there's no async workflow to terminate. This endpoint
@@ -608,13 +959,31 @@ app.get('/sam-api/status', async (c) => {
 // ---------- SAM Exclusions ----------
 
 app.get('/exclusions', async (c) => {
+  const scope = await resolveScope(c);
+  if (scope.kind === 'error') return scope.response;
+
   const q = c.req.query('q');
   const activeOnly = c.req.query('active') !== 'false';
   const limit = Math.min(Number(c.req.query('limit') ?? 50), 500);
+
   const filters: string[] = [];
   const params: unknown[] = [];
   if (q) { filters.push('(legal_name LIKE ? OR uei = ?)'); params.push(`%${q}%`, q); }
   if (activeOnly) { filters.push('is_active = 1'); }
+
+  // View scope: limit to UEIs of vendors that have awards in this view.
+  // (SAM exclusions don't carry an org/award FK themselves — we join through
+  // the vendor table to find UEIs that intersect with the view's awards.)
+  if (scope.kind === 'scoped') {
+    filters.push(`uei IN (
+      SELECT DISTINCT v.uei FROM vendor v
+      JOIN award a       ON a.vendor_id = v.vendor_id
+      JOIN view_award vw ON vw.award_id = a.award_id
+      WHERE vw.view_id = ? AND v.uei IS NOT NULL
+    )`);
+    params.push(scope.view.view_id);
+  }
+
   const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
   const result = await c.env.DB.prepare(`
     SELECT exclusion_id, uei, legal_name, classification, exclusion_type,
@@ -650,6 +1019,9 @@ app.get('/vendors/:id/exclusion-status', async (c) => {
 // ---------- Grants.gov Opportunities ----------
 
 app.get('/opportunities', async (c) => {
+  const scope = await resolveScope(c);
+  if (scope.kind === 'error') return scope.response;
+
   const q = c.req.query('q');
   const agency = c.req.query('agency');
   const status = c.req.query('status') ?? 'posted';
@@ -666,6 +1038,19 @@ app.get('/opportunities', async (c) => {
   if (agency) { filters.push('agency_code LIKE ?'); params.push(`%${agency}%`); }
   if (status && status !== 'any') { filters.push('status = ?'); params.push(status); }
   if (activeOnly) { filters.push(`(close_date IS NULL OR date(close_date) >= date('now'))`); }
+
+  // View scope: match by agency name. If the view picks a subtier (CDC, NIH),
+  // prefer that — it's narrower. Otherwise fall back to the toptier (HHS).
+  // Match against agency_name OR agency_code, since Grants.gov data uses
+  // both — agency_code is "HHS-CDC", agency_name is the full string.
+  if (scope.kind === 'scoped') {
+    const f = scope.view.filters;
+    const targetName = f.subtier_agency_name ?? f.toptier_agency_name;
+    if (targetName) {
+      filters.push('(agency_name LIKE ? OR agency_code LIKE ?)');
+      params.push(`%${targetName}%`, `%${targetName}%`);
+    }
+  }
 
   const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
   const result = await c.env.DB.prepare(`

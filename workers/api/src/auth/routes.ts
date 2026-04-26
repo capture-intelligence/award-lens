@@ -21,6 +21,12 @@ export interface AuthEnv {
   MICROSOFT_TENANT_ID?: string;
   /** Where to redirect the browser after a successful login. */
   AUTH_REDIRECT_URL?: string;
+  /**
+   * Public origin where the dashboard is served (e.g. https://awards-dashboard.pages.dev).
+   * Used as the OAuth redirect_uri so callbacks come back through the Pages
+   * proxy — that way the session cookie ends up first-party.
+   */
+  AUTH_PUBLIC_BASE_URL?: string;
 }
 
 const ADMIN_BOOTSTRAP_EMAIL = 'algocrat@gmail.com';
@@ -122,24 +128,54 @@ authApp.use('/google', async (c, next) => {
   if (!c.env.GOOGLE_CLIENT_ID || !c.env.GOOGLE_CLIENT_SECRET) {
     return c.json({ error: 'google_oauth_not_configured' }, 503);
   }
-  return googleAuth({
-    client_id: c.env.GOOGLE_CLIENT_ID,
-    client_secret: c.env.GOOGLE_CLIENT_SECRET,
-    scope: ['openid', 'email', 'profile'],
-  })(c, next);
+  try {
+    const publicBase = c.env.AUTH_PUBLIC_BASE_URL ?? FRONTEND_DEFAULT;
+    return await googleAuth({
+      client_id: c.env.GOOGLE_CLIENT_ID,
+      client_secret: c.env.GOOGLE_CLIENT_SECRET,
+      scope: ['openid', 'email', 'profile'],
+      redirect_uri: `${publicBase}/auth/google`,
+    })(c, next);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'unknown';
+    console.error('google_auth_middleware_error:', msg);
+    const url = new URL(c.env.AUTH_REDIRECT_URL ?? FRONTEND_DEFAULT);
+    url.searchParams.set('auth_error', 'google_middleware');
+    url.searchParams.set('detail', msg.slice(0, 200));
+    return c.redirect(url.toString());
+  }
 });
 authApp.get('/google', async (c) => {
-  const profile = c.get('user-google') as
-    | { id?: string; email?: string; name?: string; picture?: string }
-    | undefined;
-  if (!profile?.email || !profile.id) {
-    return c.redirect(`${c.env.AUTH_REDIRECT_URL ?? FRONTEND_DEFAULT}/?auth_error=google_no_profile`);
+  try {
+    const profile = c.get('user-google') as
+      | { id?: string; email?: string; name?: string; picture?: string }
+      | undefined;
+    console.log('google_handler: profile present=' + !!profile + ' keys=' + (profile ? Object.keys(profile).join(',') : 'none'));
+    if (!profile?.email || !profile.id) {
+      const url = new URL(c.env.AUTH_REDIRECT_URL ?? FRONTEND_DEFAULT);
+      url.searchParams.set('auth_error', 'google_no_profile');
+      url.searchParams.set('have_profile', String(!!profile));
+      url.searchParams.set('have_email', String(!!profile?.email));
+      url.searchParams.set('have_id', String(!!profile?.id));
+      console.log('google_handler: redirecting with auth_error to ' + url.toString());
+      return c.redirect(url.toString());
+    }
+    console.log('google_handler: upserting user email=' + profile.email);
+    await upsertUserAndSignIn(c, 'google', {
+      email: profile.email, sub: profile.id,
+      name: profile.name, picture: profile.picture,
+    });
+    const target = c.env.AUTH_REDIRECT_URL ?? FRONTEND_DEFAULT;
+    console.log('google_handler: SUCCESS, redirecting to ' + target);
+    return c.redirect(target);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'unknown';
+    console.error('google_auth_handler_error:', msg);
+    const url = new URL(c.env.AUTH_REDIRECT_URL ?? FRONTEND_DEFAULT);
+    url.searchParams.set('auth_error', 'google_handler');
+    url.searchParams.set('detail', msg.slice(0, 200));
+    return c.redirect(url.toString());
   }
-  await upsertUserAndSignIn(c, 'google', {
-    email: profile.email, sub: profile.id,
-    name: profile.name, picture: profile.picture,
-  });
-  return c.redirect(c.env.AUTH_REDIRECT_URL ?? FRONTEND_DEFAULT);
 });
 
 // ─── Microsoft (Entra ID / Azure AD) ────────────────────────────────────────
@@ -155,8 +191,11 @@ authApp.get('/microsoft', async (c) => {
   const tenant = c.env.MICROSOFT_TENANT_ID ?? 'common';
   const code = c.req.query('code');
   const stateParam = c.req.query('state');
-  const url = new URL(c.req.url);
-  const redirectUri = `${url.origin}/auth/microsoft`;
+  // Use the public dashboard origin (Pages) as the OAuth redirect target so
+  // the callback lands on a same-origin URL — the Pages Function then proxies
+  // it to this worker. That keeps the session cookie first-party.
+  const publicBase = c.env.AUTH_PUBLIC_BASE_URL ?? FRONTEND_DEFAULT;
+  const redirectUri = `${publicBase}/auth/microsoft`;
 
   // ── Step 1: no code yet → kick off OAuth redirect ──────────────────────
   if (!code) {

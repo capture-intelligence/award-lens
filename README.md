@@ -1,8 +1,17 @@
-# Federal Awards Data Pipeline — Cloudflare Free + Oracle Sidecar Edition
+# AwardLens AI — Federal Procurement Intelligence
 
-A hybrid pipeline that replicates federal contracting data from **USAspending.gov**, **Grants.gov**, and (optionally) **SAM.gov** into a queryable warehouse. Cloudflare's Free tier hosts the API + dashboard + D1 warehouse; an Oracle Cloud Always-Free VM runs the daily ingestion via systemd timers.
+> **Live site:** **<https://awards-dashboard.pages.dev>**
 
-**Cost: ~$0/month forever** (Cloudflare Free tier + Oracle Always Free).
+A hybrid pipeline that replicates federal contracting data from **USAspending.gov**, **Grants.gov**, and **SAM.gov** into a queryable warehouse, then exposes it through a curated-views dashboard with per-user access control. Cloudflare's Free tier hosts the API + Pages dashboard + D1 warehouse; an Oracle Cloud Always-Free VM runs all ingestion via systemd timers.
+
+**Cost: ~$0/month forever** (Cloudflare Free + Oracle Always Free).
+
+Highlights:
+
+- **Scoped views** — admins curate per-program slices (e.g. CDC/NCHHSTP, CDC/NCHS‑DVS); the sidecar pulls USAspending per-view and tags awards into a `view_award` M2M, so each view's bucket is data-isolated at the SQL layer.
+- **OAuth-gated** — Google and Microsoft sign-in via a Pages Function proxy that keeps the session cookie first-party (no tracking-prevention headaches).
+- **Per-view "Run now"** — admins trigger immediate ingestions; failures retry with exponential backoff (1, 2, 4, 8, 16 min × 5 attempts).
+- **Audit-grade access control** — users request access per view; admins approve/deny; every change is logged in `app_user_audit` / `view_access`.
 
 > **Status:** Production-deployed reference implementation. The setup walkthroughs below assume you'll fork and stand up your own Cloudflare account; nothing in this repo grants access to anyone else's deployment.
 

@@ -1,0 +1,22 @@
+[Unit]
+Description=Awards Pipeline — SAM.gov Exclusions sync
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=awards
+Group=awards
+WorkingDirectory=/opt/awards-pipeline/sidecar-oracle
+EnvironmentFile=/opt/awards-pipeline/sidecar-oracle/.env
+ExecStart=/usr/bin/node /opt/awards-pipeline/sidecar-oracle/sync-sam-exclusions.mjs
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=awards-exclusions
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/awards-pipeline/sidecar-oracle
+MemoryMax=384M
+TimeoutStartSec=30min

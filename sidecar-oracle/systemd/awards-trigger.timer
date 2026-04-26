@@ -1,0 +1,14 @@
+[Unit]
+Description=Poll for per-view "Run Now" requests every minute
+Requires=awards-trigger.service
+
+[Timer]
+# Fire every 60 seconds, starting 30s after boot.
+OnBootSec=30s
+OnUnitActiveSec=60s
+# Ensure quick re-fire even if the previous run took >60s.
+AccuracySec=15s
+Unit=awards-trigger.service
+
+[Install]
+WantedBy=timers.target

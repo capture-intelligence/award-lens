@@ -1,30 +1,22 @@
 #!/usr/bin/env node
 // =============================================================================
-// Oracle Cloud sidecar — USAspending → api-worker/import/awards
+// Oracle Cloud sidecar — USAspending → api-worker/import/awards (PER VIEW)
 //
-// Runs on an Oracle Always Free VM under a systemd timer. Fetches USAspending
-// from the VM's IP (not Cloudflare's blocked ranges), then posts normalized
-// pages to the Cloudflare api-worker for upsert into D1.
+// Runs on an Oracle Always Free VM under a systemd timer. For each enabled
+// view defined in the dashboard (Admin → Views), fetches USAspending using
+// THAT view's filters, then posts pages to the api-worker for upsert. Every
+// award is also tagged into view_award against the view's id, which is what
+// makes "scoped buckets per view" work end-to-end.
 //
-// Config via environment variables (loaded by systemd EnvironmentFile):
+// Environment variables (loaded by systemd EnvironmentFile):
 //
 //   API_BASE              (required) — https://api-worker.<sub>.workers.dev
-//   INGEST_TOKEN          (required) — shared secret matching the Worker's
-//                                      INGEST_TOKEN secret
-//   SINCE                 YYYY-MM-DD  (default: 90 days ago)
-//   UNTIL                 YYYY-MM-DD  (default: today)
-//   MAX_PAGES             integer     (default: 10)
-//   AGENCIES              "A,B" — toptier agency names
-//   SUBTIER_AGENCIES      "A,B"
-//   KEYWORDS              "K1,K2"
-//   NAICS_CODES           "123,456"
-//   PSC_CODES             "R408,Q301"
-//   RECIPIENT             "Lantana"
-//   MIN_VALUE             integer (USD)
-//   MAX_VALUE             integer (USD)
-//   AWARD_TYPES           "A,B,C,D" (default: contracts)
+//   INGEST_TOKEN          (required) — shared secret matching the worker
+//   MAX_PAGES_PER_VIEW    integer    (default 25)
+//   FALLBACK_LOOKBACK_MO  integer    (default 24, used when a view omits it)
+//   ONLY_VIEW             string     (optional view_id — if set, ingest just that one)
 //
-// Exit codes: 0 = success, 1 = failure (systemd will log/alert)
+// Exit codes: 0 = success on every view, 1 = at least one view failed.
 // =============================================================================
 
 const USA_BASE = 'https://api.usaspending.gov/api/v2';
@@ -32,68 +24,80 @@ const PAGE_SIZE = 100;
 const PACE_MS = 1500;
 const DRY = process.argv.includes('--dry-run');
 
-// ─── Env & validation ──────────────────────────────────────────────────────
 const env = process.env;
-
-function requireEnv(name) {
+function require_env(name) {
   const v = env[name];
   if (!v) { console.error(`ERROR: env var ${name} is required`); process.exit(1); }
   return v;
 }
-function csv(name) { return (env[name] ?? '').split(',').map((x) => x.trim()).filter(Boolean); }
-function num(name) { const v = env[name]; if (!v) return undefined; const n = Number(v); return Number.isFinite(n) ? n : undefined; }
+const API = require_env('API_BASE').replace(/\/$/, '');
+const TOKEN = require_env('INGEST_TOKEN');
+const MAX_PAGES = Number(env.MAX_PAGES_PER_VIEW || 25);
+const FALLBACK_LOOKBACK_MO = Number(env.FALLBACK_LOOKBACK_MO || 24);
+const ONLY_VIEW = env.ONLY_VIEW || null;
 
-const API = requireEnv('API_BASE').replace(/\/$/, '');
-const TOKEN = requireEnv('INGEST_TOKEN');
-
-function isoDaysAgo(n) {
-  const d = new Date(); d.setUTCDate(d.getUTCDate() - n);
-  return d.toISOString().slice(0, 10);
-}
-const since = env.SINCE || isoDaysAgo(90);
-const until = env.UNTIL || new Date().toISOString().slice(0, 10);
-const maxPages = Number(env.MAX_PAGES || 10);
-
-const filters = {};
-if (csv('AGENCIES').length)          filters.agencies = csv('AGENCIES');
-if (csv('SUBTIER_AGENCIES').length)  filters.subtier_agencies = csv('SUBTIER_AGENCIES');
-if (csv('KEYWORDS').length)          filters.keywords = csv('KEYWORDS');
-if (csv('NAICS_CODES').length)       filters.naics_codes = csv('NAICS_CODES');
-if (csv('PSC_CODES').length)         filters.psc_codes = csv('PSC_CODES');
-if (env.RECIPIENT)                   filters.recipient_search_text = env.RECIPIENT;
-if (num('MIN_VALUE') !== undefined)  filters.award_amount_min = num('MIN_VALUE');
-if (num('MAX_VALUE') !== undefined)  filters.award_amount_max = num('MAX_VALUE');
-const awardTypes = csv('AWARD_TYPES').length ? csv('AWARD_TYPES') : ['A', 'B', 'C', 'D'];
-
-// ─── Structured logging (one JSON object per line for journald) ────────────
 function log(level, msg, extra = {}) {
   console.log(JSON.stringify({ ts: new Date().toISOString(), level, msg, ...extra }));
 }
 
-log('info', 'sidecar start', { api: API, since, until, maxPages, filters, awardTypes, dry: DRY });
+function isoMonthsAgo(months) {
+  const d = new Date();
+  d.setUTCMonth(d.getUTCMonth() - months);
+  return d.toISOString().slice(0, 10);
+}
 
-// ─── Build USAspending payload ─────────────────────────────────────────────
-function buildPayload(page) {
-  const fb = {
-    time_period: [{ start_date: since, end_date: until, date_type: 'action_date' }],
-    award_type_codes: awardTypes,
-  };
+// ─── Translate a view's filter spec → USAspending filter block ────────────
+function buildUsaspendingFilters(viewFilters) {
+  const fb = {};
+  // Time window — always required by USAspending.
+  const lookback = Number(viewFilters.lookback_months || FALLBACK_LOOKBACK_MO);
+  const since = isoMonthsAgo(lookback);
+  const until = new Date().toISOString().slice(0, 10);
+  fb.time_period = [{ start_date: since, end_date: until, date_type: 'action_date' }];
+
+  // Award types — default to procurement contracts if the view doesn't pick.
+  fb.award_type_codes = (viewFilters.award_types && viewFilters.award_types.length)
+    ? viewFilters.award_types
+    : ['A', 'B', 'C', 'D'];
+
+  // Agencies — USAspending /search/spending_by_award/ accepts a list of
+  // {type, tier, name} objects in `agencies`. Names (canonical) work; codes
+  // do not work for this endpoint.
   const agencyObjs = [];
-  for (const name of filters.agencies ?? [])         agencyObjs.push({ type: 'awarding', tier: 'toptier', name });
-  for (const name of filters.subtier_agencies ?? []) agencyObjs.push({ type: 'awarding', tier: 'subtier', name });
+  if (viewFilters.toptier_agency_name) {
+    agencyObjs.push({ type: 'awarding', tier: 'toptier', name: viewFilters.toptier_agency_name });
+  }
+  if (viewFilters.subtier_agency_name) {
+    agencyObjs.push({ type: 'awarding', tier: 'subtier', name: viewFilters.subtier_agency_name });
+  }
   if (agencyObjs.length) fb.agencies = agencyObjs;
-  if (filters.keywords?.length)      fb.keywords = filters.keywords;
-  if (filters.naics_codes?.length)   fb.naics_codes = filters.naics_codes;
-  if (filters.psc_codes?.length)     fb.psc_codes = filters.psc_codes;
-  if (filters.recipient_search_text) fb.recipient_search_text = [filters.recipient_search_text];
-  if (filters.award_amount_min != null || filters.award_amount_max != null) {
+
+  if (viewFilters.keywords?.length)    fb.keywords    = viewFilters.keywords;
+  if (viewFilters.naics_codes?.length) fb.naics_codes = viewFilters.naics_codes;
+  if (viewFilters.psc_codes?.length)   fb.psc_codes   = viewFilters.psc_codes;
+
+  // Place of performance — USAspending wants
+  // place_of_performance_locations: [{country: "USA", state: "TX"}, ...]
+  if (viewFilters.pop_states?.length) {
+    fb.place_of_performance_locations = viewFilters.pop_states.map((state) => ({
+      country: 'USA',
+      state,
+    }));
+  }
+
+  if (viewFilters.min_value != null || viewFilters.max_value != null) {
     const b = {};
-    if (filters.award_amount_min != null) b.lower_bound = filters.award_amount_min;
-    if (filters.award_amount_max != null) b.upper_bound = filters.award_amount_max;
+    if (viewFilters.min_value != null) b.lower_bound = Number(viewFilters.min_value);
+    if (viewFilters.max_value != null) b.upper_bound = Number(viewFilters.max_value);
     fb.award_amounts = [b];
   }
+
+  return { filterBlock: fb, since, until };
+}
+
+function payloadForPage(filterBlock, page) {
   return {
-    filters: fb,
+    filters: filterBlock,
     fields: [
       'Award ID', 'Recipient Name', 'Recipient UEI',
       'Award Amount', 'Total Outlays', 'Description',
@@ -111,13 +115,13 @@ function buildPayload(page) {
   };
 }
 
-// ─── Fetch w/ retry ───────────────────────────────────────────────────────
-async function fetchPage(page, attempt = 1) {
+// ─── Fetch w/ retry ────────────────────────────────────────────────────────
+async function fetchPage(filterBlock, page, attempt = 1) {
   try {
     const res = await fetch(`${USA_BASE}/search/spending_by_award/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify(buildPayload(page)),
+      body: JSON.stringify(payloadForPage(filterBlock, page)),
       signal: AbortSignal.timeout(60_000),
     });
     if (!res.ok) throw new Error(`USAspending ${res.status}: ${(await res.text()).slice(0, 300)}`);
@@ -125,21 +129,19 @@ async function fetchPage(page, attempt = 1) {
   } catch (err) {
     if (attempt >= 4) throw err;
     const delay = Math.min(2000 * Math.pow(2, attempt - 1), 20_000);
-    log('warn', `fetchPage retry`, { page, attempt, delay_ms: delay, error: String(err).slice(0, 200) });
+    log('warn', 'fetchPage retry', { page, attempt, delay_ms: delay, error: String(err).slice(0, 200) });
     await new Promise((r) => setTimeout(r, delay));
-    return fetchPage(page, attempt + 1);
+    return fetchPage(filterBlock, page, attempt + 1);
   }
 }
 
-// ─── POST to api-worker ───────────────────────────────────────────────────
-async function postPage(runId, pageData, finalize = false) {
-  const body = {
-    run_id: runId,
-    response: pageData,
-    finalize,
-    metadata: { source: 'oracle-sidecar', filters, since, until, host: process.env.HOSTNAME ?? 'oracle-vm' },
-  };
-  if (DRY) { log('info', 'dry-run skipping POST', { finalize, size: pageData?.results?.length ?? 0 }); return { run_id: runId ?? -1, upserted: 0, failed: 0 }; }
+// ─── POST page to api-worker (with view_id) ────────────────────────────────
+async function postPage(viewId, runId, pageData, finalize, metadata) {
+  const body = { run_id: runId, view_id: viewId, response: pageData, finalize, metadata };
+  if (DRY) {
+    log('info', 'dry-run skipping POST', { view_id: viewId, finalize, size: pageData?.results?.length ?? 0 });
+    return { run_id: runId ?? -1, upserted: 0, failed: 0 };
+  }
   const res = await fetch(`${API}/import/awards`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
@@ -149,40 +151,87 @@ async function postPage(runId, pageData, finalize = false) {
   return res.json();
 }
 
-// ─── Main ──────────────────────────────────────────────────────────────────
-(async () => {
+// ─── Pull views catalog from worker ────────────────────────────────────────
+async function loadViews() {
+  const res = await fetch(`${API}/sidecar/views`, {
+    headers: { authorization: `Bearer ${TOKEN}` },
+  });
+  if (!res.ok) throw new Error(`/sidecar/views ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  let views = data.results || [];
+  if (ONLY_VIEW) views = views.filter((v) => v.view_id === ONLY_VIEW);
+  return views;
+}
+
+// ─── Ingest a single view ──────────────────────────────────────────────────
+async function ingestView(view) {
+  const { filterBlock, since, until } = buildUsaspendingFilters(view.filters || {});
+  log('info', 'view start', { view_id: view.view_id, name: view.name, since, until, filterBlock });
+
   let runId;
   let page = 1;
-  let total = 0;
+  let totalUpserted = 0;
   let totalFailed = 0;
+  const metadata = { source: 'oracle-sidecar', view_id: view.view_id, view_name: view.name, since, until, host: process.env.HOSTNAME ?? 'oracle-vm' };
 
+  while (page <= MAX_PAGES) {
+    const t0 = Date.now();
+    const data = await fetchPage(filterBlock, page);
+    const count = data.results?.length ?? 0;
+    const hasNext = data.page_metadata?.hasNext ?? false;
+    log('info', 'page fetched', { view_id: view.view_id, page, count, ms: Date.now() - t0 });
+
+    const up = await postPage(view.view_id, runId, data, false, metadata);
+    runId = up.run_id;
+    totalUpserted += up.upserted ?? 0;
+    totalFailed   += up.failed   ?? 0;
+    log('info', 'page upserted', {
+      view_id: view.view_id, page, run_id: runId,
+      upserted: up.upserted, failed: up.failed, running_total: totalUpserted,
+    });
+
+    if (!hasNext || count < PAGE_SIZE) break;
+    page++;
+    await new Promise((r) => setTimeout(r, PACE_MS));
+  }
+
+  // Finalize the run (no body needed, just a flag).
+  await postPage(view.view_id, runId, null, true, metadata);
+  log('info', 'view complete', {
+    view_id: view.view_id, name: view.name,
+    run_id: runId, total_upserted: totalUpserted, total_failed: totalFailed,
+  });
+}
+
+// ─── Main ──────────────────────────────────────────────────────────────────
+(async () => {
+  log('info', 'sidecar start', { api: API, max_pages_per_view: MAX_PAGES, only_view: ONLY_VIEW, dry: DRY });
+
+  let views;
   try {
-    while (page <= maxPages) {
-      const t0 = Date.now();
-      const data = await fetchPage(page);
-      const count = data.results?.length ?? 0;
-      const hasNext = data.page_metadata?.hasNext ?? false;
-      log('info', 'page fetched', { page, count, ms: Date.now() - t0 });
-
-      const up = await postPage(runId, data);
-      runId = up.run_id;
-      total += up.upserted ?? 0;
-      totalFailed += up.failed ?? 0;
-      log('info', 'page upserted', { page, run_id: runId, upserted: up.upserted, failed: up.failed, running_total: total });
-
-      if (!hasNext || count < PAGE_SIZE) break;
-      page++;
-      await new Promise((r) => setTimeout(r, PACE_MS));
-    }
-
-    await postPage(runId, { results: [] }, true);
-    log('info', 'run complete', { run_id: runId, total_upserted: total, total_failed: totalFailed });
-    process.exit(0);
+    views = await loadViews();
   } catch (err) {
-    log('error', 'run failed', { page, run_id: runId, error: err instanceof Error ? err.message : String(err) });
-    if (runId && !DRY) {
-      try { await fetch(`${API}/runs/${runId}/cancel`, { method: 'POST', headers: { authorization: `Bearer ${TOKEN}` } }); } catch { /* swallow */ }
-    }
+    log('error', 'failed to load views catalog', { error: err instanceof Error ? err.message : String(err) });
     process.exit(1);
   }
+
+  if (views.length === 0) {
+    log('warn', 'no enabled views — nothing to ingest', { only_view: ONLY_VIEW });
+    process.exit(0);
+  }
+
+  log('info', 'views to ingest', { count: views.length, names: views.map((v) => v.name) });
+
+  let anyFailed = false;
+  for (const view of views) {
+    try {
+      await ingestView(view);
+    } catch (err) {
+      anyFailed = true;
+      log('error', 'view failed', { view_id: view.view_id, name: view.name, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  log('info', 'sidecar end', { failed: anyFailed });
+  process.exit(anyFailed ? 1 : 0);
 })();

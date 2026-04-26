@@ -1,0 +1,25 @@
+[Unit]
+Description=Awards Pipeline — Per-View "Run Now" Request Processor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=awards
+Group=awards
+WorkingDirectory=/opt/awards-pipeline/sidecar-oracle
+EnvironmentFile=/opt/awards-pipeline/sidecar-oracle/.env
+ExecStart=/usr/bin/node /opt/awards-pipeline/sidecar-oracle/process-run-requests.mjs
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=awards-trigger
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/awards-pipeline/sidecar-oracle
+# Tight cap — this poller almost always exits in <1s when no requests are due.
+# Active ingestion shells out to ingest-usaspending.mjs which has its own caps.
+MemoryMax=256M
+TimeoutStartSec=20min
