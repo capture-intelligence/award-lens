@@ -36,3 +36,6 @@ NUL
 
 # TypeScript incremental build cache
 *.tsbuildinfo
+
+# One-off operational SQL scripts (used to apply ad-hoc D1 fixes via wrangler)
+.tmp-*.sql

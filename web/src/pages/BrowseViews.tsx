@@ -297,7 +297,13 @@ function FilterChips({ filters }: { filters: ViewFilters }) {
   if (filters.pop_states?.length)  chips.push(filters.pop_states.length <= 3
     ? filters.pop_states.join('/')
     : `${filters.pop_states.length} states`);
-  if (filters.lookback_months)     chips.push(`${filters.lookback_months}mo`);
+  if (filters.lookback_months && filters.forward_months) {
+    chips.push(`−${filters.lookback_months}/+${filters.forward_months}mo`);
+  } else if (filters.lookback_months) {
+    chips.push(`−${filters.lookback_months}mo`);
+  } else if (filters.forward_months) {
+    chips.push(`+${filters.forward_months}mo`);
+  }
   if (filters.min_value != null && filters.max_value != null) {
     chips.push(`$${fmtInt(filters.min_value)}–$${fmtInt(filters.max_value)}`);
   } else if (filters.min_value != null) {

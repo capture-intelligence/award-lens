@@ -4,7 +4,7 @@ import { useViews } from '@/lib/view-context';
 import { navigate } from '@/lib/router';
 
 /**
- * Shown on Awards, Expiring, Vendors, Exclusions, Opportunities when the
+ * Shown on Awards, Vendors, Exclusions, Opportunities when the
  * user hasn't picked a view from the topbar. These pages are view-scoped
  * by design — there's no global mode.
  */

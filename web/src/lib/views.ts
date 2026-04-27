@@ -16,7 +16,10 @@ export interface ViewFilters {
   max_value?: number;
   /** US state codes for place-of-performance filter (e.g. ["TX","GA"]). */
   pop_states?: string[];
+  /** History side of the contract-end-date window (months). */
   lookback_months?: number;
+  /** Forward side of the contract-end-date window (months). 0/blank = no upper bound. */
+  forward_months?: number;
 }
 
 export interface DataView {

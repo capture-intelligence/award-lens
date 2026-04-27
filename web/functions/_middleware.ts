@@ -29,6 +29,7 @@ const API_PREFIXES = [
   '/diag',
   '/health',
   '/views',
+  '/explore',
 ] as const;
 
 const WORKER_ORIGIN = 'https://api-worker.algocrat.workers.dev';

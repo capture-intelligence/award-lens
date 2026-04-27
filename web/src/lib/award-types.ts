@@ -57,3 +57,12 @@ export const LOOKBACK_PRESETS = [
   { value: 36, label: '3 years' },
   { value: 60, label: '5 years' },
 ];
+
+export const FORWARD_PRESETS = [
+  { value: 0,  label: 'No upper bound (still-running contracts)' },
+  { value: 3,  label: '3 months' },
+  { value: 6,  label: '6 months' },
+  { value: 12, label: '1 year' },
+  { value: 18, label: '18 months' },
+  { value: 24, label: '2 years' },
+];

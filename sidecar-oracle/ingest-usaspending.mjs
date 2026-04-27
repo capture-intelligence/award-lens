@@ -40,20 +40,45 @@ function log(level, msg, extra = {}) {
   console.log(JSON.stringify({ ts: new Date().toISOString(), level, msg, ...extra }));
 }
 
-function isoMonthsAgo(months) {
+function isoMonthsOffset(monthsOffset) {
   const d = new Date();
-  d.setUTCMonth(d.getUTCMonth() - months);
+  d.setUTCMonth(d.getUTCMonth() + monthsOffset);
   return d.toISOString().slice(0, 10);
 }
 
 // ─── Translate a view's filter spec → USAspending filter block ────────────
 function buildUsaspendingFilters(viewFilters) {
   const fb = {};
-  // Time window — always required by USAspending.
-  const lookback = Number(viewFilters.lookback_months || FALLBACK_LOOKBACK_MO);
-  const since = isoMonthsAgo(lookback);
-  const until = new Date().toISOString().slice(0, 10);
-  fb.time_period = [{ start_date: since, end_date: until, date_type: 'action_date' }];
+  // We want contracts whose CONTRACT END DATE falls in [today − lookback,
+  // today + forward]. USAspending's /search/spending_by_award/ endpoint only
+  // accepts {action_date, last_modified_date, date_signed, new_awards_only}
+  // for time_period.date_type — it does NOT support filtering by contract
+  // end date directly. So we cast a wide net on `action_date` (covers any
+  // contract that had a modification within the broader window — option
+  // exercises, closeouts, etc.) and let the worker prune the view_award
+  // rows whose pop_end_date is outside the actual end-date window during
+  // its finalize step.
+  const lookbackMonths = Number(viewFilters.lookback_months || FALLBACK_LOOKBACK_MO);
+  const forwardMonths  = Number(viewFilters.forward_months  ?? 0);
+
+  // Generous action-date window: a contract ending up to `lookback` months
+  // ago likely had its last modification around then, but to be safe we
+  // pad an extra 12 months to catch closeout actions that lag the end date.
+  const actionDateSince = isoMonthsOffset(-(lookbackMonths + 12));
+  const actionDateUntil = isoMonthsOffset(0);  // today — actions can't be in the future
+  fb.time_period = [{
+    start_date: actionDateSince,
+    end_date:   actionDateUntil,
+    date_type:  'action_date',
+  }];
+
+  // The actual contract-end-date window the worker should enforce post-ingest.
+  // (Returned alongside filterBlock so it doesn't leak into the USAspending
+  // payload — that endpoint rejects unknown fields.)
+  const contractEndSince = isoMonthsOffset(-lookbackMonths);
+  const contractEndUntil = forwardMonths > 0
+    ? isoMonthsOffset(forwardMonths)
+    : isoMonthsOffset(60);  // 5y ahead = effectively unbounded for procurement
 
   // Award types — default to procurement contracts if the view doesn't pick.
   fb.award_type_codes = (viewFilters.award_types && viewFilters.award_types.length)
@@ -92,7 +117,13 @@ function buildUsaspendingFilters(viewFilters) {
     fb.award_amounts = [b];
   }
 
-  return { filterBlock: fb, since, until };
+  return {
+    filterBlock: fb,
+    contract_end_since: contractEndSince,
+    contract_end_until: contractEndUntil,
+    action_date_since: actionDateSince,
+    action_date_until: actionDateUntil,
+  };
 }
 
 function payloadForPage(filterBlock, page) {
@@ -165,14 +196,29 @@ async function loadViews() {
 
 // ─── Ingest a single view ──────────────────────────────────────────────────
 async function ingestView(view) {
-  const { filterBlock, since, until } = buildUsaspendingFilters(view.filters || {});
-  log('info', 'view start', { view_id: view.view_id, name: view.name, since, until, filterBlock });
+  const {
+    filterBlock,
+    contract_end_since, contract_end_until,
+    action_date_since,  action_date_until,
+  } = buildUsaspendingFilters(view.filters || {});
+  log('info', 'view start', {
+    view_id: view.view_id, name: view.name,
+    contract_end_since, contract_end_until,
+    action_date_since,  action_date_until,
+    filterBlock,
+  });
 
   let runId;
   let page = 1;
   let totalUpserted = 0;
   let totalFailed = 0;
-  const metadata = { source: 'oracle-sidecar', view_id: view.view_id, view_name: view.name, since, until, host: process.env.HOSTNAME ?? 'oracle-vm' };
+  const metadata = {
+    source: 'oracle-sidecar',
+    view_id: view.view_id, view_name: view.name,
+    contract_end_since, contract_end_until,
+    action_date_since,  action_date_until,
+    host: process.env.HOSTNAME ?? 'oracle-vm',
+  };
 
   while (page <= MAX_PAGES) {
     const t0 = Date.now();

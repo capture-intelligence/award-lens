@@ -11,7 +11,8 @@ import { Badge } from '@/components/ui/Badge';
 import { Input, Label, Select } from '@/components/ui/Input';
 import { TOPTIERS, subtiersFor } from '@/lib/agencies';
 import {
-  AWARD_TYPES, AWARD_TYPE_GROUPS, DEFAULT_AWARD_TYPES, LOOKBACK_PRESETS,
+  AWARD_TYPES, AWARD_TYPE_GROUPS, DEFAULT_AWARD_TYPES,
+  LOOKBACK_PRESETS, FORWARD_PRESETS,
 } from '@/lib/award-types';
 import { US_STATES, stateName } from '@/lib/states';
 import {
@@ -348,7 +349,12 @@ function ScopeSummary({ filters }: { filters: ViewFilters }) {
   if (filters.pop_states?.length)   chips.push(`PoP: ${filters.pop_states.join(', ')}`);
   const valueChip = formatValueRange(filters.min_value, filters.max_value);
   if (valueChip)                    chips.push(valueChip);
-  if (filters.lookback_months)      chips.push(`Lookback ${filters.lookback_months}mo`);
+  // End-date window: "−18mo / +6mo" or just "−18mo" / "+6mo" if one bound.
+  const lb = filters.lookback_months;
+  const fw = filters.forward_months;
+  if (lb && fw)       chips.push(`End: −${lb}mo / +${fw}mo`);
+  else if (lb)        chips.push(`End: −${lb}mo`);
+  else if (fw)        chips.push(`End: +${fw}mo`);
   if (chips.length === 0) return <span className="text-muted-soft">No filters</span>;
   return (
     <div className="flex flex-wrap gap-1.5">
@@ -387,7 +393,8 @@ function ViewEditorModal({
   const [stateSearch, setStateSearch] = React.useState('');
   const [minValue, setMinValue] = React.useState(String(view?.filters.min_value ?? ''));
   const [maxValue, setMaxValue] = React.useState(String(view?.filters.max_value ?? ''));
-  const [lookbackMonths, setLookbackMonths] = React.useState(String(view?.filters.lookback_months ?? '24'));
+  const [lookbackMonths, setLookbackMonths] = React.useState(String(view?.filters.lookback_months ?? '18'));
+  const [forwardMonths,  setForwardMonths]  = React.useState(String(view?.filters.forward_months  ?? '6'));
   const [saving, setSaving] = React.useState(false);
 
   // When toptier changes, clear subtier if it no longer belongs.
@@ -437,6 +444,7 @@ function ViewEditorModal({
     if (minValue.trim())             filters.min_value    = Number(minValue);
     if (maxValue.trim())             filters.max_value    = Number(maxValue);
     if (lookbackMonths.trim())       filters.lookback_months = Number(lookbackMonths);
+    if (forwardMonths.trim())        filters.forward_months  = Number(forwardMonths);
 
     // Sanity: if both are set, min must be ≤ max.
     if (filters.min_value != null && filters.max_value != null && filters.min_value > filters.max_value) {
@@ -682,12 +690,28 @@ function ViewEditorModal({
             </div>
           </div>
           <div className="md:col-span-2">
-            <Label>Lookback</Label>
-            <Select value={lookbackMonths} onChange={(e) => setLookbackMonths(e.target.value)}>
-              {LOOKBACK_PRESETS.map((p) => (
-                <option key={p.value} value={p.value}>{p.label}</option>
-              ))}
-            </Select>
+            <Label>Contract end date — window</Label>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Select value={lookbackMonths} onChange={(e) => setLookbackMonths(e.target.value)}>
+                  {LOOKBACK_PRESETS.map((p) => (
+                    <option key={p.value} value={p.value}>{p.label}</option>
+                  ))}
+                </Select>
+                <div className="mt-1 text-[10px] text-muted-soft">History — past, e.g. 18 months back.</div>
+              </div>
+              <div>
+                <Select value={forwardMonths} onChange={(e) => setForwardMonths(e.target.value)}>
+                  {FORWARD_PRESETS.map((p) => (
+                    <option key={p.value} value={p.value}>{p.label}</option>
+                  ))}
+                </Select>
+                <div className="mt-1 text-[10px] text-muted-soft">Forward — future, e.g. 6 months ahead.</div>
+              </div>
+            </div>
+            <div className="mt-2 text-[10px] text-muted-soft">
+              Pulls contracts whose end date is between <span className="font-mono">today − history</span> and <span className="font-mono">today + forward</span>. Set Forward to "No upper bound" to include all still-running contracts regardless of end date.
+            </div>
           </div>
 
           <div className="md:col-span-2 flex items-center gap-2">

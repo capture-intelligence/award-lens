@@ -25,8 +25,17 @@ export interface ViewFilters {
   max_value?: number;
   /** US state codes for place-of-performance filter (e.g. ["TX","GA"]). */
   pop_states?: string[];
-  /** Pull/show only awards with action_date >= today - lookback_months. */
+  /**
+   * History side of the contract-end-date window. Pull/show contracts whose
+   * end date is no older than `today - lookback_months`.
+   */
   lookback_months?: number;
+  /**
+   * Forward side of the contract-end-date window. Pull/show contracts whose
+   * end date is no later than `today + forward_months`. Omit or 0 to mean
+   * "no upper bound" (back-compat with the original lookback-only behavior).
+   */
+  forward_months?: number;
 }
 
 const ALLOWED_KEYS = new Set<keyof ViewFilters>([
@@ -41,6 +50,7 @@ const ALLOWED_KEYS = new Set<keyof ViewFilters>([
   'max_value',
   'pop_states',
   'lookback_months',
+  'forward_months',
 ]);
 
 /** Validate + normalize raw input (e.g. from admin form). Throws on invalid shape. */
@@ -74,7 +84,8 @@ export function parseFilters(raw: unknown): ViewFilters {
 
       case 'min_value':
       case 'max_value':
-      case 'lookback_months': {
+      case 'lookback_months':
+      case 'forward_months': {
         if (v == null || v === '') break;
         const n = Number(v);
         if (!Number.isFinite(n) || n < 0) throw new Error(`${k} must be non-negative number`);
@@ -144,16 +155,25 @@ export function buildAwardWhere(f: ViewFilters): { sql: string; params: unknown[
     clauses.push('current_value <= ?');
     params.push(f.max_value);
   }
-  if (typeof f.lookback_months === 'number' && f.lookback_months > 0) {
-    // "Lookback N months" means "active within the last N months", which in
-    // procurement terms is `pop_end_date >= today - N` (still running or
-    // recently ended). Filtering on pop_start_date instead would hide
-    // multi-year contracts that started long ago but are still running —
-    // e.g. a 5-year contract from 2021 ending in 2026 should still appear
-    // under a 24-month lookback. Awards with no end date pass through
-    // (they're either misdata or open-ended IDVs).
+  // Contract-end-date window: `pop_end_date BETWEEN today - lookback AND today + forward`.
+  //   - lookback only  → pop_end_date >= today - lookback (back-compat: open future)
+  //   - forward only   → pop_end_date <= today + forward
+  //   - both           → bounded window
+  // Awards with no end date pass through (open-ended IDVs / data gaps).
+  const hasLookback = typeof f.lookback_months === 'number' && f.lookback_months > 0;
+  const hasForward  = typeof f.forward_months  === 'number' && f.forward_months  > 0;
+  if (hasLookback && hasForward) {
+    clauses.push(
+      `(pop_end_date IS NULL
+         OR date(pop_end_date) BETWEEN date('now', ?) AND date('now', ?))`,
+    );
+    params.push(`-${f.lookback_months} months`, `+${f.forward_months} months`);
+  } else if (hasLookback) {
     clauses.push(`(pop_end_date IS NULL OR date(pop_end_date) >= date('now', ?))`);
     params.push(`-${f.lookback_months} months`);
+  } else if (hasForward) {
+    clauses.push(`(pop_end_date IS NULL OR date(pop_end_date) <= date('now', ?))`);
+    params.push(`+${f.forward_months} months`);
   }
 
   if (clauses.length === 0) return { sql: '', params: [] };

@@ -36,6 +36,135 @@
   ::-webkit-scrollbar-thumb:hover { background: rgba(144, 174, 173, 0.32); }
 }
 
+/*
+ * WebDataRocks dark-theme overrides
+ * ─────────────────────────────────
+ * Their CSS targets `.wdr-component` etc. with bright defaults — we recolor
+ * everything to match the AwardLens palette. Scoped to `.awardlens-pivot`
+ * so it can't bleed into anything else.
+ */
+.awardlens-pivot {
+  /* WebDataRocks puts its widget inside .wdr-ui — recolor at that root */
+  --wdr-bg:           #173039;     /* main grid background */
+  --wdr-panel:        #244855;     /* toolbar / popups */
+  --wdr-text:         #FBE9D0;     /* primary foreground */
+  --wdr-muted:        rgba(251, 233, 208, 0.65);
+  --wdr-border:       rgba(144, 174, 173, 0.22);
+  --wdr-border-strong:rgba(144, 174, 173, 0.45);
+  --wdr-row-hover:    rgba(144, 174, 173, 0.10);
+  --wdr-accent:       #E64833;
+  --wdr-accent-hover: #ed6e5d;
+}
+
+.awardlens-pivot .wdr-ui,
+.awardlens-pivot .wdr-pivot-view,
+.awardlens-pivot .wdr-grid-view,
+.awardlens-pivot .wdr-cell,
+.awardlens-pivot .wdr-toolbar-ui,
+.awardlens-pivot .wdr-toolbar-tabs,
+.awardlens-pivot .wdr-popup,
+.awardlens-pivot .wdr-context-menu,
+.awardlens-pivot .wdr-fields-view,
+.awardlens-pivot .wdr-fields-list-view {
+  background: var(--wdr-bg) !important;
+  color:      var(--wdr-text) !important;
+  border-color: var(--wdr-border) !important;
+}
+
+.awardlens-pivot .wdr-toolbar-ui {
+  background: var(--wdr-panel) !important;
+  border-bottom: 1px solid var(--wdr-border) !important;
+}
+
+.awardlens-pivot .wdr-toolbar-tabs li {
+  color: var(--wdr-muted) !important;
+}
+.awardlens-pivot .wdr-toolbar-tabs li:hover,
+.awardlens-pivot .wdr-toolbar-tabs li.wdr-current-tab,
+.awardlens-pivot .wdr-toolbar-tabs li.current-tab {
+  color: var(--wdr-text) !important;
+  background: rgba(255,255,255,0.04) !important;
+}
+
+/* Cell defaults */
+.awardlens-pivot .wdr-cell {
+  border-color: var(--wdr-border) !important;
+}
+.awardlens-pivot .wdr-cell.wdr-header {
+  background: var(--wdr-panel) !important;
+  color: var(--wdr-muted) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.04em !important;
+}
+.awardlens-pivot .wdr-cell.wdr-total,
+.awardlens-pivot .wdr-cell.wdr-grand-total {
+  background: rgba(230, 72, 51, 0.08) !important;
+  color: var(--wdr-text) !important;
+  font-weight: 700 !important;
+}
+.awardlens-pivot .wdr-cell.wdr-value {
+  background: var(--wdr-bg) !important;
+  font-variant-numeric: tabular-nums;
+}
+.awardlens-pivot .wdr-cell:hover {
+  background: var(--wdr-row-hover) !important;
+}
+
+/* Field-list popup (drag-drop fields panel) */
+.awardlens-pivot .wdr-fields-list-view .wdr-list,
+.awardlens-pivot .wdr-fields-list-view .wdr-list li {
+  background: var(--wdr-panel) !important;
+  color: var(--wdr-text) !important;
+  border-color: var(--wdr-border) !important;
+}
+
+/* Buttons inside popups */
+.awardlens-pivot button,
+.awardlens-pivot .wdr-button {
+  background: rgba(144, 174, 173, 0.10) !important;
+  color: var(--wdr-text) !important;
+  border: 1px solid var(--wdr-border) !important;
+}
+.awardlens-pivot button:hover,
+.awardlens-pivot .wdr-button:hover {
+  background: rgba(144, 174, 173, 0.20) !important;
+  border-color: var(--wdr-border-strong) !important;
+}
+.awardlens-pivot .wdr-button.wdr-button-primary,
+.awardlens-pivot .wdr-button[data-key="primary"] {
+  background: var(--wdr-accent) !important;
+  border-color: var(--wdr-accent) !important;
+  color: #FBE9D0 !important;
+}
+
+/* Inputs */
+.awardlens-pivot input[type="text"],
+.awardlens-pivot input[type="number"],
+.awardlens-pivot select,
+.awardlens-pivot textarea {
+  background: rgba(13, 31, 37, 0.65) !important;
+  border: 1px solid var(--wdr-border) !important;
+  color: var(--wdr-text) !important;
+}
+.awardlens-pivot input::placeholder { color: var(--wdr-muted) !important; }
+
+/* Dropdown menu / context menu */
+.awardlens-pivot .wdr-context-menu,
+.awardlens-pivot .wdr-popup .wdr-modal {
+  background: var(--wdr-panel) !important;
+  border: 1px solid var(--wdr-border-strong) !important;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.55) !important;
+}
+.awardlens-pivot .wdr-context-menu li:hover {
+  background: rgba(144, 174, 173, 0.12) !important;
+}
+
+/* Scrollbar inside the pivot */
+.awardlens-pivot ::-webkit-scrollbar { width: 10px; height: 10px; }
+.awardlens-pivot ::-webkit-scrollbar-thumb {
+  background: rgba(144, 174, 173, 0.22); border-radius: 5px;
+}
+
 @layer utilities {
   .glass {
     background: rgba(36, 72, 85, 0.55);

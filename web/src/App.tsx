@@ -7,15 +7,12 @@ import { AppShell } from '@/components/layout/AppShell';
 import { SignInPage } from '@/pages/SignIn';
 import { PendingPage } from '@/pages/Pending';
 import { RejectedPage } from '@/pages/Rejected';
-import { AwardsPage } from '@/pages/Awards';
-import { ExpiringPage } from '@/pages/Expiring';
-import { VendorsPage } from '@/pages/Vendors';
-import { ExclusionsPage } from '@/pages/Exclusions';
-import { OpportunitiesPage } from '@/pages/Opportunities';
+import { AnalyticsPage } from '@/pages/Analytics';
 import { QualityPage } from '@/pages/Quality';
 import { SchedulePage } from '@/pages/Schedule';
 import { RunsPage } from '@/pages/Runs';
 import { Logo } from '@/components/ui/Logo';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { AdminUsersPage } from '@/pages/AdminUsers';
 import { AdminViewsPage } from '@/pages/AdminViews';
 import { AdminAccessRequestsPage } from '@/pages/AdminAccessRequests';
@@ -63,7 +60,9 @@ function RootRouter() {
           exit={{ opacity: 0, y: -4 }}
           transition={{ duration: 0.22 }}
         >
-          <RouteView route={route} />
+          <ErrorBoundary label="Page error">
+            <RouteView route={route} />
+          </ErrorBoundary>
         </motion.div>
       </AnimatePresence>
     </AppShell>
@@ -74,14 +73,9 @@ function RouteView({ route }: { route: string }) {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
 
-  // Default landing → Browse Views. Users pick a view there before they
-  // can use the data pages.
-  if (route === '/' || route === '')                  return <BrowseViewsPage />;
-  if (route === '/awards')                            return <AwardsPage />;
-  if (route === '/expiring')                          return <ExpiringPage />;
-  if (route === '/vendors')                           return <VendorsPage />;
-  if (route === '/exclusions')                        return <ExclusionsPage />;
-  if (route === '/opportunities')                     return <OpportunitiesPage />;
+  // Default landing → Analytics. Users pick a view from the topbar, then
+  // explore everything in one consolidated table.
+  if (route === '/' || route === '')                  return <AnalyticsPage />;
   if (route === '/views')                             return <BrowseViewsPage />;
   if (route === '/quality')                           return <QualityPage />;
   if (route === '/schedule')                          return <SchedulePage />;

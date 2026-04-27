@@ -109,6 +109,83 @@ app.get('/health', async (c) => {
 
 // ---------- Awards ----------
 
+// ---------- Explore: every award row in a view, fully denormalized ----------
+//
+// One endpoint returns every column the Analytics page needs — award fields,
+// vendor, awarding agency, codes, derived flags. Frontend handles search,
+// sort, group-by, and CSV export client-side over this single payload.
+//
+// Required: ?view_id=<id>  (admins may pass any view; users only views they
+// have 'granted' access to via view_access).
+app.get('/explore', async (c) => {
+  const scope = await resolveScope(c);
+  if (scope.kind === 'error') return scope.response;
+  if (scope.kind === 'unscoped') {
+    return c.json({ error: 'view_id_required' }, 400);
+  }
+
+  const limit = Math.min(Number(c.req.query('limit') ?? 5000), 10000);
+
+  const r = await c.env.DB.prepare(`
+    SELECT
+      a.award_id,
+      a.award_piid,
+      a.parent_piid,
+      a.award_type,
+      a.description,
+      a.base_value,
+      a.current_value,
+      a.obligated_amount,
+      a.currency_code,
+      a.pop_start_date,
+      a.pop_end_date,
+      a.solicitation_id,
+      a.source_last_modified,
+      a.naics_code,
+      n.description AS naics_description,
+      a.psc_code,
+      p.description AS psc_description,
+      v.uei                AS vendor_uei,
+      v.legal_name         AS vendor_name,
+      v.country_code       AS vendor_country,
+      v.state              AS vendor_state,
+      v.city               AS vendor_city,
+      v.zip                AS vendor_zip,
+      o.canonical_name     AS awarding_agency,
+      o.short_name         AS awarding_department,
+      apl.country_code     AS pop_country,
+      apl.state            AS pop_state,
+      apl.city             AS pop_city,
+      apl.congressional_district AS pop_district,
+      CAST(julianday(a.pop_end_date) - julianday('now') AS INTEGER) AS days_to_contract_end,
+      CASE
+        WHEN EXISTS (
+          SELECT 1 FROM sam_exclusion e
+          WHERE (e.uei = v.uei OR e.legal_name = v.legal_name)
+            AND e.is_active = 1
+            AND (e.termination_date IS NULL OR date(e.termination_date) >= date('now'))
+        ) THEN 1 ELSE 0
+      END AS is_excluded
+    FROM view_award vw
+    INNER JOIN award a            ON a.award_id      = vw.award_id
+    LEFT  JOIN vendor v           ON v.vendor_id     = a.vendor_id
+    LEFT  JOIN organization o     ON o.org_id        = a.awarding_org_id
+    LEFT  JOIN naics_code n       ON n.naics_code    = a.naics_code
+    LEFT  JOIN psc_code p         ON p.psc_code      = a.psc_code
+    LEFT  JOIN award_performance_location apl ON apl.award_id = a.award_id
+    WHERE vw.view_id = ?
+    ORDER BY a.pop_end_date DESC NULLS LAST, a.current_value DESC
+    LIMIT ?
+  `).bind(scope.view.view_id, limit).all();
+
+  return c.json({
+    view_id:   scope.view.view_id,
+    view_name: scope.view.name,
+    count:     r.results.length,
+    results:   r.results,
+  });
+});
+
 app.get('/awards', async (c) => {
   const scope = await resolveScope(c);
   if (scope.kind === 'error') return scope.response;
@@ -143,7 +220,10 @@ app.get('/awards', async (c) => {
     selectClause: 'SELECT va.* FROM v_award_current va',
     extraWhere: userClauses.length ? userClauses.join(' AND ') : undefined,
     extraParams: userParams,
-    tail: 'ORDER BY va.current_value DESC LIMIT ?',
+    // Default sort: latest contract end first. Awards with no end date sink
+    // to the bottom (procurement teams care about what's ending soonest in
+    // the future, then most-recently-ended).
+    tail: 'ORDER BY va.pop_end_date DESC NULLS LAST, va.current_value DESC LIMIT ?',
     tailParams: [limit],
   });
 
@@ -589,11 +669,20 @@ app.post('/import/awards', async (c) => {
   }
 
   // Finalize-only call (sidecar end-of-loop signal).
+  // Same trust-but-verify purges as on the main path — agency strict + end-date
+  // window. Without these, finalizing without a body would skip purges entirely.
   if (!body.response) {
     if (body.finalize) {
+      const a = await purgeAgencyMismatches(c.env.DB, body.view_id);
+      const w = await purgeOutOfDateWindow(c.env.DB, body.view_id);
+      const summary = `agency-strict purge: ${a} | end-date window purge: ${w}`;
       await c.env.DB.prepare(`
-        UPDATE ingestion_run SET status = 'success', finished_at = ? WHERE run_id = ?
-      `).bind(now, runId).run();
+        UPDATE ingestion_run
+        SET status = 'success', finished_at = ?,
+            error_summary = COALESCE(error_summary || ' | ', '') || ?
+        WHERE run_id = ?
+      `).bind(now, summary, runId).run();
+      return c.json({ run_id: runId, upserted: 0, failed: 0, agency_purged: a, window_purged: w });
     }
     return c.json({ run_id: runId, upserted: 0, failed: 0 });
   }
@@ -643,14 +732,152 @@ app.post('/import/awards', async (c) => {
     WHERE run_id = ?
   `).bind(canonical.length, upserted, failed, runId).run();
 
+  // ── Trust-but-verify purges (run only on finalize) ────────────────────
+  //
+  // USAspending's keyword filter and time_period filter are both loose —
+  // a search for "surveillance" returns matches from across the whole
+  // agency hierarchy, and time_period only accepts action_date / etc.
+  // (not contract end date). So after the upsert we run two cleanups:
+  //
+  //   1. Agency-strict: drop tags whose canonical awarding_org doesn't
+  //      satisfy the view's toptier_agency_name + subtier_agency_name.
+  //
+  //   2. Contract-end-date window: drop tags whose award.pop_end_date
+  //      falls outside [today − lookback_months, today + forward_months].
+  //      This is the actual filter the user asked for — the API doesn't
+  //      let us enforce it at the request layer.
+  //
+  // Award rows are preserved (they may belong to other views legitimately);
+  // we only remove the (view_id, award_id) entries from view_award.
+  let agencyPurged = 0;
+  let windowPurged = 0;
   if (body.finalize) {
-    await c.env.DB.prepare(`
-      UPDATE ingestion_run SET status = 'success', finished_at = ? WHERE run_id = ?
-    `).bind(now, runId).run();
+    agencyPurged = await purgeAgencyMismatches(c.env.DB, body.view_id);
+    windowPurged = await purgeOutOfDateWindow(c.env.DB, body.view_id);
   }
 
-  return c.json({ run_id: runId, upserted, failed });
+  if (body.finalize) {
+    const summary =
+      `agency-strict purge: ${agencyPurged} | end-date window purge: ${windowPurged}`;
+    await c.env.DB.prepare(`
+      UPDATE ingestion_run
+      SET status = 'success', finished_at = ?,
+          error_summary = COALESCE(error_summary || ' | ', '') || ?
+      WHERE run_id = ?
+    `).bind(now, summary, runId).run();
+  }
+
+  return c.json({
+    run_id: runId, upserted, failed,
+    agency_purged: agencyPurged, window_purged: windowPurged,
+  });
 });
+
+/**
+ * Untag awards from a view whose canonical awarding_org doesn't satisfy the
+ * view's `toptier_agency_name` and/or `subtier_agency_name` filters.
+ *
+ * The award row itself is preserved — it may belong to other views legitimately;
+ * we only remove the (view_id, award_id) entry from view_award.
+ *
+ * Returns the number of mismatched tags that were removed.
+ */
+async function purgeAgencyMismatches(db: D1Database, viewId: string): Promise<number> {
+  const v = await db.prepare(
+    'SELECT filters_json FROM data_view WHERE view_id = ?',
+  ).bind(viewId).first<{ filters_json: string }>();
+  if (!v) return 0;
+
+  let f: { toptier_agency_name?: string; subtier_agency_name?: string };
+  try { f = JSON.parse(v.filters_json); } catch { return 0; }
+  const top = f.toptier_agency_name?.trim();
+  const sub = f.subtier_agency_name?.trim();
+  if (!top && !sub) return 0; // no agency filter set — nothing to enforce
+
+  // Sub-tier wins on canonical_name. Toptier matches on short_name (which the
+  // USAspending adapter sets to the toptier label) when subtier is also set,
+  // or on canonical_name when the award was tagged at toptier-only level.
+  // Awards with no awarding_org row at all are also dropped — we can't verify.
+  const result = await db.prepare(`
+    DELETE FROM view_award
+    WHERE view_id = ?
+      AND award_id IN (
+        SELECT vw.award_id
+        FROM view_award vw
+        LEFT JOIN award a       ON a.award_id = vw.award_id
+        LEFT JOIN organization o ON o.org_id   = a.awarding_org_id
+        WHERE vw.view_id = ?
+          AND (
+            o.org_id IS NULL
+            OR (? IS NOT NULL AND ? != '' AND IFNULL(o.canonical_name, '') != ?)
+            OR (? IS NOT NULL AND ? != '' AND IFNULL(o.short_name,     '') != ?
+                AND IFNULL(o.canonical_name, '')                          != ?)
+          )
+      )
+  `).bind(
+    viewId, viewId,
+    sub ?? null, sub ?? '', sub ?? '',
+    top ?? null, top ?? '', top ?? '', top ?? '',
+  ).run();
+
+  return result.meta?.changes ?? 0;
+}
+
+/**
+ * Untag awards from a view whose contract end date (`award.pop_end_date`)
+ * falls outside the view's [today − lookback_months, today + forward_months]
+ * window.
+ *
+ * Why this lives in the worker rather than at the API layer: USAspending's
+ * /search/spending_by_award/ endpoint only accepts {action_date,
+ * last_modified_date, date_signed, new_awards_only} for time_period — there
+ * is no way to filter on contract end date at request time. So the sidecar
+ * pulls a wider net using action_date and we prune here.
+ *
+ * Awards with NULL pop_end_date pass through unchanged (open-ended IDVs /
+ * data gaps).
+ *
+ * Returns the number of tags removed.
+ */
+async function purgeOutOfDateWindow(db: D1Database, viewId: string): Promise<number> {
+  const v = await db.prepare(
+    'SELECT filters_json FROM data_view WHERE view_id = ?',
+  ).bind(viewId).first<{ filters_json: string }>();
+  if (!v) return 0;
+
+  let f: { lookback_months?: number; forward_months?: number };
+  try { f = JSON.parse(v.filters_json); } catch { return 0; }
+  const lookback = typeof f.lookback_months === 'number' && f.lookback_months > 0
+    ? f.lookback_months
+    : null;
+  const forward = typeof f.forward_months === 'number' && f.forward_months > 0
+    ? f.forward_months
+    : null;
+  if (lookback == null && forward == null) return 0;
+
+  const result = await db.prepare(`
+    DELETE FROM view_award
+    WHERE view_id = ?
+      AND award_id IN (
+        SELECT vw.award_id
+        FROM view_award vw
+        JOIN award a ON a.award_id = vw.award_id
+        WHERE vw.view_id = ?
+          AND a.pop_end_date IS NOT NULL
+          AND (
+            (? IS NOT NULL AND date(a.pop_end_date) < date('now', ?))
+            OR
+            (? IS NOT NULL AND date(a.pop_end_date) > date('now', ?))
+          )
+      )
+  `).bind(
+    viewId, viewId,
+    lookback,  lookback != null ? `-${lookback} months` : null,
+    forward,   forward  != null ? `+${forward} months`  : null,
+  ).run();
+
+  return result.meta?.changes ?? 0;
+}
 
 // ---------- Import: Grants.gov opportunities (called by VM cron) ----------
 app.post('/import/opportunities', async (c) => {

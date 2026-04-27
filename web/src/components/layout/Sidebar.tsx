@@ -1,10 +1,6 @@
 import * as React from 'react';
 import {
-  Award,
-  CalendarClock,
-  Building2,
-  ShieldAlert,
-  Sparkles,
+  TableProperties,
   Activity,
   CalendarRange,
   History,
@@ -31,12 +27,7 @@ const SECTIONS: NavSection[] = [
   {
     title: 'Explore',
     items: [
-      { to: '#/',              label: 'Views',         icon: Database },
-      { to: '#/awards',        label: 'Awards',        icon: Award },
-      { to: '#/expiring',      label: 'Expiring Soon', icon: CalendarClock },
-      { to: '#/vendors',       label: 'Vendors',       icon: Building2 },
-      { to: '#/exclusions',    label: 'Exclusions',    icon: ShieldAlert },
-      { to: '#/opportunities', label: 'Opportunities', icon: Sparkles },
+      { to: '#/', label: 'Analytics', icon: TableProperties },
     ],
   },
   {
