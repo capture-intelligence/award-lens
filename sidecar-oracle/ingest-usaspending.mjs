@@ -32,7 +32,10 @@ function require_env(name) {
 }
 const API = require_env('API_BASE').replace(/\/$/, '');
 const TOKEN = require_env('INGEST_TOKEN');
-const MAX_PAGES = Number(env.MAX_PAGES_PER_VIEW || 25);
+// Permissive default: 100 pages × 100 records = up to 10K records per view
+// per run. Override via MAX_PAGES_PER_VIEW env var if the view legitimately
+// pulls more, but USAspending's API hard-caps page * size at 10000 anyway.
+const MAX_PAGES = Number(env.MAX_PAGES_PER_VIEW || 100);
 const FALLBACK_LOOKBACK_MO = Number(env.FALLBACK_LOOKBACK_MO || 24);
 const ONLY_VIEW = env.ONLY_VIEW || null;
 
@@ -61,10 +64,13 @@ function buildUsaspendingFilters(viewFilters) {
   const lookbackMonths = Number(viewFilters.lookback_months || FALLBACK_LOOKBACK_MO);
   const forwardMonths  = Number(viewFilters.forward_months  ?? 0);
 
-  // Generous action-date window: a contract ending up to `lookback` months
-  // ago likely had its last modification around then, but to be safe we
-  // pad an extra 12 months to catch closeout actions that lag the end date.
-  const actionDateSince = isoMonthsOffset(-(lookbackMonths + 12));
+  // Permissive action-date window — operators want "grab everything that
+  // matches the keywords, we'll filter in the pivot". So we pull a much
+  // wider window than the view's lookback would imply: lookback × 3, with
+  // a hard floor of 60 months so even short-lookback views catch historical
+  // matches. Worker's agency-strict purge still removes cross-agency noise.
+  const wideMonths = Math.max(lookbackMonths * 3, 60);
+  const actionDateSince = isoMonthsOffset(-wideMonths);
   const actionDateUntil = isoMonthsOffset(0);  // today — actions can't be in the future
   fb.time_period = [{
     start_date: actionDateSince,

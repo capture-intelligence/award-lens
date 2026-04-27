@@ -673,16 +673,20 @@ app.post('/import/awards', async (c) => {
   // window. Without these, finalizing without a body would skip purges entirely.
   if (!body.response) {
     if (body.finalize) {
+      // Keep the agency-strict purge — we never want NIH / FDA / ASPR rows
+      // bleeding into a CDC view via loose USAspending keyword matching.
+      // The contract-end-date purge is intentionally OFF: operators want the
+      // permissive set ("grab everything that matches keywords, we'll filter
+      // in the pivot") so the date-window purge would be too eager.
       const a = await purgeAgencyMismatches(c.env.DB, body.view_id);
-      const w = await purgeOutOfDateWindow(c.env.DB, body.view_id);
-      const summary = `agency-strict purge: ${a} | end-date window purge: ${w}`;
+      const summary = `agency-strict purge: ${a}`;
       await c.env.DB.prepare(`
         UPDATE ingestion_run
         SET status = 'success', finished_at = ?,
             error_summary = COALESCE(error_summary || ' | ', '') || ?
         WHERE run_id = ?
       `).bind(now, summary, runId).run();
-      return c.json({ run_id: runId, upserted: 0, failed: 0, agency_purged: a, window_purged: w });
+      return c.json({ run_id: runId, upserted: 0, failed: 0, agency_purged: a });
     }
     return c.json({ run_id: runId, upserted: 0, failed: 0 });
   }
@@ -750,15 +754,12 @@ app.post('/import/awards', async (c) => {
   // Award rows are preserved (they may belong to other views legitimately);
   // we only remove the (view_id, award_id) entries from view_award.
   let agencyPurged = 0;
-  let windowPurged = 0;
   if (body.finalize) {
     agencyPurged = await purgeAgencyMismatches(c.env.DB, body.view_id);
-    windowPurged = await purgeOutOfDateWindow(c.env.DB, body.view_id);
   }
 
   if (body.finalize) {
-    const summary =
-      `agency-strict purge: ${agencyPurged} | end-date window purge: ${windowPurged}`;
+    const summary = `agency-strict purge: ${agencyPurged}`;
     await c.env.DB.prepare(`
       UPDATE ingestion_run
       SET status = 'success', finished_at = ?,
@@ -769,7 +770,7 @@ app.post('/import/awards', async (c) => {
 
   return c.json({
     run_id: runId, upserted, failed,
-    agency_purged: agencyPurged, window_purged: windowPurged,
+    agency_purged: agencyPurged,
   });
 });
 

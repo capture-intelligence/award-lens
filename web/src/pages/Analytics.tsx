@@ -1,151 +1,161 @@
 import * as React from 'react';
-import 'webdatarocks/webdatarocks.min.css';
-// WebDataRocks ships ESM. We import the namespace and mount via ref —
-// `react-webdatarocks` (the React wrapper) targets React 17 and crashes
-// on React 18, so we skip it entirely.
-import WebDataRocks from 'webdatarocks';
+// @ts-expect-error — react-pivottable ships its own types only sometimes; the
+// PivotTableUI export is a default React class.
+import PivotTableUI from 'react-pivottable/PivotTableUI';
+// @ts-expect-error — same as above
+import TableRenderers from 'react-pivottable/TableRenderers';
+import 'react-pivottable/pivottable.css';
+import { motion } from 'framer-motion';
+import { RefreshCw, Download, Search, X, Eye } from 'lucide-react';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { Input, Label } from '@/components/ui/Input';
+import { Badge } from '@/components/ui/Badge';
 import { TableSkeleton } from '@/components/ui/Skeleton';
 import { api, ApiError } from '@/lib/api';
 import { useViewQuery, useViews } from '@/lib/view-context';
 import { NoViewSelected } from '@/components/ui/NoViewSelected';
-import { fmtInt } from '@/lib/utils';
+import { fmtInt, fmtMoney, fmtDate } from '@/lib/utils';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { RefreshCw } from 'lucide-react';
+import { AwardDetail } from '@/components/AwardDetail';
+import { natureOfWork } from '@/lib/nature-of-work';
 
-// ─── Field mapping (all 31 columns from /explore) ───────────────────────────
+// ─── Field display map (snake_case → friendly caption) ───────────────────────
 
-const MAPPING: Record<string, { type: string; caption: string }> = {
-  award_piid:           { type: 'string',      caption: 'PIID' },
-  parent_piid:          { type: 'string',      caption: 'Parent PIID' },
-  award_id:             { type: 'string',      caption: 'Internal ID' },
-  solicitation_id:      { type: 'string',      caption: 'Solicitation' },
-  award_type:           { type: 'string',      caption: 'Type' },
-  description:          { type: 'string',      caption: 'Description' },
-  current_value:        { type: 'number',      caption: 'Current value' },
-  obligated_amount:     { type: 'number',      caption: 'Obligated' },
-  base_value:           { type: 'number',      caption: 'Base value' },
-  currency_code:        { type: 'string',      caption: 'Currency' },
-  pop_start_date:       { type: 'date string', caption: 'PoP start' },
-  pop_end_date:         { type: 'date string', caption: 'Contract end' },
-  source_last_modified: { type: 'date string', caption: 'Last modified' },
-  days_to_contract_end: { type: 'number',      caption: 'Days to end' },
-  vendor_name:          { type: 'string',      caption: 'Vendor' },
-  vendor_uei:           { type: 'string',      caption: 'Vendor UEI' },
-  vendor_state:         { type: 'string',      caption: 'Vendor state' },
-  vendor_city:          { type: 'string',      caption: 'Vendor city' },
-  vendor_country:       { type: 'string',      caption: 'Vendor country' },
-  vendor_zip:           { type: 'string',      caption: 'Vendor zip' },
-  awarding_agency:      { type: 'string',      caption: 'Awarding agency' },
-  awarding_department:  { type: 'string',      caption: 'Awarding dept.' },
-  naics_code:           { type: 'string',      caption: 'NAICS' },
-  naics_description:    { type: 'string',      caption: 'NAICS description' },
-  psc_code:             { type: 'string',      caption: 'PSC' },
-  psc_description:      { type: 'string',      caption: 'PSC description' },
-  pop_country:          { type: 'string',      caption: 'PoP country' },
-  pop_state:            { type: 'string',      caption: 'PoP state' },
-  pop_city:             { type: 'string',      caption: 'PoP city' },
-  pop_district:         { type: 'string',      caption: 'PoP district' },
-  is_excluded:          { type: 'number',      caption: 'Excluded?' },
-};
-
-function defaultReport(rows: Record<string, unknown>[], viewName: string) {
-  return {
-    dataSource: { data: rows, mapping: MAPPING },
-    slice: {
-      rows:    [{ uniqueName: 'awarding_agency' }],
-      columns: [{ uniqueName: 'award_type' }, { uniqueName: '[Measures]' }],
-      measures: [
-        { uniqueName: 'current_value', aggregation: 'sum',   format: 'currency' },
-        { uniqueName: 'award_piid',    aggregation: 'count', caption: 'Count' },
-      ],
-    },
-    formats: [{
-      name: 'currency',
-      thousandsSeparator: ',',
-      decimalSeparator: '.',
-      decimalPlaces: 0,
-      currencySymbol: '$',
-      currencySymbolAlign: 'left',
-    }],
-    options: {
-      grid: {
-        type: 'compact',
-        showGrandTotals: 'on',
-        showTotals: 'on',
-        title: viewName,
-      },
-    },
-  };
+const COLUMNS: Array<{ key: string; caption: string }> = [
+  { key: 'award_piid',          caption: 'PIID' },
+  { key: 'parent_piid',         caption: 'Parent PIID' },
+  { key: 'award_id',            caption: 'Internal ID' },
+  { key: 'solicitation_id',     caption: 'Solicitation' },
+  { key: 'award_type',          caption: 'Type' },
+  { key: 'description',         caption: 'Description' },
+  { key: 'current_value',       caption: 'Current value' },
+  { key: 'obligated_amount',    caption: 'Obligated' },
+  { key: 'base_value',          caption: 'Base value' },
+  { key: 'currency_code',       caption: 'Currency' },
+  { key: 'pop_start_date',      caption: 'PoP start' },
+  { key: 'pop_end_date',        caption: 'Contract end' },
+  { key: 'source_last_modified',caption: 'Last modified' },
+  { key: 'days_to_contract_end',caption: 'Days to end' },
+  { key: 'vendor_name',         caption: 'Vendor' },
+  { key: 'vendor_uei',          caption: 'Vendor UEI' },
+  { key: 'vendor_state',        caption: 'Vendor state' },
+  { key: 'vendor_city',         caption: 'Vendor city' },
+  { key: 'vendor_country',      caption: 'Vendor country' },
+  { key: 'vendor_zip',          caption: 'Vendor zip' },
+  { key: 'awarding_agency',     caption: 'Awarding agency' },
+  { key: 'awarding_department', caption: 'Awarding dept.' },
+  { key: 'naics_code',          caption: 'NAICS' },
+  { key: 'naics_description',   caption: 'NAICS description' },
+  { key: 'psc_code',            caption: 'PSC' },
+  { key: 'psc_description',     caption: 'PSC description' },
+  { key: 'pop_country',         caption: 'PoP country' },
+  { key: 'pop_state',           caption: 'PoP state' },
+  { key: 'pop_city',            caption: 'PoP city' },
+  { key: 'pop_district',        caption: 'PoP district' },
+  { key: 'is_excluded',         caption: 'Excluded?' },
+];
+// Pre-flatten each award row into a friendlier shape that the pivot table
+// will display with human-readable column names. The original snake_case
+// row stays attached under `__raw` so we can pass it to the detail panel.
+function transformForPivot(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  return rows.map((row) => {
+    const out: Record<string, unknown> = {};
+    for (const col of COLUMNS) {
+      let v = row[col.key];
+      if (col.key === 'is_excluded') v = Number(v) === 1 ? 'Yes' : 'No';
+      out[col.caption] = v ?? '';
+    }
+    out['Nature of work'] = natureOfWork({
+      description:        (row.description       ?? '') as string,
+      psc_description:    (row.psc_description   ?? '') as string,
+      psc_code:           (row.psc_code          ?? '') as string,
+      naics_description:  (row.naics_description ?? '') as string,
+      naics_code:         (row.naics_code        ?? '') as string,
+    });
+    out.__raw = row; // not visible in pivot — used for detail click-through
+    return out;
+  });
 }
 
-// ─── Inner pivot component ──────────────────────────────────────────────────
+// Default starting pivot: agency × nature of work, summing current value
+const DEFAULT_PIVOT_STATE = {
+  rows: ['Awarding agency'],
+  cols: ['Nature of work'],
+  vals: ['Current value'],
+  aggregatorName: 'Sum',
+  rendererName: 'Table',
+  // Hide noisy fields from the pivot's drag-source list — users can still
+  // select them from the dropdown if they want.
+  hiddenFromAggregators: ['__raw'],
+  hiddenAttributes: ['__raw'],
+};
 
-function PivotGrid({
-  rows, viewName,
-}: {
-  rows: Record<string, unknown>[];
-  viewName: string;
-}) {
-  const containerRef = React.useRef<HTMLDivElement>(null);
-  const pivotRef     = React.useRef<any>(null);
+// ─── Export helpers (CSV / TSV / JSON) ───────────────────────────────────────
 
-  // Mount the pivot once when the container is in the DOM
-  React.useEffect(() => {
-    if (!containerRef.current) return;
-    try {
-      pivotRef.current = new (WebDataRocks as any)({
-        container: containerRef.current,
-        toolbar: true,
-        report: defaultReport(rows, viewName),
-        width: '100%',
-        height: '100%',
-        global: { localization: 'en' },
-        beforetoolbarcreated: (toolbar: any) => {
-          // Trim the "Connect" tab — data flows through /explore only.
-          const oldGetTabs = toolbar.getTabs;
-          toolbar.getTabs = function () {
-            const tabs = oldGetTabs.call(this);
-            return tabs.filter((t: any) => t.id !== 'wdr-tab-connect');
-          };
-        },
-      });
-    } catch (err) {
-      console.error('WebDataRocks failed to initialize', err);
-    }
-    return () => {
-      try { pivotRef.current?.dispose?.(); } catch { /* noop */ }
-      pivotRef.current = null;
-    };
-    // Mount once. Data updates flow through the next effect.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Re-feed data when rows change (without re-creating the grid)
-  React.useEffect(() => {
-    const grid = pivotRef.current;
-    if (!grid) return;
-    try {
-      grid.updateData({ data: rows, mapping: MAPPING });
-      grid.refresh?.();
-    } catch (err) {
-      console.error('WebDataRocks updateData failed', err);
-    }
-  }, [rows]);
-
-  return (
-    <div
-      ref={containerRef}
-      className="awardlens-pivot"
-      style={{ width: '100%', height: '100%', minHeight: 540 }}
-    />
+function csvCell(v: unknown): string {
+  if (v === null || v === undefined) return '';
+  const s = String(v);
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+function downloadBlob(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function safeFilename(name: string, ext: string): string {
+  const stem = name.replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '').toLowerCase() || 'awardlens';
+  return `${stem}_${new Date().toISOString().slice(0, 10)}.${ext}`;
+}
+function exportCsv(rows: Record<string, unknown>[], viewName: string) {
+  if (!rows.length) return;
+  const cols = [...COLUMNS.map((c) => c.key), 'nature_of_work'];
+  const headers = [...COLUMNS.map((c) => c.caption), 'Nature of work'];
+  const lines = [headers.map(csvCell).join(',')];
+  for (const r of rows) {
+    const nature = natureOfWork(r as any);
+    lines.push([
+      ...cols.slice(0, -1).map((k) => csvCell(r[k])),
+      csvCell(nature),
+    ].join(','));
+  }
+  downloadBlob(
+    new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }),
+    safeFilename(viewName, 'csv'),
+  );
+}
+function exportTsv(rows: Record<string, unknown>[], viewName: string) {
+  if (!rows.length) return;
+  const cols = [...COLUMNS.map((c) => c.key), 'nature_of_work'];
+  const headers = [...COLUMNS.map((c) => c.caption), 'Nature of work'];
+  const tsv = (v: unknown) => (v == null ? '' : String(v).replace(/[\t\n\r]/g, ' '));
+  const lines = [headers.map(tsv).join('\t')];
+  for (const r of rows) {
+    const nature = natureOfWork(r as any);
+    lines.push([
+      ...cols.slice(0, -1).map((k) => tsv(r[k])),
+      tsv(nature),
+    ].join('\t'));
+  }
+  downloadBlob(
+    new Blob(['﻿' + lines.join('\r\n')], { type: 'text/tab-separated-values;charset=utf-8' }),
+    safeFilename(viewName, 'tsv'),
+  );
+}
+function exportJson(rows: Record<string, unknown>[], viewName: string) {
+  const enriched = rows.map((r) => ({ ...r, nature_of_work: natureOfWork(r as any) }));
+  downloadBlob(
+    new Blob([JSON.stringify(enriched, null, 2)], { type: 'application/json' }),
+    safeFilename(viewName, 'json'),
   );
 }
 
-// ─── Page ───────────────────────────────────────────────────────────────────
+// ─── Page ────────────────────────────────────────────────────────────────────
 
 interface ExploreResponse {
   view_id: string;
@@ -157,9 +167,11 @@ interface ExploreResponse {
 export function AnalyticsPage() {
   const viewQuery = useViewQuery();
   const { active, loading: viewsLoading } = useViews();
-  const [data, setData] = React.useState<ExploreResponse | null>(null);
+  const [data,  setData]  = React.useState<ExploreResponse | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [reloadToken, setReloadToken] = React.useState(0);
+  const [pivotState, setPivotState] = React.useState<any>(DEFAULT_PIVOT_STATE);
+  const [selectedAward, setSelectedAward] = React.useState<Record<string, unknown> | null>(null);
 
   React.useEffect(() => {
     if (viewsLoading || !active) return;
@@ -176,13 +188,18 @@ export function AnalyticsPage() {
     return () => { alive = false; };
   }, [viewsLoading, active, viewQuery?.view_id, reloadToken]);
 
+  const pivotData = React.useMemo(
+    () => (data ? transformForPivot(data.results) : []),
+    [data],
+  );
+
   if (!viewsLoading && !active) {
     return (
       <div className="space-y-6">
         <PageHeader
           eyebrow="Explore"
           title="Analytics"
-          description="Pivot grid over award, vendor, agency, and exclusion data — scoped to the active view."
+          description="Pivot grid + click-through detail across the active view."
         />
         <NoViewSelected pageLabel="data" />
       </div>
@@ -196,18 +213,26 @@ export function AnalyticsPage() {
         title="Analytics"
         description={
           data
-            ? `${fmtInt(data.count)} awards in "${data.view_name}" — drag fields between Rows / Columns / Measures to pivot. Use the toolbar for filters, conditional formatting, and export.`
-            : 'Pivot grid over award, vendor, agency, and exclusion data — scoped to the active view.'
+            ? `${fmtInt(data.count)} awards in "${data.view_name}". Drag fields between Rows / Columns / Values, or click a row in the browser below for full detail.`
+            : 'Pivot + click-through detail over award, vendor, agency, and exclusion data.'
         }
         actions={
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setReloadToken((n) => n + 1)}
-            disabled={!active}
-          >
-            <RefreshCw className="mr-1 h-4 w-4" /> Reload
-          </Button>
+          <div className="flex items-center gap-2">
+            <ExportMenu
+              rows={data?.results ?? []}
+              viewName={data?.view_name ?? 'awardlens'}
+              count={data?.count ?? 0}
+              disabled={!data || data.results.length === 0}
+            />
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setReloadToken((n) => n + 1)}
+              disabled={!active}
+            >
+              <RefreshCw className="mr-1 h-4 w-4" /> Reload
+            </Button>
+          </div>
         }
       />
 
@@ -217,21 +242,243 @@ export function AnalyticsPage() {
         </div>
       )}
 
-      <Card>
-        {data === null ? (
-          <TableSkeleton rows={10} />
-        ) : data.results.length === 0 ? (
+      {data === null ? (
+        <Card><TableSkeleton rows={10} /></Card>
+      ) : data.results.length === 0 ? (
+        <Card>
           <div className="px-6 py-16 text-center text-sm text-muted-soft italic">
             No awards in this view yet — trigger a Run Now from <strong>Admin → Views</strong>.
           </div>
-        ) : (
-          <div className="p-2" style={{ height: 'calc(100vh - 240px)', minHeight: 540 }}>
+        </Card>
+      ) : (
+        <>
+          {/* PIVOT */}
+          <Card>
+            <div className="border-b border-border bg-brand-teal-deep/40 px-5 py-3">
+              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand-sage">
+                Pivot — drag any field
+              </div>
+              <div className="mt-0.5 text-xs text-muted">
+                Pivot table from <a href="https://react-pivottable.js.org" target="_blank" rel="noreferrer" className="text-brand-sage hover:text-foreground">react-pivottable.js.org</a> · 32 fields available · multi-aggregator (Sum, Count, Average, Median, Count Unique, etc.)
+              </div>
+            </div>
             <ErrorBoundary label="Pivot grid error">
-              <PivotGrid rows={data.results} viewName={data.view_name} />
+              <div className="awardlens-pivot p-4">
+                <PivotTableUI
+                  data={pivotData}
+                  onChange={(s: any) => setPivotState(s)}
+                  renderers={{ ...TableRenderers }}
+                  unusedOrientationCutoff={Infinity}
+                  {...pivotState}
+                />
+              </div>
             </ErrorBoundary>
-          </div>
-        )}
-      </Card>
+          </Card>
+
+          {/* AWARD BROWSER */}
+          <AwardBrowser rows={data.results} onSelect={setSelectedAward} />
+        </>
+      )}
+
+      <AwardDetail award={selectedAward} onClose={() => setSelectedAward(null)} />
     </div>
+  );
+}
+
+// ─── Award browser (clickable list with search) ─────────────────────────────
+
+function AwardBrowser({
+  rows, onSelect,
+}: {
+  rows: Record<string, unknown>[];
+  onSelect: (a: Record<string, unknown>) => void;
+}) {
+  const [search, setSearch] = React.useState('');
+
+  const filtered = React.useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) =>
+      Object.values(r).some((v) => String(v ?? '').toLowerCase().includes(q)),
+    );
+  }, [rows, search]);
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between gap-4 border-b border-border bg-brand-teal-deep/40 px-5 py-3">
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand-sage">
+            Browse · click any row for full detail
+          </div>
+          <div className="mt-0.5 text-xs text-muted">
+            {fmtInt(filtered.length)} of {fmtInt(rows.length)} awards
+            {search ? ' (filtered)' : ''}
+          </div>
+        </div>
+        <div className="w-72">
+          <Label>Search</Label>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="PIID, vendor, NAICS, anything…"
+              className="pl-10"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                aria-label="Clear"
+                className="absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center text-muted-soft hover:text-foreground"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="max-h-[640px] overflow-y-auto">
+        {filtered.length === 0 ? (
+          <div className="px-6 py-12 text-center text-sm text-muted-soft italic">
+            No matches.
+          </div>
+        ) : (
+          <ul>
+            {filtered.map((row) => (
+              <AwardRow key={String(row.award_id)} row={row} onSelect={onSelect} />
+            ))}
+          </ul>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function AwardRow({
+  row, onSelect,
+}: {
+  row: Record<string, unknown>;
+  onSelect: (a: Record<string, unknown>) => void;
+}) {
+  const value = Number(row.current_value ?? 0);
+  const days = Number(row.days_to_contract_end);
+  const excluded = Number(row.is_excluded) === 1;
+
+  const dayChip = (() => {
+    if (!Number.isFinite(days)) return null;
+    if (days < 0)   return <Badge variant="ghost">{Math.abs(days)}d ago</Badge>;
+    if (days < 30)  return <Badge variant="danger">{days}d left</Badge>;
+    if (days < 90)  return <Badge variant="warning">{days}d left</Badge>;
+    if (days < 180) return <Badge variant="info">{days}d left</Badge>;
+    return <Badge variant="ghost">{days}d</Badge>;
+  })();
+
+  return (
+    <li>
+      <motion.button
+        type="button"
+        whileHover={{ x: 2 }}
+        onClick={() => onSelect(row)}
+        className="group flex w-full items-start gap-4 border-b border-border/60 px-5 py-3 text-left transition-colors hover:bg-brand-teal-soft/15"
+      >
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="truncate font-medium text-foreground group-hover:text-brand-vermilion-soft">
+              {String(row.description ?? '(no description)')}
+            </span>
+            {excluded && <Badge variant="danger">Excluded vendor</Badge>}
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-soft">
+            <span className="font-mono">{String(row.award_piid ?? '—')}</span>
+            <span>·</span>
+            <span>{String(row.vendor_name ?? '—')}</span>
+            <span>·</span>
+            <span>{String(row.awarding_agency ?? '—')}</span>
+            {row.psc_description ? (
+              <>
+                <span>·</span>
+                <span className="truncate">{String(row.psc_description)}</span>
+              </>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <span className="font-mono text-sm text-brand-vermilion-soft">
+            {fmtMoney(value)}
+          </span>
+          <div className="flex items-center gap-1.5 text-[10px] text-muted">
+            <span>{fmtDate(String(row.pop_end_date ?? ''))}</span>
+            {dayChip}
+          </div>
+        </div>
+
+        <Eye className="mt-1 h-4 w-4 shrink-0 text-muted-soft transition-colors group-hover:text-brand-sage" />
+      </motion.button>
+    </li>
+  );
+}
+
+// ─── Export menu ────────────────────────────────────────────────────────────
+
+function ExportMenu({
+  rows, viewName, count, disabled,
+}: {
+  rows: Record<string, unknown>[];
+  viewName: string;
+  count: number;
+  disabled: boolean;
+}) {
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <Button variant="primary" size="sm" disabled={disabled} title="Export the raw flat dataset (every row, every column)">
+          <Download className="mr-1 h-4 w-4" /> Export {count > 0 && <span className="ml-1 text-[10px] opacity-80">({count})</span>}
+        </Button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align="end"
+          sideOffset={8}
+          className="z-50 min-w-[260px] overflow-hidden rounded-xl border border-border bg-brand-teal-deep/95 p-2 shadow-glass-lg backdrop-blur-xl"
+        >
+          <div className="px-3 pt-1 pb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-brand-sage">
+            Raw flat data — every column + Nature of work
+          </div>
+          <DropdownMenu.Item
+            className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-sm outline-none data-[highlighted]:bg-brand-teal-soft/30"
+            onSelect={() => exportCsv(rows, viewName)}
+          >
+            <span className="font-mono text-[10px] uppercase text-muted-soft w-10">CSV</span>
+            <div className="flex-1">
+              <div className="font-medium">CSV (Excel-friendly)</div>
+              <div className="text-[10px] text-muted-soft">RFC 4180 with UTF-8 BOM</div>
+            </div>
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-sm outline-none data-[highlighted]:bg-brand-teal-soft/30"
+            onSelect={() => exportTsv(rows, viewName)}
+          >
+            <span className="font-mono text-[10px] uppercase text-muted-soft w-10">TSV</span>
+            <div className="flex-1">
+              <div className="font-medium">TSV (paste into Sheets)</div>
+              <div className="text-[10px] text-muted-soft">tab-separated</div>
+            </div>
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-sm outline-none data-[highlighted]:bg-brand-teal-soft/30"
+            onSelect={() => exportJson(rows, viewName)}
+          >
+            <span className="font-mono text-[10px] uppercase text-muted-soft w-10">JSON</span>
+            <div className="flex-1">
+              <div className="font-medium">JSON</div>
+              <div className="text-[10px] text-muted-soft">pretty-printed array of objects</div>
+            </div>
+          </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
   );
 }

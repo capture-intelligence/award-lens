@@ -1,0 +1,119 @@
+name: Deploy
+
+# Triggers:
+#   - any push to `main`           → full deploy (worker + Pages + sidecar)
+#   - any push to `production`     → same (legacy branch alias)
+#   - manual dispatch               → choose which targets to redeploy
+on:
+  push:
+    branches: [main, production]
+    paths:
+      - 'workers/**'
+      - 'packages/**'
+      - 'web/**'
+      - 'sidecar-oracle/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: 'Comma list of targets: worker, pages, sidecar (default: all)'
+        required: false
+        default: 'worker,pages,sidecar'
+
+# Cancel in-flight runs on the same branch when a new push lands.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── 1. Cloudflare Worker (api-worker) ──────────────────────────────────
+  worker:
+    if: ${{ github.event_name != 'workflow_dispatch' || contains(github.event.inputs.targets, 'worker') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'pnpm' }
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Apply D1 migrations (idempotent)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken:        ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId:       ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: 'workers/api'
+          command: 'd1 migrations apply DB --remote'
+      - name: Deploy api-worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken:        ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId:       ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: 'workers/api'
+          command: 'deploy'
+
+  # ── 2. Cloudflare Pages dashboard ──────────────────────────────────────
+  pages:
+    if: ${{ github.event_name != 'workflow_dispatch' || contains(github.event.inputs.targets, 'pages') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'pnpm' }
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Build dashboard
+        run: pnpm --filter @awards/web run build
+      - name: Deploy Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: 'pages deploy web/dist --project-name=awards-dashboard --branch=production --commit-dirty=true'
+
+  # ── 3. Oracle VM sidecar — push only the files that changed ────────────
+  sidecar:
+    if: ${{ github.event_name != 'workflow_dispatch' || contains(github.event.inputs.targets, 'sidecar') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.VM_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+      - name: Push scripts
+        run: |
+          scp -i ~/.ssh/id_ed25519 \
+            sidecar-oracle/*.mjs \
+            ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}:/tmp/
+          scp -i ~/.ssh/id_ed25519 \
+            sidecar-oracle/systemd/*.service \
+            sidecar-oracle/systemd/*.timer \
+            ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}:/tmp/
+      - name: Install + reload systemd
+        run: |
+          ssh -i ~/.ssh/id_ed25519 ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} <<'EOF'
+            set -e
+            for f in /tmp/*.mjs; do
+              sudo install -o awards -g awards -m 0755 "$f" \
+                "/opt/awards-pipeline/sidecar-oracle/$(basename "$f")"
+            done
+            for f in /tmp/awards-*.service /tmp/awards-*.timer; do
+              [ -f "$f" ] || continue
+              sudo install -m 0644 "$f" "/etc/systemd/system/$(basename "$f")"
+            done
+            sudo systemctl daemon-reload
+            # Re-enable any timer we just refreshed (idempotent)
+            for u in awards-sidecar awards-trigger awards-grants awards-reconcile awards-exclusions; do
+              if sudo systemctl list-unit-files --no-legend "$u.timer" | grep -q .; then
+                sudo systemctl enable --now "$u.timer" >/dev/null 2>&1 || true
+              fi
+            done
+            rm -f /tmp/*.mjs /tmp/awards-*.service /tmp/awards-*.timer
+            echo "sidecar deploy complete"
+          EOF
