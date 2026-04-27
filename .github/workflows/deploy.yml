@@ -72,7 +72,17 @@ jobs:
         with:
           apiToken:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: 'pages deploy web/dist --project-name=awards-dashboard --branch=production --commit-dirty=true'
+          # IMPORTANT: workingDirectory must be `web/` so wrangler resolves
+          # `functions/` (the Pages Functions proxy that forwards /auth/*,
+          # /admin/*, /awards/*, etc. to the api-worker) relative to web/,
+          # finding web/functions/_middleware.ts. Without this, wrangler
+          # looks for ./functions/ at the repo root, finds nothing, and
+          # ships the dashboard with NO functions — every /auth/me etc.
+          # then 200s the SPA's index.html, the JSON parse silently yields
+          # null, and the React app crashes with
+          # "Cannot read properties of null (reading 'authenticated')".
+          workingDirectory: 'web'
+          command: 'pages deploy dist --project-name=awards-dashboard --branch=production --commit-dirty=true'
 
   # ── 3. Oracle VM sidecar — push only the files that changed ────────────
   sidecar:
