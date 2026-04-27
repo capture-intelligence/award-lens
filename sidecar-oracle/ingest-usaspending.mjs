@@ -64,14 +64,19 @@ function buildUsaspendingFilters(viewFilters) {
   const lookbackMonths = Number(viewFilters.lookback_months || FALLBACK_LOOKBACK_MO);
   const forwardMonths  = Number(viewFilters.forward_months  ?? 0);
 
-  // Permissive action-date window — operators want "grab everything that
-  // matches the keywords, we'll filter in the pivot". So we pull a much
-  // wider window than the view's lookback would imply: lookback × 3, with
-  // a hard floor of 60 months so even short-lookback views catch historical
-  // matches. Worker's agency-strict purge still removes cross-agency noise.
-  const wideMonths = Math.max(lookbackMonths * 3, 60);
-  const actionDateSince = isoMonthsOffset(-wideMonths);
-  const actionDateUntil = isoMonthsOffset(0);  // today — actions can't be in the future
+  // The CONTRACT-END window the operator cares about is
+  // [today - lookback, today + forward] (e.g. -18mo / +6mo, sliding).
+  // USAspending's /search/spending_by_award/ only filters on action_date,
+  // so we have to overshoot at the API layer and let the worker post-purge
+  // by pop_end_date.
+  //
+  // Why pad lookback at all: a contract that *ends* in (today - 18mo) was
+  // signed earlier and may have had its last action_date well before that.
+  // Padding `lookback + 12` months upstream catches them.
+  // Why pad forward: contracts ending in (today + 6mo) are still being
+  // modified now, so the until=today is fine.
+  const actionDateSince = isoMonthsOffset(-(lookbackMonths + 12));
+  const actionDateUntil = isoMonthsOffset(0);  // today — action_date is never future
   fb.time_period = [{
     start_date: actionDateSince,
     end_date:   actionDateUntil,
