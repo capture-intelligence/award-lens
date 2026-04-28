@@ -619,7 +619,12 @@
   margin-left: 4px !important;
 }
 
-/* Filter popup */
+/* Filter popup. The pivot card has overflow-x: auto on the outer
+   wrapper (so wide pivots get a horizontal scrollbar instead of
+   clipping). That same overflow context also clips this popup, which
+   is positioned absolutely by react-pivottable. We lift the popup
+   above any clipping ancestor with a high z-index, give it sane
+   responsive width, and let long values wrap inside the row list. */
 .awardlens-pivot .pvtFilterBox {
   background: var(--al-bg-elevated) !important;
   border: 1px solid var(--al-border-strong) !important;
@@ -627,7 +632,9 @@
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.65) !important;
   color: var(--al-text) !important;
   padding: 14px !important;
-  min-width: 280px !important;
+  min-width: 320px !important;
+  max-width: min(560px, calc(100vw - 32px)) !important;
+  z-index: 9999 !important;
 }
 .awardlens-pivot .pvtFilterBox h4 {
   color: var(--al-sage) !important;
@@ -676,11 +683,15 @@
 /* Filter-popup checkbox rows. react-pivottable's default stylesheet uses
    `.pvtCheckContainer p.selected { background: #ebf0f8 }` (pale blue-grey)
    — that's what made the filter values look like blank cream rectangles
-   on dark mode. Override every state with explicit dark-theme colors. */
+   on dark mode. Override every state with explicit dark-theme colors.
+   Also overrides the library's `white-space: nowrap` on the container
+   so long values like full agency names wrap to multiple lines instead
+   of getting clipped at the popup's right edge. */
 .awardlens-pivot .pvtCheckContainer {
   background: transparent !important;
   border-top: 1px solid var(--al-border) !important;
   margin-top: 8px !important;
+  white-space: normal !important;
 }
 .awardlens-pivot .pvtCheckContainer p,
 .awardlens-pivot .pvtCheckContainer p.selected {
@@ -692,8 +703,11 @@
   font-size: 12px !important;
   cursor: pointer !important;
   display: flex !important;
-  align-items: center !important;
+  align-items: flex-start !important;
   gap: 8px !important;
+  white-space: normal !important;
+  word-break: break-word !important;
+  line-height: 1.35 !important;
 }
 .awardlens-pivot .pvtCheckContainer p:hover,
 .awardlens-pivot .pvtCheckContainer p.selected:hover {
