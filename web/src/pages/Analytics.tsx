@@ -331,28 +331,24 @@ function PivotShell({
   React.useEffect(() => {
     const root = wrapRef.current;
     if (!root) return;
-    // Set color-scheme on the wrapper too — Chromium native form
-    // rendering reads the inherited value for glyph color decisions.
-    root.style.setProperty('color-scheme', 'light', 'important');
-
     const apply = () => {
       const selects = root.querySelectorAll<HTMLSelectElement>('select');
       selects.forEach((el) => {
-        // setProperty with priority="important" lets us beat any external
-        // !important rule via inline-style cascade.
-        el.style.setProperty('color', '#000000', 'important');
-        el.style.setProperty('-webkit-text-fill-color', '#000000', 'important');
-        el.style.setProperty('background-color', '#FFFFFF', 'important');
-        el.style.setProperty('color-scheme', 'light', 'important');
-        el.style.setProperty('font-weight', '700', 'important');
-        el.style.setProperty('font-size', '14px', 'important');
+        // Match the .pvtAttr field-chip look: dark teal bg + cream text.
+        // Inline-style !important is the highest-priority origin in CSS
+        // and beats any author stylesheet, library default, or browser
+        // color-scheme glyph fill.
+        el.style.setProperty('color', '#FBE9D0', 'important');
+        el.style.setProperty('-webkit-text-fill-color', '#FBE9D0', 'important');
+        el.style.setProperty('background-color', '#244855', 'important');
+        el.style.setProperty('font-weight', '600', 'important');
+        el.style.setProperty('font-size', '12px', 'important');
         el.style.setProperty('appearance', 'none', 'important');
         el.style.setProperty('-webkit-appearance', 'none', 'important');
-        // Also apply to options so the open menu doesn't flash a different
-        // colour before the CSS rule catches up.
+        // <option>s in the open menu — same dark theme.
         Array.from(el.options).forEach((opt) => {
-          opt.style.setProperty('color', '#000000', 'important');
-          opt.style.setProperty('background-color', '#FFFFFF', 'important');
+          opt.style.setProperty('color', '#FBE9D0', 'important');
+          opt.style.setProperty('background-color', '#173039', 'important');
         });
       });
     };

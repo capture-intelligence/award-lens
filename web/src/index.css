@@ -735,13 +735,6 @@
     Why `-webkit-text-fill-color`: in WebKit/Chromium, that property
     overrides `color` for actual glyph fill. We set both so neither
     cascade nor browser color-scheme can win. */
-/* Set color-scheme on the WRAPPER too so child native form controls
-   inherit light-mode rendering — Chromium reads the inherited value
-   when deciding glyph color for natively-painted text. */
-.awardlens-pivot.awardlens-pivot {
-  color-scheme: light;
-}
-
 .awardlens-pivot.awardlens-pivot select,
 .awardlens-pivot.awardlens-pivot .pvtRenderers select,
 .awardlens-pivot.awardlens-pivot .pvtVals select,
@@ -751,31 +744,35 @@
   appearance: none !important;
   -webkit-appearance: none !important;
   -moz-appearance: none !important;
-  color-scheme: light !important;
-  /* Pure white pill + pure black text + vermilion accent border. This
-     is the highest-contrast possible "input chip" treatment — readable
-     under any monitor calibration, color-blindness mode, or browser
-     color-scheme. */
-  background-color: #FFFFFF !important;
+  /* Match the .pvtAttr field-chip style — dark teal pill with cream
+     text. This combination is already proven to render legibly on the
+     same page (e.g. "Awarding agency" chip), and avoids fighting
+     Chromium's native color-scheme behaviour for native form controls. */
+  background-color: #244855 !important;
   background-image:
-    linear-gradient(45deg, transparent 50%, #000000 50%),
-    linear-gradient(135deg, #000000 50%, transparent 50%) !important;
+    linear-gradient(180deg, #2e5a6a 0%, #1f3e49 100%),
+    linear-gradient(45deg, transparent 50%, #FBE9D0 50%),
+    linear-gradient(135deg, #FBE9D0 50%, transparent 50%) !important;
   background-position:
+    0 0,
     calc(100% - 14px) 50%,
     calc(100% - 9px) 50% !important;
-  background-size: 6px 6px, 6px 6px !important;
+  background-size:
+    100% 100%,
+    5px 5px,
+    5px 5px !important;
   background-repeat: no-repeat !important;
-  color: #000000 !important;
-  -webkit-text-fill-color: #000000 !important;
-  border: 2px solid var(--al-accent) !important;
+  color: #FBE9D0 !important;
+  -webkit-text-fill-color: #FBE9D0 !important;
+  border: 1px solid rgba(144, 174, 173, 0.45) !important;
   border-radius: 8px !important;
-  padding: 7px 30px 7px 12px !important;
-  font-size: 14px !important;
-  font-weight: 700 !important;
+  padding: 6px 28px 6px 12px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
   font-family: inherit !important;
   margin: 2px !important;
   cursor: pointer !important;
-  text-shadow: none !important;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.20) !important;
   background-clip: padding-box !important;
   transition: border-color 0.12s, box-shadow 0.12s, background-color 0.12s !important;
 }
@@ -797,12 +794,13 @@
   box-shadow: 0 0 0 3px var(--al-accent-bg) !important;
 }
 
-/* Theme the OPEN dropdown list (the <option> menu the browser pops up).
-   Same cream pill aesthetic — dark navy text on cream so the open menu
-   matches the closed pill. */
+/* Theme the OPEN <option> menu — dark teal panel with cream text,
+   matching the closed pill. Browsers vary in how much option styling
+   they honor (Chromium honors most, macOS honors little) — the JS
+   inline-style fallback in PivotShell picks up the slack. */
 .awardlens-pivot.awardlens-pivot select option {
-  background-color: #FBE9D0 !important;
-  color: #0d1f25 !important;
+  background-color: #173039 !important;
+  color: #FBE9D0 !important;
   padding: 6px 10px !important;
   font-weight: 500 !important;
 }
