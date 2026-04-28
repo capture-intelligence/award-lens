@@ -27,10 +27,11 @@ export interface UsaspendingFilters {
   /** Subtier agency names — e.g., ["Centers for Disease Control and Prevention"] */
   subtier_agencies?: string[];
   /**
-   * Awarding office NAMES — e.g., ["CDC OASB-NCHHSTP"]. USAspending's
-   * /search/spending_by_award/ accepts these as `agencies` entries with
-   * `tier: "office"`. Codes are not accepted at this endpoint, so we always
-   * filter by name.
+   * NOT a USAspending /search/spending_by_award/ filter — that endpoint rejects
+   * `tier:'office'` and never returns office data on its rows. Office filtering
+   * is enforced LOCALLY by the worker (`purgeOfficeMismatches`) after the
+   * sidecar enriches each award via /awards/{id}/. Kept on the type so canonical
+   * filter shapes stay consistent across adapter / sidecar / worker.
    */
   office_names?: string[];
   /** Keyword search across description/PIID — e.g., ["HIV","tuberculosis"] */
@@ -76,9 +77,7 @@ export class UsaspendingAdapter extends BaseSourceAdapter {
     for (const name of this.filters.subtier_agencies ?? []) {
       agencyObjs.push({ type: 'awarding', tier: 'subtier', name });
     }
-    for (const name of this.filters.office_names ?? []) {
-      agencyObjs.push({ type: 'awarding', tier: 'office', name });
-    }
+    // office_names intentionally NOT applied here — see UsaspendingFilters comment.
     if (agencyObjs.length) filterBlock.agencies = agencyObjs;
     if (this.filters.keywords?.length)     filterBlock.keywords = this.filters.keywords;
     if (this.filters.naics_codes?.length)  filterBlock.naics_codes = this.filters.naics_codes;
@@ -111,11 +110,12 @@ export class UsaspendingAdapter extends BaseSourceAdapter {
         'End Date',
         'Awarding Agency',
         'Awarding Sub Agency',
-        'Awarding Office Code',
-        'Awarding Office Name',
         'Funding Agency',
-        'Funding Office Code',
-        'Funding Office Name',
+        // Office fields (Awarding/Funding Office Code/Name) are accepted by
+        // /search/spending_by_award/ but always returned null. Office data is
+        // enriched per-award via /awards/{id}/ — see the sidecar's
+        // enrichWithOffices() and the worker's parse() will pick up whatever
+        // the sidecar injected onto each row.
         'NAICS',
         'PSC',
         'Last Modified Date',

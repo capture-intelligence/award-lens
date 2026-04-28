@@ -1,28 +1,34 @@
 /**
- * Office discovery — sample USAspending using a view's keywords + subtier,
- * tally awarding offices observed, return top N for admin review.
+ * Office discovery — read awarding offices already observed for a view's
+ * awards (populated by the sidecar's per-award detail enrichment) and return
+ * a ranked tally for admin review.
  *
  *   POST /admin/views/:id/discover-offices
- *   body: { sample_pages?: number = 2 }   // 1 page = 100 awards
  *   resp: { offices: Array<{
  *     code: string | null;
  *     name: string;
  *     award_count: number;
  *     total_value: number;
  *     sample_piids: string[];
- *   }>, sampled: number }
+ *   }>,
+ *     total_in_view: number,
+ *     missing_office_count: number   // awards in the view with NO office_id yet
+ *   }
  *
- * Read-only. Does not mutate the view; admin promotes the chosen office(s)
- * via PUT /admin/views/:id { filters: { office_names: [...] } } afterwards.
+ * Read-only; admin promotes selected office(s) via PUT /admin/views/:id with
+ * filters.office_names = [...]. The next ingest's purgeOfficeMismatches will
+ * then enforce the office filter at finalize.
+ *
+ * Why local-only: USAspending's /search/spending_by_award/ doesn't surface
+ * awarding office on its rows (the field is accepted but always returns null),
+ * and the sidecar enriches each award via /awards/{id}/. So by the time the
+ * view has been ingested at least once with the new code path, the local DB
+ * is the canonical source for office tallies — and it's much faster than
+ * re-sampling USAspending.
  */
 
 import { Hono } from 'hono';
 import { requireAdmin, type AuthVars } from '../auth/session.js';
-import { deserializeFilters } from '../views/filters.js';
-
-const USA_BASE = 'https://api.usaspending.gov/api/v2';
-const PAGE_SIZE = 100;
-const MAX_PAGES = 5;
 
 interface Env {
   DB: D1Database;
@@ -32,107 +38,91 @@ type Ctx = { Bindings: Env; Variables: AuthVars };
 export const adminDiscoverOfficesApp = new Hono<Ctx>();
 adminDiscoverOfficesApp.use('*', requireAdmin);
 
+interface OfficeRow {
+  code: string | null;
+  name: string;
+  award_count: number;
+  total_value: number;
+}
+
+interface SamplePiidRow {
+  fpds_office_code: string | null;
+  office_name: string | null;
+  award_piid: string | null;
+}
+
 adminDiscoverOfficesApp.post('/:id/discover-offices', async (c) => {
   const viewId = c.req.param('id');
-  const body = await c.req.json().catch(() => ({})) as { sample_pages?: number };
-  const samplePages = Math.min(MAX_PAGES, Math.max(1, Number(body.sample_pages) || 2));
 
-  const v = await c.env.DB.prepare('SELECT filters_json FROM data_view WHERE view_id = ?')
-    .bind(viewId).first<{ filters_json: string }>();
+  const v = await c.env.DB.prepare('SELECT view_id FROM data_view WHERE view_id = ?')
+    .bind(viewId).first();
   if (!v) return c.json({ error: 'not_found' }, 404);
 
-  const f = deserializeFilters(v.filters_json);
+  // Ranked office tally over awards currently tagged into this view.
+  const tally = await c.env.DB.prepare(`
+    SELECT
+      co.fpds_office_code AS code,
+      co.name             AS name,
+      COUNT(*)            AS award_count,
+      ROUND(SUM(COALESCE(a.current_value, 0)), 2) AS total_value
+    FROM view_award va
+    JOIN award a              ON a.award_id    = va.award_id
+    JOIN contracting_office co ON co.office_id = a.awarding_office_id
+    WHERE va.view_id = ?
+    GROUP BY co.office_id
+    ORDER BY award_count DESC, total_value DESC
+  `).bind(viewId).all<OfficeRow>();
 
-  // The discovery filter intentionally ignores `office_names` (otherwise we'd
-  // just confirm what's already configured). Keywords + subtier give the
-  // recall surface admins are trying to characterize.
-  const filterBlock: Record<string, unknown> = {
-    time_period: [{
-      // 24-month action_date window — wide enough to find recent offices.
-      start_date: monthsAgo(24),
-      end_date: monthsAgo(0),
-      date_type: 'action_date',
-    }],
-    award_type_codes: f.award_types?.length ? f.award_types : ['A', 'B', 'C', 'D'],
-  };
-  const agencies: Array<{ type: string; tier: string; name: string }> = [];
-  if (f.toptier_agency_name) agencies.push({ type: 'awarding', tier: 'toptier', name: f.toptier_agency_name });
-  if (f.subtier_agency_name) agencies.push({ type: 'awarding', tier: 'subtier', name: f.subtier_agency_name });
-  if (agencies.length) filterBlock.agencies = agencies;
-  if (f.keywords?.length) filterBlock.keywords = f.keywords;
-  if (f.naics_codes?.length) filterBlock.naics_codes = f.naics_codes;
-  if (f.psc_codes?.length) filterBlock.psc_codes = f.psc_codes;
+  // Three sample PIIDs per office (most recent end date first).
+  const samples = await c.env.DB.prepare(`
+    SELECT
+      co.fpds_office_code,
+      co.name AS office_name,
+      a.award_piid
+    FROM view_award va
+    JOIN award a              ON a.award_id    = va.award_id
+    JOIN contracting_office co ON co.office_id = a.awarding_office_id
+    WHERE va.view_id = ?
+      AND a.award_piid IS NOT NULL
+    ORDER BY a.pop_end_date DESC NULLS LAST
+  `).bind(viewId).all<SamplePiidRow>();
 
-  type Tally = { code: string | null; name: string; award_count: number; total_value: number; sample_piids: string[] };
-  const buckets = new Map<string, Tally>();
-  let sampled = 0;
-
-  for (let page = 1; page <= samplePages; page++) {
-    const res = await fetch(`${USA_BASE}/search/spending_by_award/`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({
-        filters: filterBlock,
-        fields: [
-          'Award ID', 'Award Amount',
-          'Awarding Office Code', 'Awarding Office Name',
-        ],
-        sort: 'Last Modified Date',
-        order: 'desc',
-        limit: PAGE_SIZE,
-        page,
-      }),
-      signal: AbortSignal.timeout(45_000),
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      return c.json({ error: 'usaspending_error', detail: `${res.status}: ${text.slice(0, 300)}` }, 502);
+  const piidsByOffice = new Map<string, string[]>();
+  for (const s of samples.results) {
+    const key = `${s.fpds_office_code ?? ''}|${s.office_name ?? ''}`;
+    const list = piidsByOffice.get(key) ?? [];
+    if (list.length < 3 && s.award_piid) {
+      list.push(s.award_piid);
+      piidsByOffice.set(key, list);
     }
-    const data = await res.json() as {
-      results?: Array<{
-        'Award ID'?: string | null;
-        'Award Amount'?: number | null;
-        'Awarding Office Code'?: string | null;
-        'Awarding Office Name'?: string | null;
-      }>;
-      page_metadata?: { hasNext?: boolean };
-    };
-    const rows = data.results ?? [];
-    sampled += rows.length;
-
-    for (const r of rows) {
-      const code = r['Awarding Office Code'] ?? null;
-      const name = r['Awarding Office Name'] ?? '(unknown office)';
-      const key = code ?? `name:${name.toLowerCase()}`;
-      const piid = r['Award ID'] ?? '';
-      const amount = r['Award Amount'] ?? 0;
-      const t = buckets.get(key);
-      if (t) {
-        t.award_count++;
-        t.total_value += amount;
-        if (t.sample_piids.length < 3 && piid && !t.sample_piids.includes(piid)) {
-          t.sample_piids.push(piid);
-        }
-      } else {
-        buckets.set(key, {
-          code, name,
-          award_count: 1,
-          total_value: amount,
-          sample_piids: piid ? [piid] : [],
-        });
-      }
-    }
-    if (!data.page_metadata?.hasNext) break;
   }
 
-  const offices = Array.from(buckets.values())
-    .sort((a, b) => b.award_count - a.award_count);
+  const offices = tally.results.map((row) => {
+    const key = `${row.code ?? ''}|${row.name}`;
+    return {
+      code: row.code,
+      name: row.name,
+      award_count: row.award_count,
+      total_value: row.total_value,
+      sample_piids: piidsByOffice.get(key) ?? [],
+    };
+  });
 
-  return c.json({ sampled, offices });
+  // Tell the admin if some awards in the view aren't enriched yet — they may
+  // want to wait for an ingest cycle (or click Run Now) before locking in
+  // office_names so they don't accidentally exclude offices not yet observed.
+  const counts = await c.env.DB.prepare(`
+    SELECT
+      COUNT(*) AS total_in_view,
+      SUM(CASE WHEN a.awarding_office_id IS NULL THEN 1 ELSE 0 END) AS missing_office_count
+    FROM view_award va
+    JOIN award a ON a.award_id = va.award_id
+    WHERE va.view_id = ?
+  `).bind(viewId).first<{ total_in_view: number; missing_office_count: number }>();
+
+  return c.json({
+    offices,
+    total_in_view: counts?.total_in_view ?? 0,
+    missing_office_count: counts?.missing_office_count ?? 0,
+  });
 });
-
-function monthsAgo(n: number): string {
-  const d = new Date();
-  d.setUTCMonth(d.getUTCMonth() - n);
-  return d.toISOString().slice(0, 10);
-}

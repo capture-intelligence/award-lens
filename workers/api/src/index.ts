@@ -630,6 +630,36 @@ app.get('/sidecar/views', async (c) => {
   });
 });
 
+// ---------- Sidecar: which awards already have office data? ----------
+//
+// Lets the sidecar skip the per-award detail enrichment for awards we've
+// already populated. Body: { external_ids: [generated_internal_id, ...] }.
+// Response: { external_ids: [<subset that already has awarding_office_id>] }.
+app.post('/sidecar/awards/with-office', async (c) => {
+  const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
+  const body = await c.req.json().catch(() => null) as { external_ids?: string[] } | null;
+  const ids = (body?.external_ids ?? []).filter((s) => typeof s === 'string' && s.length > 0);
+  if (ids.length === 0) return c.json({ external_ids: [] });
+
+  // Chunk into batches of 100 to stay under D1's parameter limit.
+  const seen: string[] = [];
+  for (let i = 0; i < ids.length; i += 100) {
+    const slice = ids.slice(i, i + 100);
+    const placeholders = slice.map(() => '?').join(',');
+    const r = await c.env.DB.prepare(`
+      SELECT m.external_id
+      FROM external_id_mapping m
+      JOIN award a ON a.award_id = m.internal_id
+      WHERE m.source_id = 'usaspending'
+        AND m.entity_type = 'award'
+        AND a.awarding_office_id IS NOT NULL
+        AND m.external_id IN (${placeholders})
+    `).bind(...slice).all<{ external_id: string }>();
+    for (const row of r.results) seen.push(row.external_id);
+  }
+  return c.json({ external_ids: seen });
+});
+
 // ---------- Import: USAspending awards (called by VM sidecar, per view) ----------
 //
 // Body: { run_id?, view_id, response, finalize, metadata }

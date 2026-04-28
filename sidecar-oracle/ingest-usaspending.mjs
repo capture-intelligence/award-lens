@@ -106,11 +106,11 @@ function buildUsaspendingFilters(viewFilters) {
   if (viewFilters.subtier_agency_name) {
     agencyObjs.push({ type: 'awarding', tier: 'subtier', name: viewFilters.subtier_agency_name });
   }
-  if (Array.isArray(viewFilters.office_names) && viewFilters.office_names.length) {
-    for (const name of viewFilters.office_names) {
-      if (name) agencyObjs.push({ type: 'awarding', tier: 'office', name });
-    }
-  }
+  // NOTE: USAspending's /search/spending_by_award/ does NOT accept tier:'office'
+  // (the API rejects it: "outside valid values ['toptier','subtier']"). Office
+  // filtering is enforced AT THE WORKER via purgeOfficeMismatches once awards
+  // have been enriched with awarding_office_id. office_names is intentionally
+  // skipped here.
   if (agencyObjs.length) fb.agencies = agencyObjs;
 
   if (viewFilters.keywords?.length)    fb.keywords    = viewFilters.keywords;
@@ -149,9 +149,11 @@ function payloadForPage(filterBlock, page) {
       'Award ID', 'Recipient Name', 'Recipient UEI',
       'Award Amount', 'Total Outlays', 'Description',
       'Contract Award Type', 'Start Date', 'End Date',
-      'Awarding Agency', 'Awarding Sub Agency',
-      'Awarding Office Code', 'Awarding Office Name',
-      'Funding Agency', 'Funding Office Code', 'Funding Office Name',
+      'Awarding Agency', 'Awarding Sub Agency', 'Funding Agency',
+      // NOTE: 'Awarding Office Code'/'Awarding Office Name' are accepted by
+      // /search/spending_by_award/ but the endpoint always returns null for
+      // them. Office data is enriched per-award via /awards/{id}/ — see
+      // enrichWithOffices() below.
       'NAICS', 'PSC', 'Last Modified Date',
       'recipient_id',
       'Place of Performance State Code',
@@ -200,6 +202,94 @@ async function postPage(viewId, runId, pageData, finalize, metadata) {
   return res.json();
 }
 
+// ─── Per-award detail enrichment (office data) ────────────────────────────
+//
+// USAspending's /search/spending_by_award/ doesn't surface awarding/funding
+// office on the search row, so we backfill from /awards/{generated_internal_id}/
+// which exposes `awarding_agency.office_agency_name` (and likewise for funding).
+//
+// Cost: one extra HTTP call per award. We bound concurrency to 5 in flight
+// and pace 250ms between batch starts; for a 100-award page this adds ~5s.
+//
+// To skip already-enriched awards (typically the case after the first run),
+// we ask the worker for the set of generated_internal_ids it already has
+// office data for, and only fetch detail for the rest.
+
+const ENRICH_CONCURRENCY = 5;
+const ENRICH_PACE_MS = 250;
+
+async function loadEnrichedIds(externalIds) {
+  if (!externalIds.length) return new Set();
+  try {
+    const res = await fetch(`${API}/sidecar/awards/with-office`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ external_ids: externalIds }),
+    });
+    if (!res.ok) {
+      log('warn', 'enrich-cache lookup failed; will enrich every row', { status: res.status });
+      return new Set();
+    }
+    const data = await res.json();
+    return new Set(data.external_ids ?? []);
+  } catch (err) {
+    log('warn', 'enrich-cache lookup error; will enrich every row', { error: String(err).slice(0, 200) });
+    return new Set();
+  }
+}
+
+async function fetchAwardDetail(generatedInternalId, attempt = 1) {
+  try {
+    const res = await fetch(
+      `${USA_BASE}/awards/${encodeURIComponent(generatedInternalId)}/`,
+      { headers: { 'Accept': 'application/json' }, signal: AbortSignal.timeout(20_000) },
+    );
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`detail ${res.status}`);
+    return res.json();
+  } catch (err) {
+    if (attempt >= 3) {
+      log('warn', 'detail fetch giving up', { id: generatedInternalId, error: String(err).slice(0, 120) });
+      return null;
+    }
+    await new Promise((r) => setTimeout(r, 1000 * attempt));
+    return fetchAwardDetail(generatedInternalId, attempt + 1);
+  }
+}
+
+async function enrichWithOffices(rows) {
+  if (DRY) return { fetched: 0, skipped: rows.length };
+  const externalIds = rows.map((r) => r['generated_internal_id']).filter(Boolean);
+  const alreadyHave = await loadEnrichedIds(externalIds);
+
+  const todo = rows.filter((r) => r['generated_internal_id'] && !alreadyHave.has(r['generated_internal_id']));
+  let i = 0;
+  const total = todo.length;
+  let done = 0;
+
+  async function worker() {
+    while (true) {
+      const idx = i++;
+      if (idx >= todo.length) return;
+      const row = todo[idx];
+      const detail = await fetchAwardDetail(row['generated_internal_id']);
+      if (detail) {
+        const aw = detail.awarding_agency ?? {};
+        const fn = detail.funding_agency  ?? {};
+        if (aw.office_agency_name) row['Awarding Office Name'] = aw.office_agency_name;
+        if (aw.office_agency_code) row['Awarding Office Code'] = aw.office_agency_code;
+        if (fn.office_agency_name) row['Funding Office Name']  = fn.office_agency_name;
+        if (fn.office_agency_code) row['Funding Office Code']  = fn.office_agency_code;
+      }
+      done++;
+      await new Promise((r) => setTimeout(r, ENRICH_PACE_MS));
+    }
+  }
+  await Promise.all(Array.from({ length: ENRICH_CONCURRENCY }, () => worker()));
+  log('info', 'office enrichment', { fetched: done, skipped: rows.length - total, total: rows.length });
+  return { fetched: done, skipped: rows.length - total };
+}
+
 // ─── Pull views catalog from worker ────────────────────────────────────────
 async function loadViews() {
   const res = await fetch(`${API}/sidecar/views`, {
@@ -244,6 +334,12 @@ async function ingestView(view) {
     const count = data.results?.length ?? 0;
     const hasNext = data.page_metadata?.hasNext ?? false;
     log('info', 'page fetched', { view_id: view.view_id, page, count, ms: Date.now() - t0 });
+
+    if (Array.isArray(data.results) && data.results.length > 0) {
+      const t1 = Date.now();
+      await enrichWithOffices(data.results);
+      log('info', 'page enriched', { view_id: view.view_id, page, ms: Date.now() - t1 });
+    }
 
     const up = await postPage(view.view_id, runId, data, false, metadata);
     runId = up.run_id;

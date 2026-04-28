@@ -774,23 +774,25 @@ function DiscoverOfficesModal({
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [offices, setOffices] = React.useState<DiscoveredOffice[]>([]);
-  const [sampled, setSampled] = React.useState(0);
+  const [totalInView, setTotalInView] = React.useState(0);
+  const [missingOfficeCount, setMissingOfficeCount] = React.useState(0);
   const [selected, setSelected] = React.useState<Set<string>>(
     new Set(view.filters.office_names ?? []),
   );
   const [saving, setSaving] = React.useState(false);
-  const [pages, setPages] = React.useState(2);
 
-  const runDiscovery = React.useCallback(async (samplePages: number) => {
+  const runDiscovery = React.useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const r = await api.post<{ offices: DiscoveredOffice[]; sampled: number }>(
-        `/admin/views/${view.view_id}/discover-offices`,
-        { sample_pages: samplePages },
-      );
+      const r = await api.post<{
+        offices: DiscoveredOffice[];
+        total_in_view: number;
+        missing_office_count: number;
+      }>(`/admin/views/${view.view_id}/discover-offices`);
       setOffices(r.offices ?? []);
-      setSampled(r.sampled ?? 0);
+      setTotalInView(r.total_in_view ?? 0);
+      setMissingOfficeCount(r.missing_office_count ?? 0);
     } catch (e) {
       setError(e instanceof ApiError ? `API ${e.status}` : (e instanceof Error ? e.message : 'Discovery failed'));
     } finally {
@@ -798,7 +800,7 @@ function DiscoverOfficesModal({
     }
   }, [view.view_id]);
 
-  React.useEffect(() => { void runDiscovery(pages); }, [runDiscovery, pages]);
+  React.useEffect(() => { void runDiscovery(); }, [runDiscovery]);
 
   function toggle(name: string) {
     setSelected((prev) => {
@@ -846,25 +848,23 @@ function DiscoverOfficesModal({
           Offices for "{view.name}"
         </h2>
         <p className="mt-2 text-sm text-muted">
-          Samples USAspending using this view's current keywords + subtier and
-          tallies awarding offices observed. Pick the office(s) that match the
-          program scope; saving sets <code>office_names</code> on the view so
-          future runs filter at ingest by office, not keyword.
+          Tallies awarding offices observed across awards already in this view.
+          Pick the office(s) that match the program scope; saving sets{' '}
+          <code>office_names</code> on the view so future runs enforce the
+          office filter at finalize.
         </p>
 
-        <div className="mt-4 flex items-center justify-between">
+        <div className="mt-4 flex items-center justify-between gap-2">
           <div className="text-xs text-muted-soft">
-            {loading ? 'Sampling…' : `Sampled ${sampled} awards · ${offices.length} distinct offices`}
+            {loading
+              ? 'Reading local data…'
+              : `${offices.length} distinct office${offices.length === 1 ? '' : 's'} across ${totalInView} awards`}
           </div>
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-muted-soft">Sample pages:</span>
-            <Select value={String(pages)} onChange={(e) => setPages(Number(e.target.value))} disabled={loading}>
-              <option value="1">1 (~100 awards)</option>
-              <option value="2">2 (~200 awards)</option>
-              <option value="3">3 (~300 awards)</option>
-              <option value="5">5 (~500 awards)</option>
-            </Select>
-          </div>
+          {!loading && missingOfficeCount > 0 && (
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[10px] text-amber-300">
+              {missingOfficeCount} of {totalInView} awards have no office data yet — run an ingest before locking office_names.
+            </div>
+          )}
         </div>
 
         {error && (
@@ -876,11 +876,13 @@ function DiscoverOfficesModal({
         <div className="mt-4 max-h-[50vh] overflow-y-auto rounded-xl border border-border">
           {loading ? (
             <div className="p-6 text-center text-sm text-muted-soft">
-              <RotateCcw className="mr-2 inline h-4 w-4 animate-spin" /> Querying USAspending…
+              <RotateCcw className="mr-2 inline h-4 w-4 animate-spin" /> Querying local data…
             </div>
           ) : offices.length === 0 ? (
             <div className="p-6 text-center text-sm text-muted-soft">
-              No offices observed in the sample. Try widening keywords or increasing sample pages.
+              No offices observed yet. The sidecar enriches each award via the per-award detail
+              endpoint after ingest — run "Run now" on this view (and wait for it to settle), then
+              re-open this dialog.
             </div>
           ) : (
             <Table>
