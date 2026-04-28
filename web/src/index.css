@@ -671,13 +671,40 @@
   box-shadow: 0 0 0 3px var(--al-accent-bg) !important;
   outline: none !important;
 }
-.awardlens-pivot .pvtCheckContainer p {
-  padding: 4px 8px !important;
-  border-radius: 6px !important;
-  cursor: pointer !important;
+/* Filter-popup checkbox rows. react-pivottable's default stylesheet uses
+   `.pvtCheckContainer p.selected { background: #ebf0f8 }` (pale blue-grey)
+   — that's what made the filter values look like blank cream rectangles
+   on dark mode. Override every state with explicit dark-theme colors. */
+.awardlens-pivot .pvtCheckContainer {
+  background: transparent !important;
+  border-top: 1px solid var(--al-border) !important;
+  margin-top: 8px !important;
 }
-.awardlens-pivot .pvtCheckContainer p:hover {
-  background: rgba(144, 174, 173, 0.12) !important;
+.awardlens-pivot .pvtCheckContainer p,
+.awardlens-pivot .pvtCheckContainer p.selected {
+  background: rgba(13, 31, 37, 0.40) !important;
+  color: var(--al-text) !important;
+  padding: 5px 10px !important;
+  border-radius: 6px !important;
+  margin: 2px 0 !important;
+  font-size: 12px !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+.awardlens-pivot .pvtCheckContainer p:hover,
+.awardlens-pivot .pvtCheckContainer p.selected:hover {
+  background: var(--al-accent-bg) !important;
+  color: #FFF8EE !important;
+}
+/* The ".selected" marker in pivottable indicates a CHECKED filter value.
+   Highlight with a thin vermilion left bar so users can see which values
+   are currently included. */
+.awardlens-pivot .pvtCheckContainer p.selected {
+  background: rgba(230, 72, 51, 0.14) !important;
+  border-left: 3px solid var(--al-accent) !important;
+  padding-left: 7px !important;
 }
 
 /* ─── Dropdowns (renderer / aggregator / value-field selects) ─────────────
@@ -873,9 +900,13 @@
   background: transparent !important;
 }
 
-/* Ensure no light highlight survives anywhere */
+/* Ensure no light highlight survives anywhere — but specifically EXCLUDE
+   <select> here: the renderer / aggregator / value-field selects are
+   intentionally rendered as cream-on-navy "input chip" pills above, and
+   re-asserting `background: var(--al-bg)` here would flip them back to
+   dark-on-dark with no contrast (because both rules have same specificity
+   and `!important`, the later one wins). */
 .awardlens-pivot input,
-.awardlens-pivot select,
 .awardlens-pivot textarea {
   background: var(--al-bg) !important;
   color: var(--al-text) !important;
