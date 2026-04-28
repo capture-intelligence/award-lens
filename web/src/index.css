@@ -394,11 +394,14 @@
   background: linear-gradient(135deg, var(--al-accent-soft) 0%, var(--al-accent) 100%) !important;
 }
 
-/* ── Inputs ──────────────────────────────────────────────────────── */
+/* ── Inputs (NOTE: <select> intentionally excluded — see cream-pill
+       dropdown rule farther down. If you re-add `select` here you'll
+       break the dropdown contrast because both rules end up with the
+       same specificity and the !important cascade resolves to whichever
+       rule sits later in this file.) ──────────────────────────── */
 .awardlens-pivot input[type="text"],
 .awardlens-pivot input[type="number"],
 .awardlens-pivot input[type="search"],
-.awardlens-pivot select,
 .awardlens-pivot textarea {
   background: var(--al-bg) !important;
   color: var(--al-text) !important;
@@ -414,7 +417,6 @@
   color: var(--al-text-faint) !important;
 }
 .awardlens-pivot input:focus,
-.awardlens-pivot select:focus,
 .awardlens-pivot textarea:focus {
   border-color: var(--al-accent) !important;
   box-shadow: 0 0 0 3px var(--al-accent-bg) !important;
@@ -716,12 +718,17 @@
  *  most CSS unless we set `appearance: none`. Without that, we get the
  *  light-grey OS chrome with cream-on-white text, which is unreadable. We
  *  flip them to a fully custom dark pill with a hand-drawn caret. */
-.awardlens-pivot select,
-.awardlens-pivot .pvtRenderers select,
-.awardlens-pivot .pvtVals select,
-.awardlens-pivot .pvtAxisContainer select,
-.awardlens-pivot select.pvtRenderer,
-.awardlens-pivot select.pvtAggregator {
+/* `.awardlens-pivot.awardlens-pivot` is a deliberate self-chain to bump
+    specificity from (0,1,1) → (0,2,1). That guarantees this rule beats
+    any other `.awardlens-pivot select` rule no matter where it sits in
+    the cascade (Tailwind preflight, library defaults, leftover WDR
+    rules, accidental future regressions). */
+.awardlens-pivot.awardlens-pivot select,
+.awardlens-pivot.awardlens-pivot .pvtRenderers select,
+.awardlens-pivot.awardlens-pivot .pvtVals select,
+.awardlens-pivot.awardlens-pivot .pvtAxisContainer select,
+.awardlens-pivot.awardlens-pivot select.pvtRenderer,
+.awardlens-pivot.awardlens-pivot select.pvtAggregator {
   appearance: none !important;
   -webkit-appearance: none !important;
   -moz-appearance: none !important;
@@ -751,18 +758,18 @@
   transition: border-color 0.12s, box-shadow 0.12s, background-color 0.12s !important;
 }
 
-.awardlens-pivot select:hover,
-.awardlens-pivot .pvtRenderers select:hover,
-.awardlens-pivot .pvtVals select:hover,
-.awardlens-pivot .pvtAxisContainer select:hover {
+.awardlens-pivot.awardlens-pivot select:hover,
+.awardlens-pivot.awardlens-pivot .pvtRenderers select:hover,
+.awardlens-pivot.awardlens-pivot .pvtVals select:hover,
+.awardlens-pivot.awardlens-pivot .pvtAxisContainer select:hover {
   background-color: #FFF8EE !important;
   border-color: var(--al-accent) !important;
 }
 
-.awardlens-pivot select:focus,
-.awardlens-pivot .pvtRenderers select:focus,
-.awardlens-pivot .pvtVals select:focus,
-.awardlens-pivot .pvtAxisContainer select:focus {
+.awardlens-pivot.awardlens-pivot select:focus,
+.awardlens-pivot.awardlens-pivot .pvtRenderers select:focus,
+.awardlens-pivot.awardlens-pivot .pvtVals select:focus,
+.awardlens-pivot.awardlens-pivot .pvtAxisContainer select:focus {
   outline: none !important;
   border-color: var(--al-accent) !important;
   box-shadow: 0 0 0 3px var(--al-accent-bg) !important;
@@ -771,14 +778,14 @@
 /* Theme the OPEN dropdown list (the <option> menu the browser pops up).
    Same cream pill aesthetic — dark navy text on cream so the open menu
    matches the closed pill. */
-.awardlens-pivot select option {
+.awardlens-pivot.awardlens-pivot select option {
   background-color: #FBE9D0 !important;
   color: #0d1f25 !important;
   padding: 6px 10px !important;
   font-weight: 500 !important;
 }
-.awardlens-pivot select option:checked,
-.awardlens-pivot select option:hover {
+.awardlens-pivot.awardlens-pivot select option:checked,
+.awardlens-pivot.awardlens-pivot select option:hover {
   background-color: var(--al-accent) !important;
   color: #FFF8EE !important;
 }
