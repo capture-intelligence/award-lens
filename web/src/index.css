@@ -722,7 +722,19 @@
     specificity from (0,1,1) → (0,2,1). That guarantees this rule beats
     any other `.awardlens-pivot select` rule no matter where it sits in
     the cascade (Tailwind preflight, library defaults, leftover WDR
-    rules, accidental future regressions). */
+    rules, accidental future regressions).
+
+    Why `color-scheme: light` on the SELECT: Chrome/Edge on Windows
+    render native form controls using the OS color-scheme regardless of
+    CSS `color`. With the OS in dark mode + the page advertising no
+    color-scheme, the browser fills <select> glyphs with its dark-mode
+    text color (faded peach on cream pill = unreadable). Setting
+    color-scheme: light on these selects forces light-mode native
+    rendering, after which our `color` actually takes effect.
+
+    Why `-webkit-text-fill-color`: in WebKit/Chromium, that property
+    overrides `color` for actual glyph fill. We set both so neither
+    cascade nor browser color-scheme can win. */
 .awardlens-pivot.awardlens-pivot select,
 .awardlens-pivot.awardlens-pivot .pvtRenderers select,
 .awardlens-pivot.awardlens-pivot .pvtVals select,
@@ -732,6 +744,7 @@
   appearance: none !important;
   -webkit-appearance: none !important;
   -moz-appearance: none !important;
+  color-scheme: light !important;
   /* Light cream pill with dark navy text — high contrast against the
      surrounding dark teal panels. Reads like a labelled, selected
      "input chip" rather than a button. */
@@ -745,11 +758,12 @@
   background-size: 5px 5px, 5px 5px !important;
   background-repeat: no-repeat !important;
   color: #0d1f25 !important;
-  border: 1px solid rgba(13, 31, 37, 0.25) !important;
+  -webkit-text-fill-color: #0d1f25 !important;
+  border: 1px solid rgba(13, 31, 37, 0.35) !important;
   border-radius: 8px !important;
-  padding: 6px 28px 6px 10px !important;
-  font-size: 12px !important;
-  font-weight: 600 !important;
+  padding: 7px 28px 7px 12px !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
   font-family: inherit !important;
   margin: 2px !important;
   cursor: pointer !important;

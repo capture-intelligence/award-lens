@@ -284,17 +284,15 @@ export function AnalyticsPage() {
               </div>
               <ErrorBoundary label="Pivot grid error">
                 {/* Outer p-4 holds the chrome; inner div is the horizontal-scroll
-                    container so wide pivots get a scrollbar instead of clipping. */}
+                    container so wide pivots get a scrollbar instead of clipping.
+                    PivotShell injects inline styles on every <select> as a final
+                    cascade-proof guarantee that the cream-pill look applies. */}
                 <div className="p-4">
-                  <div className="awardlens-pivot awardlens-pivot--scroll">
-                    <PivotTableUI
-                      data={pivotData}
-                      onChange={(s: any) => setPivotState(s)}
-                      renderers={{ ...TableRenderers }}
-                      unusedOrientationCutoff={Infinity}
-                      {...pivotState}
-                    />
-                  </div>
+                  <PivotShell
+                    pivotData={pivotData}
+                    pivotState={pivotState}
+                    setPivotState={setPivotState}
+                  />
                 </div>
               </ErrorBoundary>
             </Card>
@@ -308,6 +306,67 @@ export function AnalyticsPage() {
       )}
 
       <AwardDetail award={selectedAward} onClose={() => setSelectedAward(null)} />
+    </div>
+  );
+}
+
+// ─── Pivot shell with cascade-proof <select> styling ───────────────────────
+//
+// Cascade hell: react-pivottable's renderer / aggregator / value-field
+// dropdowns are native <select> elements, and on Chromium-on-Windows their
+// glyph fill is colored by the OS color-scheme regardless of CSS `color`.
+// We force light-mode rendering in CSS via `color-scheme: light` and bolt
+// inline `!important` styles on every <select> in here as a final guarantee
+// — inline `!important` always wins over any external CSS. After every
+// render of PivotTableUI we walk the DOM under our wrapper and re-apply.
+function PivotShell({
+  pivotData, pivotState, setPivotState,
+}: {
+  pivotData: Record<string, unknown>[];
+  pivotState: any;
+  setPivotState: (s: any) => void;
+}) {
+  const wrapRef = React.useRef<HTMLDivElement | null>(null);
+
+  React.useEffect(() => {
+    const root = wrapRef.current;
+    if (!root) return;
+    const apply = () => {
+      const selects = root.querySelectorAll<HTMLSelectElement>('select');
+      selects.forEach((el) => {
+        // setProperty with priority="important" lets us beat any external
+        // !important rule via inline-style cascade.
+        el.style.setProperty('color', '#0d1f25', 'important');
+        el.style.setProperty('-webkit-text-fill-color', '#0d1f25', 'important');
+        el.style.setProperty('background-color', '#FBE9D0', 'important');
+        el.style.setProperty('color-scheme', 'light', 'important');
+        el.style.setProperty('font-weight', '700', 'important');
+        el.style.setProperty('font-size', '13px', 'important');
+        el.style.setProperty('appearance', 'none', 'important');
+        // Also apply to options so the open menu doesn't flash a different
+        // colour before the CSS rule catches up.
+        Array.from(el.options).forEach((opt) => {
+          opt.style.setProperty('color', '#0d1f25', 'important');
+          opt.style.setProperty('background-color', '#FBE9D0', 'important');
+        });
+      });
+    };
+    apply();
+    // PivotTableUI rebuilds the DOM when state changes — observe and re-apply.
+    const mo = new MutationObserver(apply);
+    mo.observe(root, { childList: true, subtree: true });
+    return () => mo.disconnect();
+  }, [pivotData, pivotState]);
+
+  return (
+    <div ref={wrapRef} className="awardlens-pivot awardlens-pivot--scroll">
+      <PivotTableUI
+        data={pivotData}
+        onChange={(s: any) => setPivotState(s)}
+        renderers={{ ...TableRenderers }}
+        unusedOrientationCutoff={Infinity}
+        {...pivotState}
+      />
     </div>
   );
 }
