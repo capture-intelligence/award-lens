@@ -735,13 +735,18 @@
     Why `-webkit-text-fill-color`: in WebKit/Chromium, that property
     overrides `color` for actual glyph fill. We set both so neither
     cascade nor browser color-scheme can win. */
-/* HIDE native pivot <select> elements entirely. After multiple rounds
-   of CSS / inline-style overrides failed to make their text legible
-   on certain browser/OS combinations, we replaced them with custom
-   Radix DropdownMenu pickers (see ToolbarPicker in Analytics.tsx).
-   Those custom pickers write directly to pivotState; the native
-   selects are still in the DOM and stay in sync, but invisible. */
-.awardlens-pivot.awardlens-pivot select {
+/* HIDE react-pivottable's built-in dropdowns. Important detail: as of
+   v0.11, react-pivottable replaced its native <select> elements with
+   custom <div class="pvtDropdown"> components — that's why every CSS/JS
+   override targeting `select` previously did nothing. We hide the
+   actual element class, plus the aggregator/renderer wrapper cells,
+   plus the up/down value-field swap arrows that sit between them.
+   Our own Radix-based ToolbarPicker (see Analytics.tsx) replaces all
+   three controls visually while writing the same pivotState. */
+.awardlens-pivot.awardlens-pivot .pvtDropdown,
+.awardlens-pivot.awardlens-pivot .pvtVals .pvtSearch,
+.awardlens-pivot.awardlens-pivot .pvtVals > select,
+.awardlens-pivot.awardlens-pivot .pvtRenderers > select {
   display: none !important;
 }
 /* The td cells that previously housed the renderer / aggregator /
