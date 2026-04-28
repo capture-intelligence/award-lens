@@ -73,6 +73,34 @@
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.30);
 }
 
+/* When wrapped in `.awardlens-pivot--scroll`, allow the pivot UI table to
+   overflow horizontally inside the card instead of getting clipped by the
+   16px rounded corners. */
+.awardlens-pivot.awardlens-pivot--scroll {
+  overflow-x: auto;
+  overflow-y: visible;
+}
+.awardlens-pivot.awardlens-pivot--scroll::-webkit-scrollbar {
+  height: 12px !important;
+}
+.awardlens-pivot.awardlens-pivot--scroll::-webkit-scrollbar-thumb {
+  background: rgba(230, 72, 51, 0.35) !important;
+  border-radius: 6px !important;
+  border: 2px solid var(--al-bg) !important;
+}
+.awardlens-pivot.awardlens-pivot--scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(230, 72, 51, 0.55) !important;
+}
+.awardlens-pivot.awardlens-pivot--scroll::-webkit-scrollbar-track {
+  background: rgba(13, 31, 37, 0.55) !important;
+}
+/* Also let the renderer cell scroll its inner table when the columns alone
+   are too wide (rare but possible). */
+.awardlens-pivot .pvtRendererArea {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
 /* ── Root containers ─────────────────────────────────────────────── */
 .awardlens-pivot,
 .awardlens-pivot .wdr-ui,
@@ -652,20 +680,78 @@
   background: rgba(144, 174, 173, 0.12) !important;
 }
 
-/* Aggregator and renderer dropdowns */
-.awardlens-pivot .pvtRenderers,
+/* ─── Dropdowns (renderer / aggregator / value-field selects) ─────────────
+ *  react-pivottable renders 3 native <select>s at the top of the UI:
+ *    • "Table" / "Heatmap" / etc. — `.pvtRenderers > select` (renderer picker)
+ *    • "Sum" / "Count" / "Average" — `.pvtAggregator` (aggregator picker)
+ *    • "Current value" — `.pvtVals > select` (which field to aggregate)
+ *  Chrome/Edge on Windows render native <select> with an OS skin that ignores
+ *  most CSS unless we set `appearance: none`. Without that, we get the
+ *  light-grey OS chrome with cream-on-white text, which is unreadable. We
+ *  flip them to a fully custom dark pill with a hand-drawn caret. */
+.awardlens-pivot select,
+.awardlens-pivot .pvtRenderers select,
 .awardlens-pivot .pvtVals select,
 .awardlens-pivot .pvtAxisContainer select,
 .awardlens-pivot select.pvtRenderer,
 .awardlens-pivot select.pvtAggregator {
-  background: var(--al-bg) !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  background-color: var(--al-bg-elevated) !important;
+  /* Two diagonal lines = a chevron. Matches the cream text. */
+  background-image:
+    linear-gradient(45deg, transparent 50%, rgba(251, 233, 208, 0.7) 50%),
+    linear-gradient(135deg, rgba(251, 233, 208, 0.7) 50%, transparent 50%) !important;
+  background-position:
+    calc(100% - 14px) 50%,
+    calc(100% - 9px) 50% !important;
+  background-size: 5px 5px, 5px 5px !important;
+  background-repeat: no-repeat !important;
   color: var(--al-text) !important;
-  border: 1px solid var(--al-border) !important;
+  border: 1px solid var(--al-border-strong) !important;
   border-radius: 8px !important;
-  padding: 6px 10px !important;
+  padding: 6px 28px 6px 10px !important;
   font-size: 12px !important;
+  font-weight: 500 !important;
   font-family: inherit !important;
   margin: 2px !important;
+  cursor: pointer !important;
+  text-shadow: none !important;
+  /* Safari + Chrome: kill the inherited OS gradient for selects */
+  background-clip: padding-box !important;
+  transition: border-color 0.12s, box-shadow 0.12s !important;
+}
+
+.awardlens-pivot select:hover,
+.awardlens-pivot .pvtRenderers select:hover,
+.awardlens-pivot .pvtVals select:hover,
+.awardlens-pivot .pvtAxisContainer select:hover {
+  border-color: var(--al-accent-soft) !important;
+}
+
+.awardlens-pivot select:focus,
+.awardlens-pivot .pvtRenderers select:focus,
+.awardlens-pivot .pvtVals select:focus,
+.awardlens-pivot .pvtAxisContainer select:focus {
+  outline: none !important;
+  border-color: var(--al-accent) !important;
+  box-shadow: 0 0 0 3px var(--al-accent-bg) !important;
+}
+
+/* Theme the OPEN dropdown list (the <option> menu the browser pops up).
+   Browser support varies — Chromium honors this on Windows/Linux but not
+   on macOS. Where it's ignored, the OS draws its native menu, which on
+   dark-mode systems is already legible. */
+.awardlens-pivot select option {
+  background-color: var(--al-bg-elevated) !important;
+  color: var(--al-text) !important;
+  padding: 6px 10px !important;
+}
+.awardlens-pivot select option:checked,
+.awardlens-pivot select option:hover {
+  background-color: var(--al-accent-bg-strong) !important;
+  color: #FFF8EE !important;
 }
 
 /* Sort handles (clickable arrows on row/column headers) */

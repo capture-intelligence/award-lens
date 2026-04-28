@@ -8,6 +8,7 @@ import 'react-pivottable/pivottable.css';
 import { motion } from 'framer-motion';
 import { RefreshCw, Download, Search, X, Eye } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import * as Tabs from '@radix-ui/react-tabs';
 
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -251,33 +252,59 @@ export function AnalyticsPage() {
           </div>
         </Card>
       ) : (
-        <>
-          {/* PIVOT */}
-          <Card>
-            <div className="border-b border-border bg-brand-teal-deep/40 px-5 py-3">
-              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand-sage">
-                Pivot — drag any field
-              </div>
-              <div className="mt-0.5 text-xs text-muted">
-                Pivot table from <a href="https://react-pivottable.js.org" target="_blank" rel="noreferrer" className="text-brand-sage hover:text-foreground">react-pivottable.js.org</a> · 32 fields available · multi-aggregator (Sum, Count, Average, Median, Count Unique, etc.)
-              </div>
-            </div>
-            <ErrorBoundary label="Pivot grid error">
-              <div className="awardlens-pivot p-4">
-                <PivotTableUI
-                  data={pivotData}
-                  onChange={(s: any) => setPivotState(s)}
-                  renderers={{ ...TableRenderers }}
-                  unusedOrientationCutoff={Infinity}
-                  {...pivotState}
-                />
-              </div>
-            </ErrorBoundary>
-          </Card>
+        <Tabs.Root defaultValue="pivot" className="flex flex-col gap-4">
+          <Tabs.List
+            aria-label="Analytics views"
+            className="inline-flex w-fit items-center gap-1 rounded-xl border border-border bg-brand-teal-deep/40 p-1 backdrop-blur-md"
+          >
+            <Tabs.Trigger
+              value="pivot"
+              className="rounded-lg px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-muted-soft transition-colors hover:text-foreground data-[state=active]:bg-brand-vermilion data-[state=active]:text-white data-[state=active]:shadow-sm"
+            >
+              Pivot
+            </Tabs.Trigger>
+            <Tabs.Trigger
+              value="summary"
+              className="rounded-lg px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-muted-soft transition-colors hover:text-foreground data-[state=active]:bg-brand-vermilion data-[state=active]:text-white data-[state=active]:shadow-sm"
+            >
+              Summary <span className="ml-1 text-[10px] opacity-80">({fmtInt(data.count)})</span>
+            </Tabs.Trigger>
+          </Tabs.List>
 
-          {/* AWARD BROWSER */}
-          <AwardBrowser rows={data.results} onSelect={setSelectedAward} />
-        </>
+          {/* PIVOT TAB */}
+          <Tabs.Content value="pivot" className="focus:outline-none">
+            <Card>
+              <div className="border-b border-border bg-brand-teal-deep/40 px-5 py-3">
+                <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand-sage">
+                  Pivot — drag any field
+                </div>
+                <div className="mt-0.5 text-xs text-muted">
+                  Pivot table from <a href="https://react-pivottable.js.org" target="_blank" rel="noreferrer" className="text-brand-sage hover:text-foreground">react-pivottable.js.org</a> · 32 fields available · multi-aggregator (Sum, Count, Average, Median, Count Unique, etc.)
+                </div>
+              </div>
+              <ErrorBoundary label="Pivot grid error">
+                {/* Outer p-4 holds the chrome; inner div is the horizontal-scroll
+                    container so wide pivots get a scrollbar instead of clipping. */}
+                <div className="p-4">
+                  <div className="awardlens-pivot awardlens-pivot--scroll">
+                    <PivotTableUI
+                      data={pivotData}
+                      onChange={(s: any) => setPivotState(s)}
+                      renderers={{ ...TableRenderers }}
+                      unusedOrientationCutoff={Infinity}
+                      {...pivotState}
+                    />
+                  </div>
+                </div>
+              </ErrorBoundary>
+            </Card>
+          </Tabs.Content>
+
+          {/* SUMMARY TAB */}
+          <Tabs.Content value="summary" className="focus:outline-none">
+            <AwardBrowser rows={data.results} onSelect={setSelectedAward} />
+          </Tabs.Content>
+        </Tabs.Root>
       )}
 
       <AwardDetail award={selectedAward} onClose={() => setSelectedAward(null)} />
