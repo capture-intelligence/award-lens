@@ -735,15 +735,19 @@
     Why `-webkit-text-fill-color`: in WebKit/Chromium, that property
     overrides `color` for actual glyph fill. We set both so neither
     cascade nor browser color-scheme can win. */
-/* HIDE react-pivottable's built-in dropdowns. Important detail: as of
-   v0.11, react-pivottable replaced its native <select> elements with
-   custom <div class="pvtDropdown"> components — that's why every CSS/JS
-   override targeting `select` previously did nothing. We hide the
-   actual element class, plus the aggregator/renderer wrapper cells,
-   plus the up/down value-field swap arrows that sit between them.
-   Our own Radix-based ToolbarPicker (see Analytics.tsx) replaces all
-   three controls visually while writing the same pivotState. */
+/* HIDE react-pivottable's built-in dropdowns + the row/col sort-order
+   icons that sit inside .pvtVals. As of v0.11, react-pivottable
+   renders its dropdown controls as custom <div class="pvtDropdown">
+   components (NOT native <select>), and renders the row/col sort
+   toggles as inline <a class="pvtRowOrder"/.pvtColOrder> arrows.
+   Our own Radix-based toolbar (see ToolbarPicker in Analytics.tsx)
+   replaces ALL of them — the renderer picker, aggregator picker,
+   value-field picker, and now the row/col sort pickers — driving the
+   same pivotState. We hide the originals so we don't end up with two
+   competing UIs for the same controls. */
 .awardlens-pivot.awardlens-pivot .pvtDropdown,
+.awardlens-pivot.awardlens-pivot .pvtRowOrder,
+.awardlens-pivot.awardlens-pivot .pvtColOrder,
 .awardlens-pivot.awardlens-pivot .pvtVals .pvtSearch,
 .awardlens-pivot.awardlens-pivot .pvtVals > select,
 .awardlens-pivot.awardlens-pivot .pvtRenderers > select {

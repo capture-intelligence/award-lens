@@ -358,6 +358,17 @@ const AGGREGATOR_OPTIONS = [
   'Count as Fraction of Columns',
 ];
 
+// react-pivottable accepts these three magic strings on rowOrder / colOrder.
+// We expose them with friendlier captions and translate at the picker.
+const SORT_OPTIONS: Array<{ caption: string; value: 'key_a_to_z' | 'value_a_to_z' | 'value_z_to_a' }> = [
+  { caption: 'A → Z (alphabetical)',     value: 'key_a_to_z'   },
+  { caption: 'Lowest total first (↑)',   value: 'value_a_to_z' },
+  { caption: 'Highest total first (↓)',  value: 'value_z_to_a' },
+];
+function sortCaptionFor(v: string | undefined): string {
+  return SORT_OPTIONS.find((o) => o.value === v)?.caption ?? SORT_OPTIONS[0].caption;
+}
+
 function ToolbarPicker({
   label, value, options, onChange, minWidth = 220,
 }: {
@@ -425,6 +436,13 @@ function PivotShell({
   const rendererName  = pivotState.rendererName  ?? 'Table';
   const aggregatorName = pivotState.aggregatorName ?? 'Sum';
   const valueField    = pivotState.vals?.[0]      ?? 'Current value';
+  const rowOrder      = pivotState.rowOrder       ?? 'key_a_to_z';
+  const colOrder      = pivotState.colOrder       ?? 'key_a_to_z';
+
+  const setSort = (which: 'rowOrder' | 'colOrder', caption: string) => {
+    const value = SORT_OPTIONS.find((o) => o.caption === caption)?.value ?? 'key_a_to_z';
+    setPivotState({ ...pivotState, [which]: value });
+  };
 
   return (
     <div>
@@ -456,6 +474,21 @@ function PivotShell({
               aggregatorName: pivotState.aggregatorName ?? 'Sum',
             })
           }
+        />
+        <div className="mx-1 h-5 w-px bg-border/60" />
+        <ToolbarPicker
+          label="Sort rows"
+          value={sortCaptionFor(rowOrder)}
+          options={SORT_OPTIONS.map((o) => o.caption)}
+          minWidth={240}
+          onChange={(v) => setSort('rowOrder', v)}
+        />
+        <ToolbarPicker
+          label="Sort columns"
+          value={sortCaptionFor(colOrder)}
+          options={SORT_OPTIONS.map((o) => o.caption)}
+          minWidth={240}
+          onChange={(v) => setSort('colOrder', v)}
         />
       </div>
 
