@@ -698,36 +698,38 @@
   appearance: none !important;
   -webkit-appearance: none !important;
   -moz-appearance: none !important;
-  background-color: var(--al-bg-elevated) !important;
-  /* Two diagonal lines = a chevron. Matches the cream text. */
+  /* Light cream pill with dark navy text — high contrast against the
+     surrounding dark teal panels. Reads like a labelled, selected
+     "input chip" rather than a button. */
+  background-color: #FBE9D0 !important;
   background-image:
-    linear-gradient(45deg, transparent 50%, rgba(251, 233, 208, 0.7) 50%),
-    linear-gradient(135deg, rgba(251, 233, 208, 0.7) 50%, transparent 50%) !important;
+    linear-gradient(45deg, transparent 50%, #0d1f25 50%),
+    linear-gradient(135deg, #0d1f25 50%, transparent 50%) !important;
   background-position:
     calc(100% - 14px) 50%,
     calc(100% - 9px) 50% !important;
   background-size: 5px 5px, 5px 5px !important;
   background-repeat: no-repeat !important;
-  color: var(--al-text) !important;
-  border: 1px solid var(--al-border-strong) !important;
+  color: #0d1f25 !important;
+  border: 1px solid rgba(13, 31, 37, 0.25) !important;
   border-radius: 8px !important;
   padding: 6px 28px 6px 10px !important;
   font-size: 12px !important;
-  font-weight: 500 !important;
+  font-weight: 600 !important;
   font-family: inherit !important;
   margin: 2px !important;
   cursor: pointer !important;
   text-shadow: none !important;
-  /* Safari + Chrome: kill the inherited OS gradient for selects */
   background-clip: padding-box !important;
-  transition: border-color 0.12s, box-shadow 0.12s !important;
+  transition: border-color 0.12s, box-shadow 0.12s, background-color 0.12s !important;
 }
 
 .awardlens-pivot select:hover,
 .awardlens-pivot .pvtRenderers select:hover,
 .awardlens-pivot .pvtVals select:hover,
 .awardlens-pivot .pvtAxisContainer select:hover {
-  border-color: var(--al-accent-soft) !important;
+  background-color: #FFF8EE !important;
+  border-color: var(--al-accent) !important;
 }
 
 .awardlens-pivot select:focus,
@@ -740,17 +742,17 @@
 }
 
 /* Theme the OPEN dropdown list (the <option> menu the browser pops up).
-   Browser support varies — Chromium honors this on Windows/Linux but not
-   on macOS. Where it's ignored, the OS draws its native menu, which on
-   dark-mode systems is already legible. */
+   Same cream pill aesthetic — dark navy text on cream so the open menu
+   matches the closed pill. */
 .awardlens-pivot select option {
-  background-color: var(--al-bg-elevated) !important;
-  color: var(--al-text) !important;
+  background-color: #FBE9D0 !important;
+  color: #0d1f25 !important;
   padding: 6px 10px !important;
+  font-weight: 500 !important;
 }
 .awardlens-pivot select option:checked,
 .awardlens-pivot select option:hover {
-  background-color: var(--al-accent-bg-strong) !important;
+  background-color: var(--al-accent) !important;
   color: #FFF8EE !important;
 }
 
