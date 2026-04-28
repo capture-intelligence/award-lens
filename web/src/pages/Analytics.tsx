@@ -6,7 +6,7 @@ import PivotTableUI from 'react-pivottable/PivotTableUI';
 import TableRenderers from 'react-pivottable/TableRenderers';
 import 'react-pivottable/pivottable.css';
 import { motion } from 'framer-motion';
-import { RefreshCw, Download, Search, X, Eye } from 'lucide-react';
+import { RefreshCw, Download, Search, X, Eye, ChevronDown, Check } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tabs from '@radix-ui/react-tabs';
 
@@ -310,15 +310,105 @@ export function AnalyticsPage() {
   );
 }
 
-// ─── Pivot shell with cascade-proof <select> styling ───────────────────────
+// ─── Pivot shell with custom Radix-based picker toolbar ─────────────────────
 //
-// Cascade hell: react-pivottable's renderer / aggregator / value-field
-// dropdowns are native <select> elements, and on Chromium-on-Windows their
-// glyph fill is colored by the OS color-scheme regardless of CSS `color`.
-// We force light-mode rendering in CSS via `color-scheme: light` and bolt
-// inline `!important` styles on every <select> in here as a final guarantee
-// — inline `!important` always wins over any external CSS. After every
-// render of PivotTableUI we walk the DOM under our wrapper and re-apply.
+// react-pivottable's built-in renderer / aggregator / value-field dropdowns
+// are native <select> elements, which on certain Windows browser
+// configurations render with OS-controlled glyph colors that ignore CSS
+// (and even inline `!important` styles via setProperty). After multiple
+// rounds of CSS+JS overrides failed to make the text legible in the user's
+// environment, we stopped fighting native form rendering and replaced
+// those dropdowns entirely:
+//
+//   1. CSS rule `.awardlens-pivot select { display: none !important }`
+//      hides every native select inside the pivot grid.
+//   2. A toolbar of three custom Radix DropdownMenu pickers (View as /
+//      Aggregate / Value field) renders above the pivot. Each picker
+//      writes directly to `pivotState`, which PivotTableUI consumes via
+//      the spread `{...pivotState}` prop. Same data flow, fully
+//      controllable styling.
+
+const RENDERER_OPTIONS = [
+  'Table',
+  'Table Heatmap',
+  'Table Col Heatmap',
+  'Table Row Heatmap',
+  'Exportable TSV',
+];
+
+const AGGREGATOR_OPTIONS = [
+  'Count',
+  'Count Unique Values',
+  'List Unique Values',
+  'Sum',
+  'Integer Sum',
+  'Average',
+  'Median',
+  'Sample Variance',
+  'Sample Standard Deviation',
+  'Minimum',
+  'Maximum',
+  'First',
+  'Last',
+  'Sum as Fraction of Total',
+  'Sum as Fraction of Rows',
+  'Sum as Fraction of Columns',
+  'Count as Fraction of Total',
+  'Count as Fraction of Rows',
+  'Count as Fraction of Columns',
+];
+
+function ToolbarPicker({
+  label, value, options, onChange, minWidth = 220,
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  onChange: (v: string) => void;
+  minWidth?: number;
+}) {
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <button
+          type="button"
+          className="group flex items-center gap-2 rounded-lg border border-border bg-brand-teal-deep/60 px-3 py-1.5 text-sm transition-colors hover:border-brand-vermilion hover:bg-brand-teal-soft/30"
+        >
+          <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand-sage">
+            {label}
+          </span>
+          <span className="font-semibold text-foreground">{value}</span>
+          <ChevronDown className="h-3.5 w-3.5 text-muted-soft transition-transform group-data-[state=open]:rotate-180" />
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align="start"
+          sideOffset={6}
+          className="z-50 max-h-[420px] overflow-y-auto rounded-xl border border-border bg-brand-teal-deep/95 p-2 shadow-glass-lg backdrop-blur-xl"
+          style={{ minWidth }}
+        >
+          {options.map((opt) => {
+            const selected = opt === value;
+            return (
+              <DropdownMenu.Item
+                key={opt}
+                onSelect={() => onChange(opt)}
+                className={`flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-sm outline-none data-[highlighted]:bg-brand-teal-soft/30 ${
+                  selected ? 'text-brand-vermilion-soft' : 'text-foreground'
+                }`}
+              >
+                <span className="flex-1 truncate">{opt}</span>
+                {selected && <Check className="h-4 w-4 shrink-0" />}
+              </DropdownMenu.Item>
+            );
+          })}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  );
+}
+
 function PivotShell({
   pivotData, pivotState, setPivotState,
 }: {
@@ -326,48 +416,58 @@ function PivotShell({
   pivotState: any;
   setPivotState: (s: any) => void;
 }) {
-  const wrapRef = React.useRef<HTMLDivElement | null>(null);
+  // Available value-field options = every column + the derived "Nature of work".
+  const valueOptions = React.useMemo(
+    () => [...COLUMNS.map((c) => c.caption), 'Nature of work'],
+    [],
+  );
 
-  React.useEffect(() => {
-    const root = wrapRef.current;
-    if (!root) return;
-    const apply = () => {
-      const selects = root.querySelectorAll<HTMLSelectElement>('select');
-      selects.forEach((el) => {
-        // Match the .pvtAttr field-chip look: dark teal bg + cream text.
-        // Inline-style !important is the highest-priority origin in CSS
-        // and beats any author stylesheet, library default, or browser
-        // color-scheme glyph fill.
-        el.style.setProperty('color', '#FBE9D0', 'important');
-        el.style.setProperty('-webkit-text-fill-color', '#FBE9D0', 'important');
-        el.style.setProperty('background-color', '#244855', 'important');
-        el.style.setProperty('font-weight', '600', 'important');
-        el.style.setProperty('font-size', '12px', 'important');
-        el.style.setProperty('appearance', 'none', 'important');
-        el.style.setProperty('-webkit-appearance', 'none', 'important');
-        // <option>s in the open menu — same dark theme.
-        Array.from(el.options).forEach((opt) => {
-          opt.style.setProperty('color', '#FBE9D0', 'important');
-          opt.style.setProperty('background-color', '#173039', 'important');
-        });
-      });
-    };
-    apply();
-    // PivotTableUI rebuilds the DOM when state changes — observe and re-apply.
-    const mo = new MutationObserver(apply);
-    mo.observe(root, { childList: true, subtree: true });
-    return () => mo.disconnect();
-  }, [pivotData, pivotState]);
+  const rendererName  = pivotState.rendererName  ?? 'Table';
+  const aggregatorName = pivotState.aggregatorName ?? 'Sum';
+  const valueField    = pivotState.vals?.[0]      ?? 'Current value';
 
   return (
-    <div ref={wrapRef} className="awardlens-pivot awardlens-pivot--scroll">
-      <PivotTableUI
-        data={pivotData}
-        onChange={(s: any) => setPivotState(s)}
-        renderers={{ ...TableRenderers }}
-        unusedOrientationCutoff={Infinity}
-        {...pivotState}
-      />
+    <div>
+      {/* Custom picker toolbar (replaces the broken native <select>s). */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <ToolbarPicker
+          label="View as"
+          value={rendererName}
+          options={RENDERER_OPTIONS}
+          onChange={(v) => setPivotState({ ...pivotState, rendererName: v })}
+        />
+        <ToolbarPicker
+          label="Aggregate"
+          value={aggregatorName}
+          options={AGGREGATOR_OPTIONS}
+          onChange={(v) => setPivotState({ ...pivotState, aggregatorName: v })}
+        />
+        <ToolbarPicker
+          label="Value field"
+          value={valueField}
+          options={valueOptions}
+          minWidth={260}
+          onChange={(v) =>
+            setPivotState({
+              ...pivotState,
+              vals: [v],
+              // If user hasn't picked an aggregator yet but is changing
+              // the value, default to Sum (matches default).
+              aggregatorName: pivotState.aggregatorName ?? 'Sum',
+            })
+          }
+        />
+      </div>
+
+      <div className="awardlens-pivot awardlens-pivot--scroll">
+        <PivotTableUI
+          data={pivotData}
+          onChange={(s: any) => setPivotState(s)}
+          renderers={{ ...TableRenderers }}
+          unusedOrientationCutoff={Infinity}
+          {...pivotState}
+        />
+      </div>
     </div>
   );
 }
