@@ -735,6 +735,13 @@
     Why `-webkit-text-fill-color`: in WebKit/Chromium, that property
     overrides `color` for actual glyph fill. We set both so neither
     cascade nor browser color-scheme can win. */
+/* Set color-scheme on the WRAPPER too so child native form controls
+   inherit light-mode rendering — Chromium reads the inherited value
+   when deciding glyph color for natively-painted text. */
+.awardlens-pivot.awardlens-pivot {
+  color-scheme: light;
+}
+
 .awardlens-pivot.awardlens-pivot select,
 .awardlens-pivot.awardlens-pivot .pvtRenderers select,
 .awardlens-pivot.awardlens-pivot .pvtVals select,
@@ -745,24 +752,25 @@
   -webkit-appearance: none !important;
   -moz-appearance: none !important;
   color-scheme: light !important;
-  /* Light cream pill with dark navy text — high contrast against the
-     surrounding dark teal panels. Reads like a labelled, selected
-     "input chip" rather than a button. */
-  background-color: #FBE9D0 !important;
+  /* Pure white pill + pure black text + vermilion accent border. This
+     is the highest-contrast possible "input chip" treatment — readable
+     under any monitor calibration, color-blindness mode, or browser
+     color-scheme. */
+  background-color: #FFFFFF !important;
   background-image:
-    linear-gradient(45deg, transparent 50%, #0d1f25 50%),
-    linear-gradient(135deg, #0d1f25 50%, transparent 50%) !important;
+    linear-gradient(45deg, transparent 50%, #000000 50%),
+    linear-gradient(135deg, #000000 50%, transparent 50%) !important;
   background-position:
     calc(100% - 14px) 50%,
     calc(100% - 9px) 50% !important;
-  background-size: 5px 5px, 5px 5px !important;
+  background-size: 6px 6px, 6px 6px !important;
   background-repeat: no-repeat !important;
-  color: #0d1f25 !important;
-  -webkit-text-fill-color: #0d1f25 !important;
-  border: 1px solid rgba(13, 31, 37, 0.35) !important;
+  color: #000000 !important;
+  -webkit-text-fill-color: #000000 !important;
+  border: 2px solid var(--al-accent) !important;
   border-radius: 8px !important;
-  padding: 7px 28px 7px 12px !important;
-  font-size: 13px !important;
+  padding: 7px 30px 7px 12px !important;
+  font-size: 14px !important;
   font-weight: 700 !important;
   font-family: inherit !important;
   margin: 2px !important;
