@@ -4,7 +4,7 @@
  * dance, then our handler upserts the user + creates a session.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { googleAuth } from '@hono/oauth-providers/google';
 import { setCookie, getCookie, deleteCookie } from 'hono/cookie';
 import {
@@ -37,7 +37,7 @@ const FRONTEND_DEFAULT = 'https://awards-dashboard.pages.dev';
  * Auto-promotes the bootstrap admin email on first sign-in.
  */
 async function upsertUserAndSignIn(
-  c: Parameters<Parameters<Hono<{ Bindings: AuthEnv; Variables: AuthVars }>['get']>[1]>[0],
+  c: Context<{ Bindings: AuthEnv; Variables: AuthVars }>,
   provider: 'google' | 'microsoft',
   claims: { email: string; sub: string; name?: string; picture?: string },
 ): Promise<AppUser> {

@@ -10,13 +10,16 @@ export interface ViewFilters {
   toptier_agency_name?: string;
   /** USAspending subtier agency name (e.g. "Centers for Disease Control and Prevention"). */
   subtier_agency_name?: string;
-  /** USAspending awarding office codes — applied when present. */
-  office_codes?: string[];
   /**
-   * Free-text keywords for office-level scoping. Matched case-insensitively
-   * against awarding_office_name OR description. Mixed with office_codes
-   * via OR (recall over precision).
+   * USAspending awarding office NAMES (e.g. ["CDC OASB-NCHHSTP"]).
+   * Sent to /search/spending_by_award/ as `agencies` entries with tier:'office'.
+   * USAspending does not accept office codes at this endpoint, so we filter by
+   * canonical office name. Use the discovery endpoint
+   * (POST /admin/views/:id/discover-offices) to enumerate the offices that
+   * match a view's keywords/subtier so you can promote them here.
    */
+  office_names?: string[];
+  /** Keyword search across description, PIID, recipient, sub-agency. */
   keywords?: string[];
   naics_codes?: string[];
   psc_codes?: string[];
@@ -41,7 +44,7 @@ export interface ViewFilters {
 const ALLOWED_KEYS = new Set<keyof ViewFilters>([
   'toptier_agency_name',
   'subtier_agency_name',
-  'office_codes',
+  'office_names',
   'keywords',
   'naics_codes',
   'psc_codes',
@@ -69,7 +72,7 @@ export function parseFilters(raw: unknown): ViewFilters {
         if (v) (out as Record<string, unknown>)[k] = String(v).trim();
         break;
 
-      case 'office_codes':
+      case 'office_names':
       case 'keywords':
       case 'naics_codes':
       case 'psc_codes':
@@ -115,7 +118,7 @@ export function deserializeFilters(json: string | null | undefined): ViewFilters
  * Build a SQL WHERE fragment that, when conjoined with the caller's existing
  * filters, restricts results to awards matching this view.
  *
- * IMPORTANT: agency / subtier / office_codes / keywords are NOT applied here.
+ * IMPORTANT: agency / subtier / office_names / keywords are NOT applied here.
  * Those are baked in at INGEST TIME by the sidecar — when the sidecar pulls
  * USAspending with the view's scope, every fetched award is paired with the
  * view via view_award. Query-time then joins through view_award.

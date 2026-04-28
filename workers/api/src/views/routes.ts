@@ -6,7 +6,7 @@
  *   - Helpers (loadView, requireViewAccess) consumed by data endpoints.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { nowIso, requireAdmin, requireApproved, type AuthVars } from '../auth/session.js';
 import { parseFilters, deserializeFilters, serializeFilters, type ViewFilters } from './filters.js';
 
@@ -190,7 +190,7 @@ adminAccessApp.post('/:id/revoke', async (c) => {
 });
 
 async function decide(
-  c: Parameters<Parameters<Hono<Ctx>['post']>[1]>[0],
+  c: Context<Ctx>,
   accessId: string,
   status: 'granted' | 'denied' | 'revoked',
 ) {

@@ -26,6 +26,13 @@ export interface UsaspendingFilters {
   agencies?: string[];
   /** Subtier agency names — e.g., ["Centers for Disease Control and Prevention"] */
   subtier_agencies?: string[];
+  /**
+   * Awarding office NAMES — e.g., ["CDC OASB-NCHHSTP"]. USAspending's
+   * /search/spending_by_award/ accepts these as `agencies` entries with
+   * `tier: "office"`. Codes are not accepted at this endpoint, so we always
+   * filter by name.
+   */
+  office_names?: string[];
   /** Keyword search across description/PIID — e.g., ["HIV","tuberculosis"] */
   keywords?: string[];
   /** NAICS codes — e.g., ["541511","541712"] */
@@ -69,6 +76,9 @@ export class UsaspendingAdapter extends BaseSourceAdapter {
     for (const name of this.filters.subtier_agencies ?? []) {
       agencyObjs.push({ type: 'awarding', tier: 'subtier', name });
     }
+    for (const name of this.filters.office_names ?? []) {
+      agencyObjs.push({ type: 'awarding', tier: 'office', name });
+    }
     if (agencyObjs.length) filterBlock.agencies = agencyObjs;
     if (this.filters.keywords?.length)     filterBlock.keywords = this.filters.keywords;
     if (this.filters.naics_codes?.length)  filterBlock.naics_codes = this.filters.naics_codes;
@@ -101,7 +111,11 @@ export class UsaspendingAdapter extends BaseSourceAdapter {
         'End Date',
         'Awarding Agency',
         'Awarding Sub Agency',
+        'Awarding Office Code',
+        'Awarding Office Name',
         'Funding Agency',
+        'Funding Office Code',
+        'Funding Office Name',
         'NAICS',
         'PSC',
         'Last Modified Date',
@@ -183,11 +197,18 @@ export class UsaspendingAdapter extends BaseSourceAdapter {
 
     const awardingAgency = asStr(row['Awarding Agency']);
     const awardingSub    = asStr(row['Awarding Sub Agency']);
+    const awardingOfficeCode = asStr(row['Awarding Office Code']);
+    const awardingOfficeName = asStr(row['Awarding Office Name']);
     const fundingAgency  = asStr(row['Funding Agency']);
+    const fundingOfficeCode = asStr(row['Funding Office Code']);
+    const fundingOfficeName = asStr(row['Funding Office Name']);
     const naicsCode      = asStr(row['NAICS']);
     const naicsDesc      = asDesc(row['NAICS']);
     const pscCode        = asStr(row['PSC']);
     const pscDesc        = asDesc(row['PSC']);
+    const awardingOrgExternalId = awardingAgency
+      ? (awardingSub ? `${awardingAgency}::${awardingSub}` : awardingAgency)
+      : undefined;
 
     return {
       external_id,
@@ -209,9 +230,9 @@ export class UsaspendingAdapter extends BaseSourceAdapter {
         uei: row['Recipient UEI'] ?? undefined,
         legal_name: row['Recipient Name'] ?? '(unknown vendor)',
       },
-      awarding_org: awardingAgency ? {
-        external_id: awardingSub ? `${awardingAgency}::${awardingSub}` : awardingAgency,
-        canonical_name: awardingSub ?? awardingAgency,
+      awarding_org: awardingOrgExternalId ? {
+        external_id: awardingOrgExternalId,
+        canonical_name: awardingSub ?? awardingAgency!,
         short_name: awardingAgency,
         org_type: awardingSub ? 'bureau' : 'department',
       } : undefined,
@@ -219,6 +240,18 @@ export class UsaspendingAdapter extends BaseSourceAdapter {
         external_id: fundingAgency,
         canonical_name: fundingAgency,
         org_type: 'department',
+      } : undefined,
+      awarding_office: (awardingOfficeCode || awardingOfficeName) ? {
+        external_id: awardingOfficeCode ?? awardingOfficeName!,
+        fpds_office_code: awardingOfficeCode,
+        name: awardingOfficeName ?? awardingOfficeCode!,
+        parent_org_external_id: awardingOrgExternalId,
+      } : undefined,
+      funding_office: (fundingOfficeCode || fundingOfficeName) ? {
+        external_id: fundingOfficeCode ?? fundingOfficeName!,
+        fpds_office_code: fundingOfficeCode,
+        name: fundingOfficeName ?? fundingOfficeCode!,
+        parent_org_external_id: fundingAgency,
       } : undefined,
       performance_location: (row['Place of Performance State Code'] || row['Place of Performance Country Code']) ? {
         country_code: row['Place of Performance Country Code'] ?? undefined,

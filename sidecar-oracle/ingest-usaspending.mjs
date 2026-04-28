@@ -106,6 +106,11 @@ function buildUsaspendingFilters(viewFilters) {
   if (viewFilters.subtier_agency_name) {
     agencyObjs.push({ type: 'awarding', tier: 'subtier', name: viewFilters.subtier_agency_name });
   }
+  if (Array.isArray(viewFilters.office_names) && viewFilters.office_names.length) {
+    for (const name of viewFilters.office_names) {
+      if (name) agencyObjs.push({ type: 'awarding', tier: 'office', name });
+    }
+  }
   if (agencyObjs.length) fb.agencies = agencyObjs;
 
   if (viewFilters.keywords?.length)    fb.keywords    = viewFilters.keywords;
@@ -144,7 +149,9 @@ function payloadForPage(filterBlock, page) {
       'Award ID', 'Recipient Name', 'Recipient UEI',
       'Award Amount', 'Total Outlays', 'Description',
       'Contract Award Type', 'Start Date', 'End Date',
-      'Awarding Agency', 'Awarding Sub Agency', 'Funding Agency',
+      'Awarding Agency', 'Awarding Sub Agency',
+      'Awarding Office Code', 'Awarding Office Name',
+      'Funding Agency', 'Funding Office Code', 'Funding Office Name',
       'NAICS', 'PSC', 'Last Modified Date',
       'recipient_id',
       'Place of Performance State Code',

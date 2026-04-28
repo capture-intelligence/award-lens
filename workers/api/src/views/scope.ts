@@ -26,8 +26,8 @@ export type ScopeResult =
   | { kind: 'unscoped' }              // admin without view_id
   | { kind: 'error'; response: Response };
 
-export async function resolveScope(
-  c: Context<{ Bindings: { DB: D1Database }; Variables: AuthVars }>,
+export async function resolveScope<B extends { DB: D1Database }>(
+  c: Context<{ Bindings: B; Variables: AuthVars }>,
 ): Promise<ScopeResult> {
   const user = c.var.user as AppUser | undefined;
   if (!user) return { kind: 'error', response: c.json({ error: 'unauthenticated' }, 401) };

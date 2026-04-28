@@ -20,6 +20,7 @@ import {
   adminRunsApp,
   listSidecarRunRequests, claimSidecarRunRequest, completeSidecarRunRequest,
 } from './views/runs.js';
+import { adminDiscoverOfficesApp } from './admin/discover-offices.js';
 import { resolveScope, composeAwardQuery } from './views/scope.js';
 
 export interface Env extends AuthEnv {
@@ -56,6 +57,8 @@ app.route('/views', userViewsApp);
 // Per-view "Run now" — admin trigger + recent-runs status (sub-app
 // composes onto /admin/views/:viewId/{run,runs}).
 app.route('/admin/views', adminRunsApp);
+// Office discovery — POST /admin/views/:id/discover-offices
+app.route('/admin/views', adminDiscoverOfficesApp);
 // Sidecar polling endpoints (token-auth). MUST live OUTSIDE /admin/* —
 // Hono's sub-app middleware scoping means adminUsersApp's `requireAdmin`
 // captures everything under /admin/* even for routes registered directly.
@@ -521,7 +524,7 @@ app.get('/diag/usaspending', async (c) => {
     {
       label: 'GET usaspending.gov (main site, different origin)',
       url: 'https://usaspending.gov/',
-      init: { redirect: 'manual' as RequestRedirect },
+      init: { redirect: 'manual' },
     },
     {
       label: 'GET google.com (control — unrelated origin)',
@@ -681,14 +684,15 @@ app.post('/import/awards', async (c) => {
       //      window that slides on every pull.
       const a = await purgeAgencyMismatches(c.env.DB, body.view_id);
       const w = await purgeOutOfDateWindow(c.env.DB, body.view_id);
-      const summary = `agency-strict purge: ${a} | end-date window purge: ${w}`;
+      const o = await purgeOfficeMismatches(c.env.DB, body.view_id);
+      const summary = `agency-strict purge: ${a} | end-date window purge: ${w} | office-strict purge: ${o}`;
       await c.env.DB.prepare(`
         UPDATE ingestion_run
         SET status = 'success', finished_at = ?,
             error_summary = COALESCE(error_summary || ' | ', '') || ?
         WHERE run_id = ?
       `).bind(now, summary, runId).run();
-      return c.json({ run_id: runId, upserted: 0, failed: 0, agency_purged: a, window_purged: w });
+      return c.json({ run_id: runId, upserted: 0, failed: 0, agency_purged: a, window_purged: w, office_purged: o });
     }
     return c.json({ run_id: runId, upserted: 0, failed: 0 });
   }
@@ -757,13 +761,15 @@ app.post('/import/awards', async (c) => {
   // we only remove the (view_id, award_id) entries from view_award.
   let agencyPurged = 0;
   let windowPurged = 0;
+  let officePurged = 0;
   if (body.finalize) {
     agencyPurged = await purgeAgencyMismatches(c.env.DB, body.view_id);
     windowPurged = await purgeOutOfDateWindow(c.env.DB, body.view_id);
+    officePurged = await purgeOfficeMismatches(c.env.DB, body.view_id);
   }
 
   if (body.finalize) {
-    const summary = `agency-strict purge: ${agencyPurged} | end-date window purge: ${windowPurged}`;
+    const summary = `agency-strict purge: ${agencyPurged} | end-date window purge: ${windowPurged} | office-strict purge: ${officePurged}`;
     await c.env.DB.prepare(`
       UPDATE ingestion_run
       SET status = 'success', finished_at = ?,
@@ -774,7 +780,7 @@ app.post('/import/awards', async (c) => {
 
   return c.json({
     run_id: runId, upserted, failed,
-    agency_purged: agencyPurged, window_purged: windowPurged,
+    agency_purged: agencyPurged, window_purged: windowPurged, office_purged: officePurged,
   });
 });
 
@@ -880,6 +886,53 @@ async function purgeOutOfDateWindow(db: D1Database, viewId: string): Promise<num
     lookback,  lookback != null ? `-${lookback} months` : null,
     forward,   forward  != null ? `+${forward} months`  : null,
   ).run();
+
+  return result.meta?.changes ?? 0;
+}
+
+/**
+ * Untag awards from a view whose awarding office doesn't match any of the
+ * view's `office_names`. No-op when office_names is empty (back-compat with
+ * keyword-only views).
+ *
+ * Match is case-insensitive on contracting_office.name. We also accept the
+ * fpds_office_code as a match target — convenient when an admin pastes
+ * codes interchangeably with names.
+ */
+async function purgeOfficeMismatches(db: D1Database, viewId: string): Promise<number> {
+  const v = await db.prepare(
+    'SELECT filters_json FROM data_view WHERE view_id = ?',
+  ).bind(viewId).first<{ filters_json: string }>();
+  if (!v) return 0;
+
+  let f: { office_names?: string[] };
+  try { f = JSON.parse(v.filters_json); } catch { return 0; }
+  const names = (f.office_names ?? []).map((s) => String(s).trim()).filter(Boolean);
+  if (names.length === 0) return 0;
+
+  const lowerNames = names.map((s) => s.toLowerCase());
+  const placeholders = lowerNames.map(() => '?').join(',');
+
+  // Drop tags whose award has NO awarding_office_id, OR whose office's
+  // (lowercase) name / fpds_office_code is not in the allowed set.
+  const result = await db.prepare(`
+    DELETE FROM view_award
+    WHERE view_id = ?
+      AND award_id IN (
+        SELECT vw.award_id
+        FROM view_award vw
+        LEFT JOIN award a ON a.award_id = vw.award_id
+        LEFT JOIN contracting_office co ON co.office_id = a.awarding_office_id
+        WHERE vw.view_id = ?
+          AND (
+            co.office_id IS NULL
+            OR (
+              LOWER(IFNULL(co.name, '')) NOT IN (${placeholders})
+              AND LOWER(IFNULL(co.fpds_office_code, '')) NOT IN (${placeholders})
+            )
+          )
+      )
+  `).bind(viewId, viewId, ...lowerNames, ...lowerNames).run();
 
   return result.meta?.changes ?? 0;
 }

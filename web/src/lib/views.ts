@@ -7,7 +7,7 @@ export interface ViewFilters {
   toptier_agency_name?: string;
   /** Federal subtier agency name (e.g. "Centers for Disease Control and Prevention"). */
   subtier_agency_name?: string;
-  office_codes?: string[];
+  office_names?: string[];
   keywords?: string[];
   naics_codes?: string[];
   psc_codes?: string[];

@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import {
   Plus, Edit3, Trash2, Database, Power, PowerOff,
-  Play, RotateCcw, CheckCircle2, XCircle, Clock,
+  Play, RotateCcw, CheckCircle2, XCircle, Clock, Search,
 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -56,6 +56,7 @@ export function AdminViewsPage() {
   const [token, setToken] = React.useState(0);
   const [editing, setEditing] = React.useState<AdminViewRow | null>(null);
   const [creating, setCreating] = React.useState(false);
+  const [discovering, setDiscovering] = React.useState<AdminViewRow | null>(null);
 
   React.useEffect(() => {
     let alive = true;
@@ -167,6 +168,9 @@ export function AdminViewsPage() {
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
                         <RunNowButton viewId={v.view_id} enabled={v.enabled} onTriggered={reload} />
+                        <Button variant="ghost" size="sm" onClick={() => setDiscovering(v)} title="Sample USAspending and tally awarding offices">
+                          <Search className="mr-1 h-4 w-4" /> Discover
+                        </Button>
                         <Button variant="ghost" size="sm" onClick={() => toggleEnabled(v)}>
                           {v.enabled
                             ? <><PowerOff className="mr-1 h-4 w-4" /> Pause</>
@@ -193,6 +197,14 @@ export function AdminViewsPage() {
           view={editing}
           onClose={() => { setCreating(false); setEditing(null); }}
           onSaved={() => { setCreating(false); setEditing(null); reload(); }}
+        />
+      )}
+
+      {discovering && (
+        <DiscoverOfficesModal
+          view={discovering}
+          onClose={() => setDiscovering(null)}
+          onSaved={() => { setDiscovering(null); reload(); }}
         />
       )}
     </div>
@@ -341,7 +353,7 @@ function ScopeSummary({ filters }: { filters: ViewFilters }) {
     const sub = subtiersFor(filters.toptier_agency_name).find((s) => s.name === filters.subtier_agency_name);
     chips.push(sub?.abbrev ?? filters.subtier_agency_name);
   }
-  if (filters.office_codes?.length) chips.push(`Offices: ${filters.office_codes.join(', ')}`);
+  if (filters.office_names?.length) chips.push(`Offices: ${filters.office_names.join(', ')}`);
   if (filters.keywords?.length)     chips.push(`Keywords: ${filters.keywords.join(', ')}`);
   if (filters.naics_codes?.length)  chips.push(`NAICS: ${filters.naics_codes.join(', ')}`);
   if (filters.psc_codes?.length)    chips.push(`PSC: ${filters.psc_codes.join(', ')}`);
@@ -382,7 +394,7 @@ function ViewEditorModal({
   const [enabled, setEnabled] = React.useState(view?.enabled ?? true);
   const [toptier, setToptier] = React.useState(view?.filters.toptier_agency_name ?? '');
   const [subtier, setSubtier] = React.useState(view?.filters.subtier_agency_name ?? '');
-  const [offices, setOffices] = React.useState((view?.filters.office_codes ?? []).join(', '));
+  const [offices, setOffices] = React.useState((view?.filters.office_names ?? []).join(', '));
   const [keywords, setKeywords] = React.useState((view?.filters.keywords ?? []).join(', '));
   const [naics, setNaics] = React.useState((view?.filters.naics_codes ?? []).join(', '));
   const [psc, setPsc] = React.useState((view?.filters.psc_codes ?? []).join(', '));
@@ -435,7 +447,7 @@ function ViewEditorModal({
     const filters: ViewFilters = {};
     if (toptier.trim())              filters.toptier_agency_name = toptier.trim();
     if (subtier.trim())              filters.subtier_agency_name = subtier.trim();
-    if (offices.trim())              filters.office_codes = splitCsv(offices);
+    if (offices.trim())              filters.office_names = splitCsv(offices);
     if (keywords.trim())             filters.keywords     = splitCsv(keywords);
     if (naics.trim())                filters.naics_codes  = splitCsv(naics);
     if (psc.trim())                  filters.psc_codes    = splitCsv(psc);
@@ -536,14 +548,17 @@ function ViewEditorModal({
           </div>
 
           <div className="md:col-span-2">
-            <Label>Office codes (comma-separated)</Label>
-            <Input value={offices} onChange={(e) => setOffices(e.target.value)} placeholder="HHSA200, HHSF223…" />
+            <Label>Awarding office names (comma-separated)</Label>
+            <Input value={offices} onChange={(e) => setOffices(e.target.value)} placeholder="CDC OASB-NCHHSTP, CDC OASB-NCEZID…" />
+            <div className="mt-1 text-[10px] text-muted-soft">
+              Use the "Discover offices" action on the view list to populate this from a sample run, then promote the offices that match your scope.
+            </div>
           </div>
           <div className="md:col-span-2">
             <Label>Keywords (comma-separated)</Label>
             <Input value={keywords} onChange={(e) => setKeywords(e.target.value)} placeholder="NCHS, OLSR, Vital Statistics" />
             <div className="mt-1 text-[10px] text-muted-soft">
-              For office-level scoping when USAspending doesn't expose office codes — matches awarding office name OR description.
+              Optional. Mostly useful before offices are pinned — once office names are set, keywords are usually redundant.
             </div>
           </div>
 
@@ -735,6 +750,191 @@ function ViewEditorModal({
           </Button>
         </div>
       </motion.form>
+    </div>
+  );
+}
+
+// ─── Discover Offices Modal ─────────────────────────────────────────────────
+
+interface DiscoveredOffice {
+  code: string | null;
+  name: string;
+  award_count: number;
+  total_value: number;
+  sample_piids: string[];
+}
+
+function DiscoverOfficesModal({
+  view, onClose, onSaved,
+}: {
+  view: AdminViewRow;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+  const [offices, setOffices] = React.useState<DiscoveredOffice[]>([]);
+  const [sampled, setSampled] = React.useState(0);
+  const [selected, setSelected] = React.useState<Set<string>>(
+    new Set(view.filters.office_names ?? []),
+  );
+  const [saving, setSaving] = React.useState(false);
+  const [pages, setPages] = React.useState(2);
+
+  const runDiscovery = React.useCallback(async (samplePages: number) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await api.post<{ offices: DiscoveredOffice[]; sampled: number }>(
+        `/admin/views/${view.view_id}/discover-offices`,
+        { sample_pages: samplePages },
+      );
+      setOffices(r.offices ?? []);
+      setSampled(r.sampled ?? 0);
+    } catch (e) {
+      setError(e instanceof ApiError ? `API ${e.status}` : (e instanceof Error ? e.message : 'Discovery failed'));
+    } finally {
+      setLoading(false);
+    }
+  }, [view.view_id]);
+
+  React.useEffect(() => { void runDiscovery(pages); }, [runDiscovery, pages]);
+
+  function toggle(name: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
+  }
+
+  async function save() {
+    setSaving(true);
+    try {
+      const nextFilters: ViewFilters = {
+        ...view.filters,
+        office_names: Array.from(selected),
+      };
+      // Strip falsy fields the parser would reject anyway.
+      if (nextFilters.office_names && nextFilters.office_names.length === 0) {
+        delete nextFilters.office_names;
+      }
+      await api.put(`/admin/views/${view.view_id}`, { filters: nextFilters });
+      toast.success(`Saved ${selected.size} office${selected.size === 1 ? '' : 's'} on "${view.name}"`);
+      onSaved();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? `API ${e.status}` : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const fmtMoney = (n: number) => `$${fmtInt(Math.round(n))}`;
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 px-6 py-12 backdrop-blur-sm">
+      <motion.div
+        initial={{ opacity: 0, y: 12, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.18 }}
+        className="glass max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-border p-8 shadow-glass-lg"
+      >
+        <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-brand-sage">
+          Discover offices
+        </div>
+        <h2 className="mt-1 text-2xl font-bold tracking-tight">
+          Offices for "{view.name}"
+        </h2>
+        <p className="mt-2 text-sm text-muted">
+          Samples USAspending using this view's current keywords + subtier and
+          tallies awarding offices observed. Pick the office(s) that match the
+          program scope; saving sets <code>office_names</code> on the view so
+          future runs filter at ingest by office, not keyword.
+        </p>
+
+        <div className="mt-4 flex items-center justify-between">
+          <div className="text-xs text-muted-soft">
+            {loading ? 'Sampling…' : `Sampled ${sampled} awards · ${offices.length} distinct offices`}
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-muted-soft">Sample pages:</span>
+            <Select value={String(pages)} onChange={(e) => setPages(Number(e.target.value))} disabled={loading}>
+              <option value="1">1 (~100 awards)</option>
+              <option value="2">2 (~200 awards)</option>
+              <option value="3">3 (~300 awards)</option>
+              <option value="5">5 (~500 awards)</option>
+            </Select>
+          </div>
+        </div>
+
+        {error && (
+          <div className="mt-4 rounded-xl border border-brand-vermilion/40 bg-brand-vermilion/15 px-4 py-3 text-sm text-brand-vermilion-soft">
+            {error}
+          </div>
+        )}
+
+        <div className="mt-4 max-h-[50vh] overflow-y-auto rounded-xl border border-border">
+          {loading ? (
+            <div className="p-6 text-center text-sm text-muted-soft">
+              <RotateCcw className="mr-2 inline h-4 w-4 animate-spin" /> Querying USAspending…
+            </div>
+          ) : offices.length === 0 ? (
+            <div className="p-6 text-center text-sm text-muted-soft">
+              No offices observed in the sample. Try widening keywords or increasing sample pages.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-10"></TableHead>
+                  <TableHead>Office</TableHead>
+                  <TableHead className="text-right">Awards</TableHead>
+                  <TableHead className="text-right">Total value</TableHead>
+                  <TableHead>Sample PIIDs</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {offices.map((o) => {
+                  const isOn = selected.has(o.name);
+                  return (
+                    <TableRow key={(o.code ?? o.name) + '|' + o.name}>
+                      <TableCell>
+                        <input
+                          type="checkbox"
+                          checked={isOn}
+                          onChange={() => toggle(o.name)}
+                          aria-label={`Select ${o.name}`}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-medium text-foreground">{o.name}</div>
+                        {o.code && <div className="text-[10px] text-muted-soft">code: {o.code}</div>}
+                      </TableCell>
+                      <TableCell className="text-right">{fmtInt(o.award_count)}</TableCell>
+                      <TableCell className="text-right">{fmtMoney(o.total_value)}</TableCell>
+                      <TableCell className="font-mono text-[11px] text-muted">
+                        {o.sample_piids.join(', ') || '—'}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+
+        <div className="mt-6 flex items-center justify-between">
+          <div className="text-xs text-muted-soft">
+            {selected.size} office{selected.size === 1 ? '' : 's'} selected
+          </div>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button type="button" variant="primary" disabled={saving || loading} onClick={() => void save()}>
+              {saving ? 'Saving…' : `Save selection`}
+            </Button>
+          </div>
+        </div>
+      </motion.div>
     </div>
   );
 }

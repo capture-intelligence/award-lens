@@ -60,8 +60,8 @@ export function expiresIn(days: number): string {
 /**
  * Create a session row + set cookie.
  */
-export async function createSession(
-  c: Context<{ Bindings: { DB: D1Database } }>,
+export async function createSession<B extends { DB: D1Database }>(
+  c: Context<{ Bindings: B; Variables: AuthVars }>,
   userId: string,
 ): Promise<string> {
   const sessionId = newSessionId();
@@ -95,8 +95,8 @@ export async function createSession(
 }
 
 /** Look up the current user from cookie. Returns null if no/invalid session. */
-export async function loadSession(
-  c: Context<{ Bindings: { DB: D1Database } }>,
+export async function loadSession<B extends { DB: D1Database }>(
+  c: Context<{ Bindings: B; Variables: AuthVars }>,
 ): Promise<AppUser | null> {
   const sessionId = getCookie(c, SESSION_COOKIE);
   if (!sessionId) return null;
@@ -119,8 +119,8 @@ export async function loadSession(
   return row;
 }
 
-export async function destroySession(
-  c: Context<{ Bindings: { DB: D1Database } }>,
+export async function destroySession<B extends { DB: D1Database }>(
+  c: Context<{ Bindings: B; Variables: AuthVars }>,
 ): Promise<void> {
   const sessionId = getCookie(c, SESSION_COOKIE);
   if (sessionId) {
@@ -138,8 +138,8 @@ export async function destroySession(
 // ─── Middleware ──────────────────────────────────────────────────────────────
 
 /** Hydrates c.var.user if a session cookie is present. Never blocks. */
-export async function authMiddleware(
-  c: Context<{ Bindings: { DB: D1Database }; Variables: AuthVars }>,
+export async function authMiddleware<B extends { DB: D1Database }>(
+  c: Context<{ Bindings: B; Variables: AuthVars }>,
   next: Next,
 ): Promise<void | Response> {
   const user = await loadSession(c);
@@ -148,8 +148,8 @@ export async function authMiddleware(
 }
 
 /** Returns 401 unless the user is signed in (any role). */
-export async function requireAuth(
-  c: Context<{ Bindings: { DB: D1Database }; Variables: AuthVars }>,
+export async function requireAuth<B extends { DB: D1Database }>(
+  c: Context<{ Bindings: B; Variables: AuthVars }>,
   next: Next,
 ): Promise<void | Response> {
   if (!c.var.user) return c.json({ error: 'unauthenticated' }, 401);
@@ -157,8 +157,8 @@ export async function requireAuth(
 }
 
 /** Returns 403 for pending/rejected; passes for user/admin. */
-export async function requireApproved(
-  c: Context<{ Bindings: { DB: D1Database }; Variables: AuthVars }>,
+export async function requireApproved<B extends { DB: D1Database }>(
+  c: Context<{ Bindings: B; Variables: AuthVars }>,
   next: Next,
 ): Promise<void | Response> {
   const u = c.var.user;
@@ -169,8 +169,8 @@ export async function requireApproved(
 }
 
 /** Admin-only middleware. */
-export async function requireAdmin(
-  c: Context<{ Bindings: { DB: D1Database }; Variables: AuthVars }>,
+export async function requireAdmin<B extends { DB: D1Database }>(
+  c: Context<{ Bindings: B; Variables: AuthVars }>,
   next: Next,
 ): Promise<void | Response> {
   if (c.var.user?.role !== 'admin') return c.json({ error: 'admin_only' }, 403);

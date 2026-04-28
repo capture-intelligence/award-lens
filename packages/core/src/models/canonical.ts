@@ -14,6 +14,13 @@ export interface CanonicalOrganization {
   external_ids_json?: Record<string, string>;
 }
 
+export interface CanonicalOffice {
+  external_id: string;           // fpds office code (preferred) or office name
+  fpds_office_code?: string;     // 6-char AAC
+  name: string;                  // canonical display name
+  parent_org_external_id?: string; // subtier/toptier external_id, ties office → org
+}
+
 export interface CanonicalVendor {
   external_id: string;           // source's recipient id or UEI
   uei?: string;
@@ -47,6 +54,8 @@ export interface CanonicalAward {
   vendor: CanonicalVendor;
   awarding_org?: CanonicalOrganization;
   funding_org?: CanonicalOrganization;
+  awarding_office?: CanonicalOffice;
+  funding_office?: CanonicalOffice;
 
   naics_code?: string;
   naics_description?: string;

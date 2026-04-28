@@ -1,4 +1,4 @@
-import type { CanonicalAward, CanonicalOrganization, CanonicalVendor } from '../models/canonical.js';
+import type { CanonicalAward, CanonicalOffice, CanonicalOrganization, CanonicalVendor } from '../models/canonical.js';
 import { deterministicId, nowIso } from '../utils/ids.js';
 
 /**
@@ -70,6 +70,16 @@ export async function buildUpsertStatements(
     fundingOrgId = await upsertOrg(db, stmts, source, award.funding_org, now);
   }
 
+  // --- awarding office ---
+  let awardingOfficeId: string | null = null;
+  if (award.awarding_office) {
+    awardingOfficeId = await upsertOffice(db, stmts, source, award.awarding_office, awardingOrgId, now);
+  }
+  let fundingOfficeId: string | null = null;
+  if (award.funding_office) {
+    fundingOfficeId = await upsertOffice(db, stmts, source, award.funding_office, fundingOrgId, now);
+  }
+
   // --- reference stubs (must come BEFORE the award insert — SQLite checks
   //     foreign-key constraints immediately per statement, not at commit) ---
   if (award.naics_code) {
@@ -95,17 +105,20 @@ export async function buildUpsertStatements(
     db.prepare(`
       INSERT INTO award
         (award_id, award_piid, parent_piid, award_type, vendor_id,
-         awarding_org_id, funding_org_id, naics_code, psc_code,
+         awarding_org_id, funding_org_id, awarding_office_id, funding_office_id,
+         naics_code, psc_code,
          description, base_value, current_value, obligated_amount,
          currency_code, pop_start_date, pop_end_date, solicitation_id,
          source_last_modified, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(award_id) DO UPDATE SET
         award_piid           = excluded.award_piid,
         award_type           = excluded.award_type,
         vendor_id            = excluded.vendor_id,
         awarding_org_id      = COALESCE(excluded.awarding_org_id, award.awarding_org_id),
         funding_org_id       = COALESCE(excluded.funding_org_id, award.funding_org_id),
+        awarding_office_id   = COALESCE(excluded.awarding_office_id, award.awarding_office_id),
+        funding_office_id    = COALESCE(excluded.funding_office_id, award.funding_office_id),
         naics_code           = COALESCE(excluded.naics_code, award.naics_code),
         psc_code             = COALESCE(excluded.psc_code, award.psc_code),
         description          = excluded.description,
@@ -124,6 +137,8 @@ export async function buildUpsertStatements(
       vendorId,
       awardingOrgId,
       fundingOrgId,
+      awardingOfficeId,
+      fundingOfficeId,
       award.naics_code ?? null,
       award.psc_code ?? null,
       award.description ?? null,
@@ -212,6 +227,35 @@ async function upsertOrg(
   );
   stmts.push(externalIdMappingStmt(db, source, org.external_id, 'organization', orgId, now));
   return orgId;
+}
+
+async function upsertOffice(
+  db: D1Database,
+  stmts: D1PreparedStatement[],
+  source: string,
+  office: CanonicalOffice,
+  parentOrgId: string | null,
+  now: string,
+): Promise<string> {
+  const officeId = await deterministicId(source, `office::${office.external_id}`);
+  stmts.push(
+    db.prepare(`
+      INSERT INTO contracting_office
+        (office_id, org_id, fpds_office_code, name)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(office_id) DO UPDATE SET
+        org_id           = COALESCE(excluded.org_id, contracting_office.org_id),
+        fpds_office_code = COALESCE(excluded.fpds_office_code, contracting_office.fpds_office_code),
+        name             = excluded.name
+    `).bind(
+      officeId,
+      parentOrgId,
+      office.fpds_office_code ?? null,
+      office.name,
+    ),
+  );
+  stmts.push(externalIdMappingStmt(db, source, office.external_id, 'contracting_office', officeId, now));
+  return officeId;
 }
 
 function externalIdMappingStmt(
