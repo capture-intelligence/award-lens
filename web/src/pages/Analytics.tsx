@@ -6,7 +6,7 @@ import PivotTableUI from 'react-pivottable/PivotTableUI';
 import TableRenderers from 'react-pivottable/TableRenderers';
 import 'react-pivottable/pivottable.css';
 import { motion } from 'framer-motion';
-import { RefreshCw, Download, Search, X, Eye, ChevronDown, Check } from 'lucide-react';
+import { RefreshCw, Download, Search, X, Eye, ChevronDown, Check, Filter, ChevronRight } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tabs from '@radix-ui/react-tabs';
 
@@ -420,6 +420,184 @@ function ToolbarPicker({
   );
 }
 
+/**
+ * Custom field-filter picker. Replaces the click-the-▾-on-a-chip filter
+ * popup that react-pivottable ships built-in (and which on certain
+ * browser configs renders with the same unreadable peach-on-cream text
+ * that the renderer/aggregator dropdowns suffered from).
+ *
+ * UX: a single "Filters" pill in the toolbar. Click it to see a dropdown
+ * of every field currently used in rows / cols / vals. Hovering a field
+ * opens a submenu with every unique value as a checkbox — toggle to
+ * include / exclude. Active exclusions are tracked on
+ * pivotState.valueFilter, which PivotTableUI consumes.
+ */
+function FiltersPicker({
+  pivotData, pivotState, setPivotState,
+}: {
+  pivotData: Record<string, unknown>[];
+  pivotState: any;
+  setPivotState: (s: any) => void;
+}) {
+  // Compute every unique value per field (using friendly column captions
+  // — those are what end up in pivotState.rows / cols / vals after our
+  // transformForPivot pass).
+  const uniqueValuesByField = React.useMemo(() => {
+    const m: Record<string, string[]> = {};
+    pivotData.forEach((row) => {
+      Object.entries(row).forEach(([k, v]) => {
+        if (k === '__raw') return;
+        if (!m[k]) m[k] = [];
+        const sv = v == null || v === '' ? '(empty)' : String(v);
+        if (!m[k].includes(sv)) m[k].push(sv);
+      });
+    });
+    Object.keys(m).forEach((k) => m[k].sort((a, b) => a.localeCompare(b)));
+    return m;
+  }, [pivotData]);
+
+  // Filterable = anything currently dropped into rows / cols / vals.
+  const filterableFields = React.useMemo(() => {
+    const s = new Set<string>();
+    (pivotState.rows ?? []).forEach((f: string) => s.add(f));
+    (pivotState.cols ?? []).forEach((f: string) => s.add(f));
+    (pivotState.vals ?? []).forEach((f: string) => s.add(f));
+    return Array.from(s);
+  }, [pivotState]);
+
+  const valueFilter: Record<string, Record<string, boolean>> = pivotState.valueFilter ?? {};
+
+  const isIncluded = (field: string, value: string) =>
+    !valueFilter[field]?.[value];
+
+  const toggleValue = (field: string, value: string) => {
+    const cur = valueFilter[field] ?? {};
+    const next = { ...cur };
+    if (next[value]) delete next[value];
+    else next[value] = true;
+    const allFilters = { ...valueFilter, [field]: next };
+    if (Object.keys(next).length === 0) delete allFilters[field];
+    setPivotState({ ...pivotState, valueFilter: allFilters });
+  };
+
+  const setAllForField = (field: string, included: boolean) => {
+    const allValues = uniqueValuesByField[field] ?? [];
+    const next: Record<string, boolean> = {};
+    if (!included) allValues.forEach((v) => { next[v] = true; });
+    const allFilters = { ...valueFilter, [field]: next };
+    if (Object.keys(next).length === 0) delete allFilters[field];
+    setPivotState({ ...pivotState, valueFilter: allFilters });
+  };
+
+  // Total count of active filters (for the chip badge).
+  const totalExclusions = Object.values(valueFilter).reduce(
+    (n, m) => n + Object.keys(m).length, 0,
+  );
+
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <button
+          type="button"
+          className="group flex items-center gap-2 rounded-lg border border-border bg-brand-teal-deep/60 px-3 py-1.5 text-sm transition-colors hover:border-brand-vermilion hover:bg-brand-teal-soft/30"
+        >
+          <Filter className="h-3.5 w-3.5 text-brand-sage" />
+          <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand-sage">
+            Filters
+          </span>
+          {totalExclusions > 0 ? (
+            <span className="rounded-full bg-brand-vermilion px-1.5 py-0.5 text-[10px] font-bold text-white">
+              {totalExclusions}
+            </span>
+          ) : (
+            <span className="text-xs text-muted-soft">All</span>
+          )}
+          <ChevronDown className="h-3.5 w-3.5 text-muted-soft transition-transform group-data-[state=open]:rotate-180" />
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align="start"
+          sideOffset={6}
+          className="z-50 max-h-[420px] min-w-[260px] overflow-y-auto rounded-xl border border-border bg-brand-teal-deep/95 p-2 shadow-glass-lg backdrop-blur-xl"
+        >
+          {filterableFields.length === 0 ? (
+            <div className="px-3 py-2 text-xs italic text-muted-soft">
+              Drop fields into Rows / Columns / Values to enable filters.
+            </div>
+          ) : filterableFields.map((field) => {
+            const values = uniqueValuesByField[field] ?? [];
+            const fieldExclusions = valueFilter[field] ?? {};
+            const excludedHere = Object.keys(fieldExclusions).length;
+            return (
+              <DropdownMenu.Sub key={field}>
+                <DropdownMenu.SubTrigger
+                  className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-sm outline-none data-[highlighted]:bg-brand-teal-soft/30 data-[state=open]:bg-brand-teal-soft/30"
+                >
+                  <span className="flex-1 truncate">{field}</span>
+                  {excludedHere > 0 && (
+                    <span className="rounded-full bg-brand-vermilion/80 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                      −{excludedHere}
+                    </span>
+                  )}
+                  <ChevronRight className="h-3.5 w-3.5 text-muted-soft" />
+                </DropdownMenu.SubTrigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.SubContent
+                    sideOffset={6}
+                    className="z-50 max-h-[480px] min-w-[280px] max-w-[440px] overflow-y-auto rounded-xl border border-border bg-brand-teal-deep/95 p-2 shadow-glass-lg backdrop-blur-xl"
+                  >
+                    <div className="flex items-center gap-1 border-b border-border pb-2 mb-2">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); setAllForField(field, true); }}
+                        className="rounded-md px-2 py-1 text-[11px] font-medium text-brand-sage hover:bg-brand-teal-soft/30"
+                      >
+                        Select all
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); setAllForField(field, false); }}
+                        className="rounded-md px-2 py-1 text-[11px] font-medium text-brand-vermilion-soft hover:bg-brand-vermilion/15"
+                      >
+                        Clear all
+                      </button>
+                      <div className="ml-auto text-[10px] text-muted-soft">
+                        {values.length - excludedHere} / {values.length}
+                      </div>
+                    </div>
+                    {values.map((v) => {
+                      const inc = isIncluded(field, v);
+                      return (
+                        <DropdownMenu.CheckboxItem
+                          key={v}
+                          checked={inc}
+                          onCheckedChange={() => toggleValue(field, v)}
+                          onSelect={(e) => e.preventDefault()}
+                          className={`flex cursor-pointer items-start gap-2 rounded-md px-3 py-1.5 text-sm outline-none data-[highlighted]:bg-brand-teal-soft/30 ${
+                            inc ? 'text-foreground' : 'text-muted-soft line-through'
+                          }`}
+                        >
+                          <div className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded border ${
+                            inc ? 'border-brand-vermilion bg-brand-vermilion/20' : 'border-border bg-transparent'
+                          }`}>
+                            {inc && <Check className="h-3 w-3 text-brand-vermilion-soft" />}
+                          </div>
+                          <span className="flex-1 break-words">{v}</span>
+                        </DropdownMenu.CheckboxItem>
+                      );
+                    })}
+                  </DropdownMenu.SubContent>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Sub>
+            );
+          })}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  );
+}
+
 function PivotShell({
   pivotData, pivotState, setPivotState,
 }: {
@@ -489,6 +667,12 @@ function PivotShell({
           options={SORT_OPTIONS.map((o) => o.caption)}
           minWidth={240}
           onChange={(v) => setSort('colOrder', v)}
+        />
+        <div className="mx-1 h-5 w-px bg-border/60" />
+        <FiltersPicker
+          pivotData={pivotData}
+          pivotState={pivotState}
+          setPivotState={setPivotState}
         />
       </div>
 
