@@ -196,10 +196,32 @@ app.get('/explore', async (c) => {
   `;
   const ORDER_TAIL = `ORDER BY a.pop_end_date DESC NULLS LAST, a.current_value DESC LIMIT ?`;
 
+  // Load center mapping from DB once per request. Falls back to the bundled
+  // TS map for codes the DB doesn't know about (defence in depth — ensures
+  // every row gets _some_ center assignment).
+  const centerRows = await c.env.DB.prepare(
+    'SELECT federal_account_code, center_code, center_name FROM cdc_center',
+  ).all<{ federal_account_code: string; center_code: string; center_name: string }>();
+  const centerMap = new Map<string, { code: string; name: string }>(
+    centerRows.results.map((r) => [r.federal_account_code, { code: r.center_code, name: r.center_name }]),
+  );
+  const lookupCenterDb = (codeJoined: string | null | undefined) => {
+    if (!codeJoined) {
+      // No funding rows captured for this award yet.
+      return { code: 'UNKNOWN', name: '(no funding data captured)' };
+    }
+    const first = String(codeJoined).split('|')[0]?.trim();
+    if (!first) return { code: 'UNKNOWN', name: '(no funding data captured)' };
+    const hit = centerMap.get(first);
+    if (hit) return hit;
+    // Fall back to the static TS map for codes the seed missed, then to OTHER.
+    return resolveCenter(first);
+  };
+
   // Post-process each row to attach derived fields (CDC center). Same shape
   // for every code path so the frontend / pivot table sees consistent columns.
   const decorate = (rows: Record<string, unknown>[]) => rows.map((row) => {
-    const center = resolveCenter(row.federal_account_codes as string | undefined);
+    const center = lookupCenterDb(row.federal_account_codes as string | undefined);
     return { ...row, center_code: center.code, center_name: center.name };
   });
 
