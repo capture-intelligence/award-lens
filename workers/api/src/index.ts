@@ -22,6 +22,7 @@ import {
 } from './views/runs.js';
 import { adminDiscoverOfficesApp } from './admin/discover-offices.js';
 import { adminFiltersApp, adminFilterAccessApp, userFiltersApp } from './filters/routes.js';
+import { resolveCenter } from './cdc/center-map.js';
 import { resolveScope, composeAwardQuery } from './views/scope.js';
 
 export interface Env extends AuthEnv {
@@ -195,6 +196,13 @@ app.get('/explore', async (c) => {
   `;
   const ORDER_TAIL = `ORDER BY a.pop_end_date DESC NULLS LAST, a.current_value DESC LIMIT ?`;
 
+  // Post-process each row to attach derived fields (CDC center). Same shape
+  // for every code path so the frontend / pivot table sees consistent columns.
+  const decorate = (rows: Record<string, unknown>[]) => rows.map((row) => {
+    const center = resolveCenter(row.federal_account_codes as string | undefined);
+    return { ...row, center_code: center.code, center_name: center.name };
+  });
+
   if (scope.kind === 'scoped') {
     // Legacy view: M2M-tagged via view_award.
     const r = await c.env.DB.prepare(`
@@ -204,12 +212,12 @@ app.get('/explore', async (c) => {
       ${COMMON_JOINS}
       WHERE vw.view_id = ?
       ${ORDER_TAIL}
-    `).bind(scope.view.view_id, limit).all();
+    `).bind(scope.view.view_id, limit).all<Record<string, unknown>>();
     return c.json({
       view_id:   scope.view.view_id,
       view_name: scope.view.name,
       count:     r.results.length,
-      results:   r.results,
+      results:   decorate(r.results),
     });
   }
 
@@ -221,12 +229,12 @@ app.get('/explore', async (c) => {
       FROM award a
       ${COMMON_JOINS}
       ${ORDER_TAIL}
-    `).bind(limit).all();
+    `).bind(limit).all<Record<string, unknown>>();
     return c.json({
       view_id:   null,
       view_name: 'All data (admin)',
       count:     r.results.length,
-      results:   r.results,
+      results:   decorate(r.results),
     });
   }
 
@@ -299,14 +307,14 @@ app.get('/explore', async (c) => {
     ${COMMON_JOINS}
     ${whereSql}
     ${ORDER_TAIL}
-  `).bind(...params, limit).all();
+  `).bind(...params, limit).all<Record<string, unknown>>();
 
   return c.json({
     filter_id:   scope.filter.filter_id,
     view_id:     scope.filter.filter_id,    // legacy alias for the dashboard until PR2
     view_name:   scope.filter.name,
     count:       r.results.length,
-    results:     r.results,
+    results:     decorate(r.results),
   });
 });
 

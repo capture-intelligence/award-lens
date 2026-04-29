@@ -53,6 +53,8 @@ const COLUMNS: Array<{ key: string; caption: string }> = [
   { key: 'vendor_zip',          caption: 'Vendor zip' },
   { key: 'awarding_agency',     caption: 'Awarding agency' },
   { key: 'awarding_department', caption: 'Awarding dept.' },
+  { key: 'center_code',         caption: 'Center code' },
+  { key: 'center_name',         caption: 'Center' },
   { key: 'naics_code',          caption: 'NAICS' },
   { key: 'naics_description',   caption: 'NAICS description' },
   { key: 'psc_code',            caption: 'PSC' },
