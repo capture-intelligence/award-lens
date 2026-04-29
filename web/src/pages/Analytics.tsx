@@ -352,7 +352,7 @@ export function AnalyticsPage() {
           {/* PIVOT TAB */}
           <Tabs.Content
             value="pivot"
-            className="awardlens-tab-fill flex-1 min-h-0 flex flex-col focus:outline-none data-[state=inactive]:hidden"
+            className="awardlens-tab-fill flex flex-col focus:outline-none data-[state=inactive]:hidden h-[calc(100dvh-168px)]"
           >
             <Card className="flex flex-1 min-h-0 flex-col">
               <div className="border-b border-border bg-brand-teal-deep/40 px-5 py-3">
@@ -381,7 +381,7 @@ export function AnalyticsPage() {
           {/* SUMMARY TAB */}
           <Tabs.Content
             value="summary"
-            className="awardlens-tab-fill flex-1 min-h-0 flex flex-col focus:outline-none data-[state=inactive]:hidden"
+            className="awardlens-tab-fill flex flex-col focus:outline-none data-[state=inactive]:hidden h-[calc(100dvh-168px)]"
           >
             <AwardBrowser rows={filteredRows} onSelect={setSelectedAward} />
           </Tabs.Content>
@@ -389,7 +389,7 @@ export function AnalyticsPage() {
           {/* TREE TAB */}
           <Tabs.Content
             value="tree"
-            className="awardlens-tab-fill flex-1 min-h-0 flex flex-col focus:outline-none data-[state=inactive]:hidden"
+            className="awardlens-tab-fill flex flex-col focus:outline-none data-[state=inactive]:hidden h-[calc(100dvh-168px)]"
           >
             <SpendTreeTab
               rows={filteredRows}

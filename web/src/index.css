@@ -931,14 +931,14 @@
   filter: hue-rotate(-10deg) saturate(0.85) !important;
 }
 
-/* ── Radix Tabs.Content fill — guarantee the active panel participates
-   in the parent's flex-column layout. Without this, the rendered panel
-   sometimes settles at content height and a dark gap appears below
-   tab content (Analytics tree canvas, etc.). ───────────────────────── */
+/* ── Radix Tabs.Content fill — guarantee the active panel becomes a
+   flex column so the inner Card / tree canvas can chain `flex-1` from
+   it. Height comes from the inline h-[calc(...)] on the panel itself.
+   The flex-col here is what lets the Card inside grow without the chain
+   breaking against Radix's default block display. ────────────────── */
 [role="tabpanel"][data-state="active"].awardlens-tab-fill {
   display: flex;
   flex-direction: column;
-  flex: 1 1 0%;
   min-height: 0;
 }
 
