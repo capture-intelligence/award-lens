@@ -71,24 +71,40 @@ function splitFundingTuples(row: Record<string, unknown>): Array<{
   }));
 }
 
+// Concise leaf label — the contract's PIID is the natural short identifier
+// in federal-procurement land. Falls back to a description-snippet when a
+// PIID is missing (rare). Kept short so the tree doesn't waste real estate.
+function leafTitle(row: Record<string, unknown>): string {
+  const piid = String(row.award_piid ?? '').trim();
+  if (piid) return piid;
+  const desc = String(row.description ?? '').trim();
+  if (desc) return desc.length > 28 ? desc.slice(0, 25) + '…' : desc;
+  return '(unnamed contract)';
+}
+
 export function buildSpendTree(
   rows: Record<string, unknown>[],
   opts: BuildOptions = {},
 ): DataElement {
   const rootTitle = opts.rootTitle ?? 'CDC';
 
-  // Two-tier accumulator: account → activity → leaves[]
+  // Two-tier accumulator: CENTER → activity → leaves[]
+  // Grouping by center_code (already attached by the worker's decorate())
+  // gives stable, short branch labels — NCHHSTP / NCEZID / etc. — and
+  // sidesteps the GROUP_CONCAT-order issue that produced multiple branches
+  // with the same long federal-account name.
   type LeafBucket = { leaves: DataElement[]; total: number; pa_name: string | null };
-  type AccountBucket = {
-    name: string;
-    code: string;
+  type CenterBucket = {
+    code: string;          // e.g., "NCHHSTP"
+    name: string;          // e.g., "National Center for HIV..."
     activities: Map<string, LeafBucket>;
     total: number;
     count: number;
+    accountCodes: Set<string>;  // unique federal accounts seen for this center
   };
-  const accounts = new Map<string, AccountBucket>();
+  const centers = new Map<string, CenterBucket>();
 
-  const UNCLASSIFIED_KEY = '__unclassified__';
+  const UNCLASSIFIED_KEY = 'UNKNOWN';
 
   let grandTotal = 0;
   let grandCount = 0;
@@ -98,34 +114,36 @@ export function buildSpendTree(
     grandTotal += value;
     grandCount += 1;
 
-    const tuples = splitFundingTuples(row);
-    // Use the FIRST funding tuple for tree placement; tooltip shows all of them.
-    const primary = tuples[0] ?? {
-      account_code: UNCLASSIFIED_KEY,
-      account_name: 'Unclassified (not yet enriched)',
-      pa_code:  null,
-      pa_name:  null,
-    };
+    const centerCode = String(row.center_code ?? UNCLASSIFIED_KEY) || UNCLASSIFIED_KEY;
+    const centerName = String(row.center_name ?? centerCode);
 
-    let acct = accounts.get(primary.account_code);
-    if (!acct) {
-      acct = {
-        name: primary.account_name ?? primary.account_code,
-        code: primary.account_code,
+    const tuples = splitFundingTuples(row);
+    // Pick the program activity from whichever tuple matches the row's
+    // resolved center (so PA labels actually align with the center bucket).
+    // Fall back to the first tuple's PA when no obvious match.
+    const primary = tuples[0] ?? null;
+
+    let center = centers.get(centerCode);
+    if (!center) {
+      center = {
+        code: centerCode,
+        name: centerName,
         activities: new Map(),
         total: 0,
         count: 0,
+        accountCodes: new Set(),
       };
-      accounts.set(primary.account_code, acct);
+      centers.set(centerCode, center);
     }
-    acct.total += value;
-    acct.count += 1;
+    center.total += value;
+    center.count += 1;
+    for (const t of tuples) center.accountCodes.add(t.account_code);
 
-    const paKey = primary.pa_code ?? primary.pa_name ?? '__no_activity__';
-    let bucket = acct.activities.get(paKey);
+    const paKey = primary?.pa_code ?? primary?.pa_name ?? '__no_activity__';
+    let bucket = center.activities.get(paKey);
     if (!bucket) {
-      bucket = { leaves: [], total: 0, pa_name: primary.pa_name };
-      acct.activities.set(paKey, bucket);
+      bucket = { leaves: [], total: 0, pa_name: primary?.pa_name ?? null };
+      center.activities.set(paKey, bucket);
     }
     bucket.total += value;
 
@@ -152,9 +170,9 @@ export function buildSpendTree(
       : '';
 
     const leaf: DataElement = {
-      title: vendor.length > 36 ? vendor.slice(0, 33) + '…' : vendor,
+      title: leafTitle(row),
       availability: urgency(days),
-      description: `${fmtMoneyShort(value)} · ${piid || '(no PIID)'}`,
+      description: `${fmtMoneyShort(value)} · ${vendor.length > 28 ? vendor.slice(0, 25) + '…' : vendor}`,
       htmlDescription:
         `<div><span class="strong">${fmtMoneyShort(value)}</span> · ` +
         `<span class="pill">${escapeHtml(piid || '—')}</span></div>` +
@@ -169,10 +187,10 @@ export function buildSpendTree(
   }
 
   // Convert maps → DataElement nodes, sorted by total $ descending at each tier.
-  const accountNodes: DataElement[] = Array.from(accounts.values())
+  const centerNodes: DataElement[] = Array.from(centers.values())
     .sort((a, b) => b.total - a.total)
-    .map((acct) => {
-      const activityNodes: DataElement[] = Array.from(acct.activities.entries())
+    .map((center) => {
+      const activityNodes: DataElement[] = Array.from(center.activities.entries())
         .sort((a, b) => b[1].total - a[1].total)
         .map(([paKey, bucket]) => ({
           title: bucket.pa_name ?? (paKey === '__no_activity__' ? '(no program activity)' : paKey),
@@ -188,15 +206,22 @@ export function buildSpendTree(
           }),
         }));
 
+      const accountList = Array.from(center.accountCodes).filter(Boolean).sort();
+
       return {
-        title: acct.name,
+        // Short label — center code (NCHHSTP / NCEZID / …). Long centre name
+        // moves into the tooltip so the canvas stays compact.
+        title: center.code,
         category: 'group',
-        description: `${fmtMoneyShort(acct.total)} · ${acct.count} contract${acct.count === 1 ? '' : 's'}`,
+        description: `${fmtMoneyShort(center.total)} · ${center.count} contract${center.count === 1 ? '' : 's'}`,
         htmlDescription:
-          `<div><span class="strong">${fmtMoneyShort(acct.total)}</span> across ${acct.count} contract${acct.count === 1 ? '' : 's'}</div>` +
-          (acct.code !== UNCLASSIFIED_KEY
-            ? `<div style="margin-top:4px"><span class="pill">${escapeHtml(acct.code)}</span></div>`
-            : '<div style="margin-top:4px;font-style:italic">Run the per-award enrichment to place these contracts under their actual federal account.</div>'),
+          `<div class="strong">${escapeHtml(center.name)}</div>` +
+          `<div style="margin-top:4px"><span class="strong">${fmtMoneyShort(center.total)}</span> across ${center.count} contract${center.count === 1 ? '' : 's'}</div>` +
+          (accountList.length > 0
+            ? `<div style="margin-top:4px">Funding: ${accountList.map((c) => `<span class="pill">${escapeHtml(c)}</span>`).join(' ')}</div>`
+            : (center.code === UNCLASSIFIED_KEY
+                ? '<div style="margin-top:4px;font-style:italic">Run the per-award enrichment to place these contracts under their actual center.</div>'
+                : '')),
         children: activityNodes,
       };
     });
@@ -206,8 +231,8 @@ export function buildSpendTree(
     description: `${fmtMoneyShort(grandTotal)} · ${grandCount} contract${grandCount === 1 ? '' : 's'}`,
     htmlDescription:
       `<div><span class="strong">${fmtMoneyShort(grandTotal)}</span> across ${grandCount} contract${grandCount === 1 ? '' : 's'}</div>` +
-      `<div style="margin-top:4px">${accounts.size} federal account${accounts.size === 1 ? '' : 's'} represented</div>` +
+      `<div style="margin-top:4px">${centers.size} center${centers.size === 1 ? '' : 's'} represented</div>` +
       (opts.rootSubtitle ? `<div style="margin-top:4px;font-style:italic;opacity:.8">${escapeHtml(opts.rootSubtitle)}</div>` : ''),
-    children: accountNodes,
+    children: centerNodes,
   };
 }
