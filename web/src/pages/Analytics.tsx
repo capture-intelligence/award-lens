@@ -276,36 +276,6 @@ export function AnalyticsPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        eyebrow="Explore"
-        title="Analytics"
-        description={
-          data
-            ? (filteredRows.length === data.count
-                ? `${fmtInt(data.count)} awards in "${data.view_name}". Use the topbar value/date filters to refine.`
-                : `${fmtInt(filteredRows.length)} of ${fmtInt(data.count)} awards in "${data.view_name}" (filtered).`)
-            : 'Pivot + click-through detail over award, vendor, agency, and exclusion data.'
-        }
-        actions={
-          <div className="flex items-center gap-2">
-            <ExportMenu
-              rows={filteredRows}
-              viewName={data?.view_name ?? 'awardlens'}
-              count={filteredRows.length}
-              disabled={filteredRows.length === 0}
-            />
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setReloadToken((n) => n + 1)}
-              disabled={!canQuery}
-            >
-              <RefreshCw className="mr-1 h-4 w-4" /> Reload
-            </Button>
-          </div>
-        }
-      />
-
       {error && (
         <div className="rounded-xl border border-brand-vermilion/40 bg-brand-vermilion/15 px-4 py-3 text-sm text-brand-vermilion-soft">
           {error}
@@ -322,29 +292,58 @@ export function AnalyticsPage() {
         </Card>
       ) : (
         <Tabs.Root defaultValue="tree" className="flex flex-col gap-4">
-          <Tabs.List
-            aria-label="Analytics views"
-            className="inline-flex w-fit items-center gap-1 rounded-xl border border-border bg-brand-teal-deep/40 p-1 backdrop-blur-md"
-          >
-            <Tabs.Trigger
-              value="tree"
-              className="rounded-lg px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-muted-soft transition-colors hover:text-foreground data-[state=active]:bg-brand-vermilion data-[state=active]:text-white data-[state=active]:shadow-sm"
+          {/* Tabs + count + actions all share one row. The count sits between
+              the view tabs and the Export/Reload cluster so a glance reads:
+              "what view → how many awards in scope → what to do with them". */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Tabs.List
+              aria-label="Analytics views"
+              className="inline-flex w-fit items-center gap-1 rounded-xl border border-border bg-brand-teal-deep/40 p-1 backdrop-blur-md"
             >
-              Tree
-            </Tabs.Trigger>
-            <Tabs.Trigger
-              value="summary"
-              className="rounded-lg px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-muted-soft transition-colors hover:text-foreground data-[state=active]:bg-brand-vermilion data-[state=active]:text-white data-[state=active]:shadow-sm"
-            >
-              Summary <span className="ml-1 text-[10px] opacity-80">({fmtInt(filteredRows.length)})</span>
-            </Tabs.Trigger>
-            <Tabs.Trigger
-              value="pivot"
-              className="rounded-lg px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-muted-soft transition-colors hover:text-foreground data-[state=active]:bg-brand-vermilion data-[state=active]:text-white data-[state=active]:shadow-sm"
-            >
-              Pivot Table
-            </Tabs.Trigger>
-          </Tabs.List>
+              <Tabs.Trigger
+                value="tree"
+                className="rounded-lg px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-muted-soft transition-colors hover:text-foreground data-[state=active]:bg-brand-vermilion data-[state=active]:text-white data-[state=active]:shadow-sm"
+              >
+                Tree
+              </Tabs.Trigger>
+              <Tabs.Trigger
+                value="summary"
+                className="rounded-lg px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-muted-soft transition-colors hover:text-foreground data-[state=active]:bg-brand-vermilion data-[state=active]:text-white data-[state=active]:shadow-sm"
+              >
+                Summary <span className="ml-1 text-[10px] opacity-80">({fmtInt(filteredRows.length)})</span>
+              </Tabs.Trigger>
+              <Tabs.Trigger
+                value="pivot"
+                className="rounded-lg px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-muted-soft transition-colors hover:text-foreground data-[state=active]:bg-brand-vermilion data-[state=active]:text-white data-[state=active]:shadow-sm"
+              >
+                Pivot Table
+              </Tabs.Trigger>
+            </Tabs.List>
+
+            <div className="text-xs text-muted">
+              {filteredRows.length === data.count
+                ? <>{fmtInt(data.count)} awards</>
+                : <>{fmtInt(filteredRows.length)} of {fmtInt(data.count)} awards <span className="text-muted-soft">(filtered)</span></>
+              }
+            </div>
+
+            <div className="flex items-center gap-2">
+              <ExportMenu
+                rows={filteredRows}
+                viewName={data?.view_name ?? 'awardlens'}
+                count={filteredRows.length}
+                disabled={filteredRows.length === 0}
+              />
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setReloadToken((n) => n + 1)}
+                disabled={!canQuery}
+              >
+                <RefreshCw className="mr-1 h-4 w-4" /> Reload
+              </Button>
+            </div>
+          </div>
 
           {/* PIVOT TAB */}
           <Tabs.Content value="pivot" className="focus:outline-none">
