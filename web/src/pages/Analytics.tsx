@@ -18,6 +18,7 @@ import { Badge } from '@/components/ui/Badge';
 import { TableSkeleton } from '@/components/ui/Skeleton';
 import { api, ApiError } from '@/lib/api';
 import { useViewQuery, useViews } from '@/lib/view-context';
+import { useAgencyQuery } from '@/lib/agency-context';
 import { useAuth } from '@/lib/auth-context';
 import { NoViewSelected } from '@/components/ui/NoViewSelected';
 import { fmtInt, fmtMoney, fmtDate } from '@/lib/utils';
@@ -173,9 +174,13 @@ interface ExploreResponse {
 
 export function AnalyticsPage() {
   const viewQuery = useViewQuery();
+  const agencyQuery = useAgencyQuery();
   const { active, loading: viewsLoading } = useViews();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  // When the user has a saved filter active, filter_id wins. Otherwise
+  // (typically admin) the agency picker scopes the query.
+  const exploreQuery = viewQuery ?? agencyQuery;
   const [data,  setData]  = React.useState<ExploreResponse | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [reloadToken, setReloadToken] = React.useState(0);
@@ -192,16 +197,14 @@ export function AnalyticsPage() {
     setData(null); setError(null);
     (async () => {
       try {
-        // viewQuery is undefined when admin is unscoped — /explore handles
-        // that case by returning the full warehouse.
-        const r = await api.get<ExploreResponse>('/explore', viewQuery);
+        const r = await api.get<ExploreResponse>('/explore', exploreQuery);
         if (alive) setData(r);
       } catch (e) {
         if (alive) setError(e instanceof ApiError ? `API ${e.status}` : 'Failed to load');
       }
     })();
     return () => { alive = false; };
-  }, [canQuery, viewQuery?.filter_id, reloadToken]);
+  }, [canQuery, viewQuery?.filter_id, agencyQuery?.awarding_agency, reloadToken]);
 
   const pivotData = React.useMemo(
     () => (data ? transformForPivot(data.results) : []),

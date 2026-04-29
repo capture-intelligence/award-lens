@@ -117,6 +117,21 @@ app.get('/health', async (c) => {
   });
 });
 
+// ---------- Awarding-agency catalog (top-of-screen scope picker) ----------
+//
+// Returns the distinct awarding agencies present in the warehouse, with
+// per-agency award counts. Approved-user gated (same level as /explore).
+app.get('/awarding-agencies', async (c) => {
+  const r = await c.env.DB.prepare(`
+    SELECT o.canonical_name AS name, o.short_name AS toptier, COUNT(*) AS n
+    FROM award a
+    JOIN organization o ON o.org_id = a.awarding_org_id
+    GROUP BY o.canonical_name, o.short_name
+    ORDER BY n DESC
+  `).all<{ name: string; toptier: string | null; n: number }>();
+  return c.json({ count: r.results.length, results: r.results });
+});
+
 // ---------- Awards ----------
 
 // ---------- Explore: every award row in a view, fully denormalized ----------
@@ -265,17 +280,29 @@ app.get('/explore', async (c) => {
   }
 
   if (scope.kind === 'unscoped') {
-    // Admin browsing the entire warehouse — no filter applied. Bounded by
-    // limit (default 5000, max 10000) so the JSON payload stays sane.
+    // Admin browsing the warehouse — top-of-screen agency picker narrows
+    // the scope. The picker defaults to CDC client-side; pass nothing to
+    // get the full warehouse.
+    const awardingAgency = c.req.query('awarding_agency')?.trim();
+    const where: string[] = [];
+    const params: unknown[] = [];
+    let agencyJoin = '';
+    if (awardingAgency) {
+      agencyJoin = ` INNER JOIN organization scope_o ON scope_o.org_id = a.awarding_org_id AND scope_o.canonical_name = ?`;
+      params.push(awardingAgency);
+    }
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const r = await c.env.DB.prepare(`
       ${SELECT_COLUMNS}
       FROM award a
+      ${agencyJoin}
       ${COMMON_JOINS}
+      ${whereSql}
       ${ORDER_TAIL}
-    `).bind(limit).all<Record<string, unknown>>();
+    `).bind(...params, limit).all<Record<string, unknown>>();
     return c.json({
       view_id:   null,
-      view_name: 'All data (admin)',
+      view_name: awardingAgency ? `${awardingAgency} (all data)` : 'All data (admin)',
       count:     r.results.length,
       results:   decorate(r.results),
     });

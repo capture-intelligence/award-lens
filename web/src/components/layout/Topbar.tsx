@@ -6,7 +6,7 @@ import { RoleBadge } from '@/components/ui/Badge';
 import { Logo, Wordmark } from '@/components/ui/Logo';
 import { useAuth } from '@/lib/auth-context';
 import { initials } from '@/lib/utils';
-import { ViewSelector } from './ViewSelector';
+import { AgencySelector } from './AgencySelector';
 
 export function Topbar() {
   const { user, signOut } = useAuth();
@@ -17,7 +17,7 @@ export function Topbar() {
         <BrandMark />
 
         <div className="hidden flex-1 md:flex md:justify-start md:pl-4">
-          <ViewSelector />
+          <AgencySelector />
         </div>
 
         <div className="ml-auto flex items-center gap-2">

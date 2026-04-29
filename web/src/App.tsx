@@ -2,6 +2,7 @@ import { Toaster } from 'sonner';
 import { AnimatePresence, motion } from 'framer-motion';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
 import { ViewProvider } from '@/lib/view-context';
+import { AgencyProvider } from '@/lib/agency-context';
 import { useHashRoute } from '@/lib/router';
 import { AppShell } from '@/components/layout/AppShell';
 import { SignInPage } from '@/pages/SignIn';
@@ -23,6 +24,7 @@ export default function App() {
   return (
     <AuthProvider>
       <ViewProvider>
+      <AgencyProvider>
       <Toaster
         theme="dark"
         position="top-right"
@@ -36,6 +38,7 @@ export default function App() {
         }}
       />
       <RootRouter />
+      </AgencyProvider>
       </ViewProvider>
     </AuthProvider>
   );
