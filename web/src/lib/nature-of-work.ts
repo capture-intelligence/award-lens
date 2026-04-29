@@ -27,6 +27,23 @@ interface AwardLike {
   naics_code?: string | null;
 }
 
+/**
+ * Canonical bucket list — every value `natureOfWork()` can return.
+ * Exported so top-level filters (e.g. the Topbar nature picker) can render
+ * the catalog without first scanning the dataset.
+ */
+export const NATURE_BUCKETS = [
+  'Research / R&D',
+  'Data / Surveillance Systems',
+  'IT / Software',
+  'Communications / Outreach',
+  'Evaluation / Assessment',
+  'Program Support / PMO',
+  'Goods / Equipment',
+  'Other / Mixed',
+] as const;
+export type NatureBucket = typeof NATURE_BUCKETS[number];
+
 export function natureOfWork(row: AwardLike): string {
   const text = [
     row.description ?? '',

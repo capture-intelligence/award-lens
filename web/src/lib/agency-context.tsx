@@ -78,6 +78,14 @@ interface AgencyContextValue {
   setDateRange: (r: [number, number] | null) => void;
   dateBounds: { min: number; max: number } | null;
   setDateBounds: (b: { min: number; max: number } | null) => void;
+
+  /**
+   * Top-of-screen Nature-of-work filter — empty Set = "All".
+   * State lives here so the picker in the topbar drives every tab
+   * (Tree / Summary / Pivot) consistently.
+   */
+  selectedNatures: Set<string>;
+  setSelectedNatures: (s: Set<string>) => void;
 }
 
 const AgencyContext = React.createContext<AgencyContextValue | undefined>(undefined);
@@ -222,6 +230,7 @@ export function AgencyProvider({ children }: { children: React.ReactNode }) {
   const [maxValue, setMaxValue] = React.useState('');
   const [dateRange, setDateRange]   = React.useState<[number, number] | null>(defaultDateRange());
   const [dateBounds, setDateBounds] = React.useState<{ min: number; max: number } | null>(null);
+  const [selectedNatures, setSelectedNatures] = React.useState<Set<string>>(new Set());
 
   // Re-apply defaults whenever the scope changes (different agency or
   // center starts fresh — keeps the "active opportunities" lens consistent).
@@ -230,6 +239,7 @@ export function AgencyProvider({ children }: { children: React.ReactNode }) {
     setMaxValue('');
     setDateRange(defaultDateRange());
     setDateBounds(null);
+    setSelectedNatures(new Set());
   }, [active, activeCenter]);
 
   const value: AgencyContextValue = {
@@ -237,6 +247,7 @@ export function AgencyProvider({ children }: { children: React.ReactNode }) {
     centers, activeCenter, centersLoading, setActiveCenter,
     minValue, maxValue, setMinValue, setMaxValue,
     dateRange, setDateRange, dateBounds, setDateBounds,
+    selectedNatures, setSelectedNatures,
   };
 
   return <AgencyContext.Provider value={value}>{children}</AgencyContext.Provider>;

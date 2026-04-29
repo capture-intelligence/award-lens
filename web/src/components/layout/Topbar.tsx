@@ -10,6 +10,7 @@ import { AgencySelector } from './AgencySelector';
 import { CenterSelector } from './CenterSelector';
 import { ValueFilter } from './ValueFilter';
 import { DateFilter } from './DateFilter';
+import { NatureFilter } from './NatureFilter';
 
 export function Topbar() {
   const { user, signOut } = useAuth();
@@ -24,6 +25,7 @@ export function Topbar() {
           <CenterSelector />
           <ValueFilter />
           <DateFilter />
+          <NatureFilter />
         </div>
 
         <div className="ml-auto flex items-center gap-2">

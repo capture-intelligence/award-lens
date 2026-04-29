@@ -176,6 +176,7 @@ export function AnalyticsPage() {
     loading: agencyLoading,
     minValue, maxValue,
     dateRange, setDateBounds,
+    selectedNatures,
   } = useAgency();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
@@ -226,9 +227,9 @@ export function AnalyticsPage() {
     else setDateBounds(null);
   }, [data, setDateBounds]);
 
-  // Apply the topbar value + date filters client-side so all three tabs see
-  // a consistent slice. /explore returns ≤5K rows for the agency+center
-  // scope, so this stays cheap.
+  // Apply the topbar value + date + nature filters client-side so all three
+  // tabs see a consistent slice. /explore returns ≤5K rows for the
+  // agency+center scope, so this stays cheap.
   const filteredRows = React.useMemo<Record<string, unknown>[]>(() => {
     if (!data?.results) return [];
     const minNum = minValue.trim() === '' ? null : Number(minValue);
@@ -236,7 +237,8 @@ export function AnalyticsPage() {
     const hasMin = minNum != null && Number.isFinite(minNum);
     const hasMax = maxNum != null && Number.isFinite(maxNum);
     const hasDate = dateRange != null;
-    if (!hasMin && !hasMax && !hasDate) return data.results;
+    const hasNature = selectedNatures.size > 0;
+    if (!hasMin && !hasMax && !hasDate && !hasNature) return data.results;
     return data.results.filter((r) => {
       if (hasMin || hasMax) {
         const value = Number(r.current_value ?? 0);
@@ -247,9 +249,10 @@ export function AnalyticsPage() {
         const d = dateToEpochDay(r.pop_end_date as string | undefined);
         if (d != null && (d < dateRange![0] || d > dateRange![1])) return false;
       }
+      if (hasNature && !selectedNatures.has(natureOfWork(r as any))) return false;
       return true;
     });
-  }, [data, minValue, maxValue, dateRange]);
+  }, [data, minValue, maxValue, dateRange, selectedNatures]);
 
   const pivotData = React.useMemo(
     () => transformForPivot(filteredRows),
@@ -923,72 +926,30 @@ function compareRows(key: SortKey, a: Record<string, unknown>, b: Record<string,
   }
 }
 
-function natureOf(row: Record<string, unknown>): string {
-  return natureOfWork({
-    description:        (row.description       ?? '') as string,
-    psc_description:    (row.psc_description   ?? '') as string,
-    psc_code:           (row.psc_code          ?? '') as string,
-    naics_description:  (row.naics_description ?? '') as string,
-    naics_code:         (row.naics_code        ?? '') as string,
-  });
-}
-
 function AwardBrowser({
   rows, onSelect,
 }: {
   rows: Record<string, unknown>[];
   onSelect: (a: Record<string, unknown>) => void;
 }) {
-  // Value + date filters now live in the topbar (agency-context); rows
-  // arriving here are already filtered. Search + sort + nature-of-work
-  // stay local — they're specific to scrolling this list.
+  // Value, date, and nature-of-work filters all live in the topbar now
+  // (agency-context); rows arriving here are already filtered. Only
+  // search + sort remain local — they're specific to scrolling this list.
   const [search, setSearch] = React.useState('');
   const [sortKey, setSortKey] = React.useState<SortKey>('end_soonest');
-  const [selectedNatures, setSelectedNatures] = React.useState<Set<string>>(new Set());
-
-  // Pre-compute nature for every row once per data-load. Used both by the
-  // multi-select catalog (with counts) and by the row filter.
-  const natureByRow = React.useMemo(() => {
-    const out = new Map<unknown, string>();
-    for (const r of rows) out.set(r, natureOf(r));
-    return out;
-  }, [rows]);
-
-  const natureCatalog = React.useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const v of natureByRow.values()) counts.set(v, (counts.get(v) ?? 0) + 1);
-    return Array.from(counts.entries())
-      .map(([value, n]) => ({ value, n }))
-      .sort((a, b) => b.n - a.n);
-  }, [natureByRow]);
 
   const filtered = React.useMemo(() => {
     const q = search.trim().toLowerCase();
-    const hasNature = selectedNatures.size > 0;
 
     const base = rows.filter((r) => {
       if (q && !Object.values(r).some((v) => String(v ?? '').toLowerCase().includes(q))) return false;
-      if (hasNature && !selectedNatures.has(natureByRow.get(r) ?? '')) return false;
       return true;
     });
     // Sort returns a fresh array so we don't mutate the parent's reference.
     return [...base].sort((a, b) => compareRows(sortKey, a, b));
-  }, [rows, natureByRow, search, sortKey, selectedNatures]);
+  }, [rows, search, sortKey]);
 
   const sortLabel = BROWSER_SORT_OPTIONS.find((o) => o.value === sortKey)?.label ?? 'Sort';
-
-  function toggleNature(v: string) {
-    setSelectedNatures((prev) => {
-      const next = new Set(prev);
-      if (next.has(v)) next.delete(v); else next.add(v);
-      return next;
-    });
-  }
-  const natureLabel = selectedNatures.size === 0
-    ? 'All natures'
-    : selectedNatures.size === 1
-      ? Array.from(selectedNatures)[0]!
-      : `${selectedNatures.size} selected`;
 
   return (
     <Card>
@@ -1004,70 +965,6 @@ function AwardBrowser({
         </div>
 
         <div className="flex items-end gap-3">
-          {/* Nature of work — multi-select */}
-          <div className="min-w-[12rem]">
-            <Label>Nature of work</Label>
-            <DropdownMenu.Root>
-              <DropdownMenu.Trigger asChild>
-                <button
-                  type="button"
-                  className={`flex h-10 w-full items-center gap-2 rounded-md border bg-brand-teal-deep/60 px-3 text-sm transition-colors hover:bg-brand-teal-soft/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-sage/60 ${selectedNatures.size > 0 ? 'border-brand-vermilion/60' : 'border-border'}`}
-                >
-                  <Filter className={`h-4 w-4 ${selectedNatures.size > 0 ? 'text-brand-vermilion-soft' : 'text-brand-sage'}`} />
-                  <span className="flex-1 truncate text-left">{natureLabel}</span>
-                  <ChevronDown className="h-3.5 w-3.5 text-muted-soft" />
-                </button>
-              </DropdownMenu.Trigger>
-              <DropdownMenu.Portal>
-                <DropdownMenu.Content
-                  align="start"
-                  sideOffset={6}
-                  className="z-50 min-w-[20rem] rounded-xl border border-border bg-brand-teal-deep/95 p-1 shadow-glass-lg backdrop-blur-xl"
-                >
-                  {natureCatalog.length === 0 ? (
-                    <div className="px-3 py-2 text-xs italic text-muted-soft">No natures in this set.</div>
-                  ) : (
-                    <>
-                      <div className="flex items-center justify-between px-3 py-2">
-                        <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand-sage">
-                          {selectedNatures.size} selected
-                        </span>
-                        {selectedNatures.size > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => setSelectedNatures(new Set())}
-                            className="rounded-md border border-border px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-muted-soft transition-colors hover:border-brand-vermilion hover:text-brand-vermilion-soft"
-                          >
-                            Clear
-                          </button>
-                        )}
-                      </div>
-                      <DropdownMenu.Separator className="mx-2 my-1 h-px bg-border" />
-                      {natureCatalog.map((n) => {
-                        const checked = selectedNatures.has(n.value);
-                        return (
-                          <DropdownMenu.CheckboxItem
-                            key={n.value}
-                            checked={checked}
-                            onCheckedChange={() => toggleNature(n.value)}
-                            onSelect={(e) => e.preventDefault()}
-                            className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-sm outline-none data-[highlighted]:bg-brand-teal-soft/30"
-                          >
-                            <span className={`flex h-4 w-4 items-center justify-center rounded border ${checked ? 'border-brand-vermilion bg-brand-vermilion' : 'border-border'}`}>
-                              {checked && <Check className="h-3 w-3 text-white" />}
-                            </span>
-                            <span className="flex-1">{n.value}</span>
-                            <span className="font-mono text-[10px] text-muted-soft">{fmtInt(n.n)}</span>
-                          </DropdownMenu.CheckboxItem>
-                        );
-                      })}
-                    </>
-                  )}
-                </DropdownMenu.Content>
-              </DropdownMenu.Portal>
-            </DropdownMenu.Root>
-          </div>
-
           {/* Sort By */}
           <div className="min-w-[14rem]">
             <Label>Sort by</Label>
