@@ -1,0 +1,25 @@
+[Unit]
+Description=Awards Pipeline — description + mod_history enrichment
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=awards
+Group=awards
+WorkingDirectory=/opt/awards-pipeline/sidecar-oracle
+EnvironmentFile=/opt/awards-pipeline/sidecar-oracle/.env
+ExecStart=/usr/bin/node /opt/awards-pipeline/sidecar-oracle/enrich-descriptions.mjs
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=awards-enrich-descriptions
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/awards-pipeline/sidecar-oracle
+# Lighter than the full ingest — pure description+transactions fetches
+# with a small per-batch payload. 384M is comfortable.
+MemoryMax=384M
+TimeoutStartSec=15min

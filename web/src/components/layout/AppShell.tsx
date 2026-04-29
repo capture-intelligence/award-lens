@@ -28,7 +28,14 @@ export function AppShell({
   }, [collapsed]);
 
   return (
-    <div className="flex min-h-screen flex-col">
+    // h-screen (not min-h-screen) locks the root to exactly the viewport
+    // height. With min-h-screen the root would grow with content, which
+    // sabotages the flex-1 chain inside Analytics — children get the
+    // grown-out height as their flex basis and end up shorter than viewport.
+    // overflow-hidden here keeps stray content from forcing root taller;
+    // <main> below carries its own overflow-y-auto so any page taller than
+    // viewport (Settings, etc.) can still scroll inside the main column.
+    <div className="flex h-screen flex-col overflow-hidden">
       <Topbar />
       <div className="flex flex-1 min-h-0">
         <Sidebar
@@ -36,7 +43,7 @@ export function AppShell({
           collapsed={collapsed}
           onToggle={() => setCollapsed((v) => !v)}
         />
-        <main className="flex flex-1 min-h-0 flex-col overflow-x-hidden">
+        <main className="flex flex-1 min-h-0 flex-col overflow-x-hidden overflow-y-auto">
           {/* Inner content column is a flex container so any page that
               opts in (Analytics) can have its tab panels grow to fill the
               full remaining viewport height. The min-h-0 on <main> is

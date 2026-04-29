@@ -119,7 +119,7 @@ jobs:
             done
             sudo systemctl daemon-reload
             # Re-enable any timer we just refreshed (idempotent)
-            for u in awards-sidecar awards-trigger awards-grants awards-reconcile awards-exclusions; do
+            for u in awards-sidecar awards-trigger awards-grants awards-reconcile awards-exclusions awards-enrich-descriptions; do
               if sudo systemctl list-unit-files --no-legend "$u.timer" | grep -q .; then
                 sudo systemctl enable --now "$u.timer" >/dev/null 2>&1 || true
               fi

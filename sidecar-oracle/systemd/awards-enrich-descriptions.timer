@@ -1,0 +1,15 @@
+[Unit]
+Description=Periodic description + mod_history enrichment
+Requires=awards-enrich-descriptions.service
+
+[Timer]
+# Every 6 hours. Picks up newly-ingested awards from awards-sidecar runs
+# and refreshes any rows older than ENRICH_MAX_AGE_DAYS (default 90).
+OnBootSec=15min
+OnUnitInactiveSec=6h
+RandomizedDelaySec=15min
+Persistent=true
+Unit=awards-enrich-descriptions.service
+
+[Install]
+WantedBy=timers.target

@@ -164,7 +164,11 @@ export function buildSpendTree(
     const days       = Number(row.days_to_contract_end);
     const piid       = String(row.award_piid ?? '').trim();
     const vendor     = String(row.vendor_name ?? '—');
-    const description= String(row.description ?? '(no description)').trim();
+    // Prefer the longer description from /awards/{id}/ when the sidecar has
+    // already pulled it; fall back to the truncated /search row otherwise.
+    const descLong   = String(row.description_long ?? '').trim();
+    const descShort  = String(row.description ?? '').trim();
+    const description= (descLong.length > descShort.length ? descLong : descShort) || '(no description)';
     const popEnd     = String(row.pop_end_date ?? '').slice(0, 10);
     const naicsDesc  = String(row.naics_description ?? '').trim();
 

@@ -202,6 +202,8 @@ app.get('/explore', async (c) => {
       a.parent_piid,
       a.award_type,
       a.description,
+      a.description_long,
+      a.mod_history,
       a.base_value,
       a.current_value,
       a.obligated_amount,
@@ -952,6 +954,69 @@ app.post('/sidecar/awards/with-office', async (c) => {
     for (const row of r.results) seen.push(row.external_id);
   }
   return c.json({ external_ids: seen });
+});
+
+// ---------- Description enrichment (Phase 1) -------------------------------
+//
+// The Oracle VM sidecar pulls richer `description_long` and `mod_history`
+// from USAspending's /awards/{id}/ + /awards/transactions/ endpoints.
+// This pair of routes feeds it work and accepts the results.
+//
+// GET /sidecar/awards/needing-description-enrich?limit=100&max_age_days=90
+//   Returns awards where description_enriched_at is NULL or older than
+//   max_age_days. Sidecar uses generated_internal_id to call USAspending.
+//
+// POST /sidecar/awards/description-enrich
+//   Body: { updates: [{ award_id, description_long?, mod_history? }, …] }
+//   Updates each award row and stamps description_enriched_at = now.
+app.get('/sidecar/awards/needing-description-enrich', async (c) => {
+  const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
+  const limit = Math.max(1, Math.min(Number(c.req.query('limit') ?? 100), 500));
+  const maxAgeDays = Math.max(1, Number(c.req.query('max_age_days') ?? 90));
+  const cutoffMs = Date.now() - maxAgeDays * 86_400_000;
+  const r = await c.env.DB.prepare(`
+    SELECT a.award_id, m.external_id AS generated_internal_id
+    FROM award a
+    JOIN external_id_mapping m
+      ON m.internal_id  = a.award_id
+     AND m.source_id    = 'usaspending'
+     AND m.entity_type  = 'award'
+    WHERE a.description_enriched_at IS NULL
+       OR a.description_enriched_at < ?
+    ORDER BY a.description_enriched_at ASC NULLS FIRST, a.award_id ASC
+    LIMIT ?
+  `).bind(cutoffMs, limit).all<{ award_id: number; generated_internal_id: string }>();
+  return c.json({ count: r.results.length, results: r.results });
+});
+
+app.post('/sidecar/awards/description-enrich', async (c) => {
+  const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
+  const body = await c.req.json().catch(() => null) as {
+    updates?: Array<{
+      award_id: number;
+      description_long?: string | null;
+      mod_history?: string | null;
+    }>;
+  } | null;
+  const updates = (body?.updates ?? []).filter((u) => Number.isInteger(u?.award_id));
+  if (updates.length === 0) return c.json({ count: 0 });
+
+  // Cap stored size per row so a runaway long contract can't blow up D1.
+  // 64 KB per column is plenty — most descriptions are 200-1000 bytes,
+  // mod histories 2-10 KB even on heavily modified contracts.
+  const cap = (s: string | null | undefined, max = 65_536): string | null => {
+    if (s == null) return null;
+    return s.length > max ? s.slice(0, max - 1) + '…' : s;
+  };
+
+  const now = Date.now();
+  const stmts = updates.map((u) =>
+    c.env.DB.prepare(
+      'UPDATE award SET description_long = ?, mod_history = ?, description_enriched_at = ? WHERE award_id = ?',
+    ).bind(cap(u.description_long ?? null), cap(u.mod_history ?? null), now, u.award_id),
+  );
+  await c.env.DB.batch(stmts);
+  return c.json({ count: updates.length });
 });
 
 // ---------- Import: USAspending awards (called by VM sidecar, per view) ----------

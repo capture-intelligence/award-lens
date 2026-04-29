@@ -56,7 +56,11 @@ function Header({
   onClose: () => void;
 }) {
   const piid = String(award.award_piid ?? '—');
-  const desc = String(award.description ?? '(no description)');
+  // Prefer the longer description from /awards/{id}/ when the sidecar has
+  // already pulled it; the truncated /search row is a fallback.
+  const descLong  = String(award.description_long ?? '').trim();
+  const descShort = String(award.description      ?? '').trim();
+  const desc = (descLong.length > descShort.length ? descLong : descShort) || '(no description)';
   const value = Number(award.current_value ?? 0);
   const usaspendingUrl = piid !== '—'
     ? `https://www.usaspending.gov/search/?keywords[]=${encodeURIComponent(piid)}`
@@ -188,12 +192,44 @@ function Body({ award }: { award: Record<string, unknown> }) {
     },
   ];
 
+  const modHistory = String(award.mod_history ?? '').trim();
+
   return (
     <div className="flex-1 overflow-y-auto px-6 py-5">
       {sections.map((s) => (
         <SectionBlock key={s.title} {...s} />
       ))}
+      {modHistory && <ModHistoryBlock raw={modHistory} />}
     </div>
+  );
+}
+
+function ModHistoryBlock({ raw }: { raw: string }) {
+  // mod_history is sidecar-built: each entry on its own line, separator
+  // line `---` between entries. Render as a chronological narrative with
+  // visible separators.
+  const entries = raw
+    .split(/\n---\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (entries.length === 0) return null;
+  return (
+    <section className="mb-6">
+      <div className="mb-3 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-brand-sage">
+        <FileText className="h-3 w-3" />
+        Modification history <span className="text-muted-soft">({entries.length})</span>
+      </div>
+      <ol className="space-y-2">
+        {entries.map((line, i) => (
+          <li
+            key={`${i}-${line.slice(0, 32)}`}
+            className="rounded-lg border border-border/50 bg-brand-teal-deep/30 px-3 py-2 text-xs leading-relaxed text-foreground/90 whitespace-pre-line"
+          >
+            {line}
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 
