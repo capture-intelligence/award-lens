@@ -126,19 +126,34 @@ app.get('/health', async (c) => {
 app.get('/centers', async (c) => {
   const agency = c.req.query('awarding_agency')?.trim();
   if (!agency) return c.json({ error: 'awarding_agency_required' }, 400);
+  // Per-award resolution mirrors /explore decorate(): overrides win, otherwise
+  // the federal-account priority window. The CTE produces exactly one
+  // (award_id, center_code, center_name) row per award; the outer query then
+  // groups by center to build the picker catalog.
   const r = await c.env.DB.prepare(`
-    WITH ranked AS (
-      SELECT afa.award_id, cc.center_code, cc.center_name,
-             ROW_NUMBER() OVER (PARTITION BY afa.award_id ORDER BY cc.priority ASC) AS rn
-      FROM award_federal_account afa
-      JOIN cdc_center cc   ON cc.federal_account_code = afa.federal_account_code
-      JOIN award a         ON a.award_id              = afa.award_id
-      JOIN organization o  ON o.org_id                = a.awarding_org_id
-      WHERE o.canonical_name = ?
+    WITH primary_resolution AS (
+      SELECT award_id, center_code, center_name FROM (
+        SELECT afa.award_id, cc.center_code, cc.center_name,
+               ROW_NUMBER() OVER (PARTITION BY afa.award_id ORDER BY cc.priority ASC) AS rn
+        FROM award_federal_account afa
+        JOIN cdc_center cc ON cc.federal_account_code = afa.federal_account_code
+      ) WHERE rn = 1
+    ),
+    final_resolution AS (
+      SELECT a.award_id,
+             COALESCE(cco.center_code, p.center_code) AS center_code,
+             COALESCE(cco.center_name, p.center_name) AS center_name
+      FROM award a
+      LEFT JOIN cdc_center_override cco ON cco.award_piid = a.award_piid
+      LEFT JOIN primary_resolution  p   ON p.award_id     = a.award_id
+      WHERE COALESCE(cco.center_code, p.center_code) IS NOT NULL
     )
-    SELECT center_code AS code, MAX(center_name) AS name, COUNT(*) AS n
-    FROM ranked WHERE rn = 1
-    GROUP BY center_code
+    SELECT fr.center_code AS code, MAX(fr.center_name) AS name, COUNT(*) AS n
+    FROM final_resolution fr
+    JOIN award a        ON a.award_id   = fr.award_id
+    JOIN organization o ON o.org_id     = a.awarding_org_id
+    WHERE o.canonical_name = ?
+    GROUP BY fr.center_code
     ORDER BY n DESC
   `).bind(agency).all<{ code: string; name: string; n: number }>();
   return c.json({ count: r.results.length, results: r.results });
@@ -252,6 +267,19 @@ app.get('/explore', async (c) => {
     ]),
   );
 
+  // Per-PIID overrides — beat the federal-account lookup. Used for awards
+  // whose priority tie-break or sub-center disambiguation is wrong (e.g.
+  // NHANES contracts inside 075-0959, which houses both NCHS and CSELS).
+  const overrideRows = await c.env.DB.prepare(
+    'SELECT award_piid, center_code, center_name FROM cdc_center_override',
+  ).all<{ award_piid: string; center_code: string; center_name: string }>();
+  const overrideMap = new Map<string, { code: string; name: string }>(
+    overrideRows.results.map((r) => [
+      r.award_piid,
+      { code: r.center_code, name: r.center_name },
+    ]),
+  );
+
   const lookupCenterDb = (codeJoined: string | null | undefined) => {
     if (!codeJoined) {
       // No funding rows captured for this award yet.
@@ -283,7 +311,13 @@ app.get('/explore', async (c) => {
 
   // Post-process each row to attach derived fields (CDC center). Same shape
   // for every code path so the frontend / pivot table sees consistent columns.
+  // PIID overrides beat federal-account lookup.
   const decorate = (rows: Record<string, unknown>[]) => rows.map((row) => {
+    const piid = String(row.award_piid ?? '').trim();
+    const override = piid ? overrideMap.get(piid) : null;
+    if (override) {
+      return { ...row, center_code: override.code, center_name: override.name };
+    }
     const center = lookupCenterDb(row.federal_account_codes as string | undefined);
     return { ...row, center_code: center.code, center_name: center.name };
   });
@@ -322,17 +356,27 @@ app.get('/explore', async (c) => {
       params.push(awardingAgency);
     }
     if (centerCode) {
-      // Pre-filter at the SQL level via the same lowest-priority window
-      // the worker's decorate() uses — avoids over-fetching.
+      // Pre-filter at the SQL level. Mirrors decorate(): overrides beat
+      // the lowest-priority federal-account lookup. Awards covered by an
+      // override are excluded from the federal-account branch so an
+      // override pointing at a different center doesn't double-route.
       where.push(`a.award_id IN (
+        SELECT a2.award_id FROM award a2
+        JOIN cdc_center_override cco ON cco.award_piid = a2.award_piid
+        WHERE cco.center_code = ?
+        UNION
         SELECT award_id FROM (
           SELECT afa.award_id, cc.center_code,
                  ROW_NUMBER() OVER (PARTITION BY afa.award_id ORDER BY cc.priority ASC) AS rn
           FROM award_federal_account afa
           JOIN cdc_center cc ON cc.federal_account_code = afa.federal_account_code
+          WHERE afa.award_id NOT IN (
+            SELECT a3.award_id FROM award a3
+            JOIN cdc_center_override cco2 ON cco2.award_piid = a3.award_piid
+          )
         ) WHERE rn = 1 AND center_code = ?
       )`);
-      params.push(centerCode);
+      params.push(centerCode, centerCode);
     }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const r = await c.env.DB.prepare(`
