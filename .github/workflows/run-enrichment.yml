@@ -1,24 +1,28 @@
 name: Run description enrichment
 
-# Manual trigger only — fires the awards-enrich-descriptions.service on the
-# Oracle VM. Use mode=incremental for a single batch of ~50 awards (default,
-# matches the systemd timer behaviour) or mode=backfill to loop until every
-# row is enriched.
+# Manual trigger. Modes:
+#   incremental — one batch via the systemd service (synchronous, ≤15 min)
+#   backfill    — kick off a long-running detached run on the VM, return immediately
+#   status      — peek at progress of a detached backfill (read log + ps)
+#   stop        — kill any running backfill on the VM
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'incremental (one timer-style run) or backfill (loop until empty)'
+        description: 'incremental | backfill (detached) | status | stop'
         required: false
         default: 'incremental'
         type: choice
         options:
           - incremental
           - backfill
+          - status
+          - stop
 
 jobs:
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Configure SSH
@@ -27,34 +31,128 @@ jobs:
           echo "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "${{ secrets.VM_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          # Keep the SSH connection alive during quieter remote operations.
+          # 30s heartbeat × max 10 missed = 5 min tolerance for any silence.
+          cat >> ~/.ssh/config <<CFG
+          Host *
+            ServerAliveInterval 30
+            ServerAliveCountMax 10
+            TCPKeepAlive yes
+          CFG
 
       - name: Run enrichment
         env:
           MODE: ${{ inputs.mode }}
         run: |
-          ssh -i ~/.ssh/id_ed25519 ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} bash <<EOF
-            set -e
-            echo "=== mode: $MODE ==="
-            echo "=== service status before ==="
-            sudo systemctl status awards-enrich-descriptions.service --no-pager -n 5 || true
-            sudo systemctl list-timers awards-enrich-descriptions.timer --no-pager || true
+          SSH="ssh -i ~/.ssh/id_ed25519 ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}"
 
-            if [ "$MODE" = "backfill" ]; then
-              echo "=== backfill starting (loops until empty) ==="
-              # Run as awards user with the systemd EnvironmentFile loaded.
-              sudo -u awards bash -c 'set -a; source /opt/awards-pipeline/sidecar-oracle/.env; set +a; node /opt/awards-pipeline/sidecar-oracle/enrich-descriptions.mjs --backfill' 2>&1 | tail -200
-            else
-              echo "=== firing one service run ==="
-              sudo systemctl start awards-enrich-descriptions.service
-              # Wait for completion and stream its journal
-              sleep 3
-              sudo journalctl -u awards-enrich-descriptions.service --no-pager -n 200 --since "2 minutes ago"
-              # If still running, follow until exit
-              while sudo systemctl is-active --quiet awards-enrich-descriptions.service; do
-                sleep 5
-                echo "  ...still running"
-              done
-              echo "=== final status ==="
-              sudo systemctl status awards-enrich-descriptions.service --no-pager -n 10 || true
-            fi
+          # Files we use on the VM for backfill orchestration.
+          LOG=/tmp/awards-enrich-backfill.log
+          PIDFILE=/tmp/awards-enrich-backfill.pid
+
+          case "$MODE" in
+            backfill)
+              # Detached run. We start the script in the background, capture its
+              # PID, dump output to a logfile, and return immediately. The SSH
+              # session can close — the process keeps going under nohup.
+              $SSH bash <<EOF
+                set -e
+                echo "=== detaching backfill on VM ==="
+                # If a prior backfill is still alive, refuse to start a second.
+                if [ -f $PIDFILE ] && kill -0 \$(cat $PIDFILE) 2>/dev/null; then
+                  echo "ERROR: backfill PID \$(cat $PIDFILE) is already running. Use mode=stop first."
+                  exit 1
+                fi
+                # Truncate the log so 'status' shows the new run cleanly.
+                sudo truncate -s 0 $LOG 2>/dev/null || sudo rm -f $LOG
+                sudo touch $LOG
+                sudo chown awards:awards $LOG
+                # Detach with nohup + setsid + closed stdin so SSH disconnect
+                # doesn't propagate SIGHUP. PID lands in PIDFILE.
+                sudo -u awards bash -c "
+                  set -a; source /opt/awards-pipeline/sidecar-oracle/.env; set +a
+                  nohup setsid node /opt/awards-pipeline/sidecar-oracle/enrich-descriptions.mjs --backfill \
+                    >> $LOG 2>&1 < /dev/null &
+                  echo \\\$! > $PIDFILE
+                "
+                sleep 2
+                echo "=== started PID \$(cat $PIDFILE) — log at $LOG ==="
+                ps -fp \$(cat $PIDFILE) || true
+                echo
+                echo "=== first 30s of progress ==="
+                # Tail with a hard timeout so this step exits even if the
+                # script is silent. The script keeps running on the VM.
+                timeout 30 tail -f $LOG || true
+                echo
+                echo "=== detached. Re-run this workflow with mode=status to check progress. ==="
           EOF
+              ;;
+
+            status)
+              $SSH bash <<EOF
+                set -e
+                echo "=== process ==="
+                if [ -f $PIDFILE ] && kill -0 \$(cat $PIDFILE) 2>/dev/null; then
+                  echo "RUNNING (PID \$(cat $PIDFILE))"
+                  ps -fp \$(cat $PIDFILE) || true
+                else
+                  echo "NOT RUNNING"
+                fi
+                echo
+                echo "=== systemd timer ==="
+                sudo systemctl list-timers awards-enrich-descriptions.timer --no-pager 2>/dev/null || true
+                echo
+                echo "=== log tail (last 200 lines) ==="
+                if [ -f $LOG ]; then
+                  sudo tail -n 200 $LOG
+                else
+                  echo "no log yet at $LOG"
+                fi
+          EOF
+              ;;
+
+            stop)
+              $SSH bash <<EOF
+                set -e
+                if [ -f $PIDFILE ] && kill -0 \$(cat $PIDFILE) 2>/dev/null; then
+                  PID=\$(cat $PIDFILE)
+                  echo "Killing backfill PID \$PID"
+                  sudo kill -- -\$PID 2>/dev/null || sudo kill \$PID 2>/dev/null || true
+                  sleep 2
+                  if kill -0 \$PID 2>/dev/null; then
+                    echo "Force killing"
+                    sudo kill -9 \$PID 2>/dev/null || true
+                  fi
+                  rm -f $PIDFILE
+                  echo "Stopped."
+                else
+                  echo "Nothing running."
+                fi
+          EOF
+              ;;
+
+            incremental|*)
+              # One systemd-driven batch. Synchronous because each batch is
+              # bounded (~50 awards, < 2 min on a healthy USAspending day).
+              $SSH bash <<EOF
+                set -e
+                echo "=== firing one service run ==="
+                sudo systemctl status awards-enrich-descriptions.service --no-pager -n 3 || true
+                sudo systemctl start awards-enrich-descriptions.service
+                # Stream the journal as it produces output. journalctl -f
+                # keeps SSH active so no broken-pipe risk.
+                sleep 2
+                sudo journalctl -u awards-enrich-descriptions.service \
+                  --no-pager --since "2 minutes ago" -f &
+                JPID=\$!
+                # Wait for the unit to become inactive.
+                while sudo systemctl is-active --quiet awards-enrich-descriptions.service; do
+                  sleep 5
+                done
+                kill \$JPID 2>/dev/null || true
+                echo
+                echo "=== final status ==="
+                sudo systemctl status awards-enrich-descriptions.service --no-pager -n 10 || true
+          EOF
+              ;;
+          esac
