@@ -318,16 +318,16 @@ export function AnalyticsPage() {
           </div>
         </Card>
       ) : (
-        <Tabs.Root defaultValue="pivot" className="flex flex-col gap-4">
+        <Tabs.Root defaultValue="tree" className="flex flex-col gap-4">
           <Tabs.List
             aria-label="Analytics views"
             className="inline-flex w-fit items-center gap-1 rounded-xl border border-border bg-brand-teal-deep/40 p-1 backdrop-blur-md"
           >
             <Tabs.Trigger
-              value="pivot"
+              value="tree"
               className="rounded-lg px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-muted-soft transition-colors hover:text-foreground data-[state=active]:bg-brand-vermilion data-[state=active]:text-white data-[state=active]:shadow-sm"
             >
-              Pivot
+              Tree
             </Tabs.Trigger>
             <Tabs.Trigger
               value="summary"
@@ -336,10 +336,10 @@ export function AnalyticsPage() {
               Summary <span className="ml-1 text-[10px] opacity-80">({fmtInt(filteredRows.length)})</span>
             </Tabs.Trigger>
             <Tabs.Trigger
-              value="tree"
+              value="pivot"
               className="rounded-lg px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-muted-soft transition-colors hover:text-foreground data-[state=active]:bg-brand-vermilion data-[state=active]:text-white data-[state=active]:shadow-sm"
             >
-              Tree
+              Pivot Table
             </Tabs.Trigger>
           </Tabs.List>
 
@@ -923,6 +923,16 @@ function compareRows(key: SortKey, a: Record<string, unknown>, b: Record<string,
   }
 }
 
+function natureOf(row: Record<string, unknown>): string {
+  return natureOfWork({
+    description:        (row.description       ?? '') as string,
+    psc_description:    (row.psc_description   ?? '') as string,
+    psc_code:           (row.psc_code          ?? '') as string,
+    naics_description:  (row.naics_description ?? '') as string,
+    naics_code:         (row.naics_code        ?? '') as string,
+  });
+}
+
 function AwardBrowser({
   rows, onSelect,
 }: {
@@ -930,21 +940,55 @@ function AwardBrowser({
   onSelect: (a: Record<string, unknown>) => void;
 }) {
   // Value + date filters now live in the topbar (agency-context); rows
-  // arriving here are already filtered. Search + sort stay local — they're
-  // specific to scrolling this list.
+  // arriving here are already filtered. Search + sort + nature-of-work
+  // stay local — they're specific to scrolling this list.
   const [search, setSearch] = React.useState('');
   const [sortKey, setSortKey] = React.useState<SortKey>('end_soonest');
+  const [selectedNatures, setSelectedNatures] = React.useState<Set<string>>(new Set());
+
+  // Pre-compute nature for every row once per data-load. Used both by the
+  // multi-select catalog (with counts) and by the row filter.
+  const natureByRow = React.useMemo(() => {
+    const out = new Map<unknown, string>();
+    for (const r of rows) out.set(r, natureOf(r));
+    return out;
+  }, [rows]);
+
+  const natureCatalog = React.useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const v of natureByRow.values()) counts.set(v, (counts.get(v) ?? 0) + 1);
+    return Array.from(counts.entries())
+      .map(([value, n]) => ({ value, n }))
+      .sort((a, b) => b.n - a.n);
+  }, [natureByRow]);
 
   const filtered = React.useMemo(() => {
     const q = search.trim().toLowerCase();
-    const base = q
-      ? rows.filter((r) => Object.values(r).some((v) => String(v ?? '').toLowerCase().includes(q)))
-      : rows;
+    const hasNature = selectedNatures.size > 0;
+
+    const base = rows.filter((r) => {
+      if (q && !Object.values(r).some((v) => String(v ?? '').toLowerCase().includes(q))) return false;
+      if (hasNature && !selectedNatures.has(natureByRow.get(r) ?? '')) return false;
+      return true;
+    });
     // Sort returns a fresh array so we don't mutate the parent's reference.
     return [...base].sort((a, b) => compareRows(sortKey, a, b));
-  }, [rows, search, sortKey]);
+  }, [rows, natureByRow, search, sortKey, selectedNatures]);
 
   const sortLabel = BROWSER_SORT_OPTIONS.find((o) => o.value === sortKey)?.label ?? 'Sort';
+
+  function toggleNature(v: string) {
+    setSelectedNatures((prev) => {
+      const next = new Set(prev);
+      if (next.has(v)) next.delete(v); else next.add(v);
+      return next;
+    });
+  }
+  const natureLabel = selectedNatures.size === 0
+    ? 'All natures'
+    : selectedNatures.size === 1
+      ? Array.from(selectedNatures)[0]!
+      : `${selectedNatures.size} selected`;
 
   return (
     <Card>
@@ -960,6 +1004,70 @@ function AwardBrowser({
         </div>
 
         <div className="flex items-end gap-3">
+          {/* Nature of work — multi-select */}
+          <div className="min-w-[12rem]">
+            <Label>Nature of work</Label>
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <button
+                  type="button"
+                  className={`flex h-10 w-full items-center gap-2 rounded-md border bg-brand-teal-deep/60 px-3 text-sm transition-colors hover:bg-brand-teal-soft/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-sage/60 ${selectedNatures.size > 0 ? 'border-brand-vermilion/60' : 'border-border'}`}
+                >
+                  <Filter className={`h-4 w-4 ${selectedNatures.size > 0 ? 'text-brand-vermilion-soft' : 'text-brand-sage'}`} />
+                  <span className="flex-1 truncate text-left">{natureLabel}</span>
+                  <ChevronDown className="h-3.5 w-3.5 text-muted-soft" />
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content
+                  align="start"
+                  sideOffset={6}
+                  className="z-50 min-w-[20rem] rounded-xl border border-border bg-brand-teal-deep/95 p-1 shadow-glass-lg backdrop-blur-xl"
+                >
+                  {natureCatalog.length === 0 ? (
+                    <div className="px-3 py-2 text-xs italic text-muted-soft">No natures in this set.</div>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between px-3 py-2">
+                        <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand-sage">
+                          {selectedNatures.size} selected
+                        </span>
+                        {selectedNatures.size > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedNatures(new Set())}
+                            className="rounded-md border border-border px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-muted-soft transition-colors hover:border-brand-vermilion hover:text-brand-vermilion-soft"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                      <DropdownMenu.Separator className="mx-2 my-1 h-px bg-border" />
+                      {natureCatalog.map((n) => {
+                        const checked = selectedNatures.has(n.value);
+                        return (
+                          <DropdownMenu.CheckboxItem
+                            key={n.value}
+                            checked={checked}
+                            onCheckedChange={() => toggleNature(n.value)}
+                            onSelect={(e) => e.preventDefault()}
+                            className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-sm outline-none data-[highlighted]:bg-brand-teal-soft/30"
+                          >
+                            <span className={`flex h-4 w-4 items-center justify-center rounded border ${checked ? 'border-brand-vermilion bg-brand-vermilion' : 'border-border'}`}>
+                              {checked && <Check className="h-3 w-3 text-white" />}
+                            </span>
+                            <span className="flex-1">{n.value}</span>
+                            <span className="font-mono text-[10px] text-muted-soft">{fmtInt(n.n)}</span>
+                          </DropdownMenu.CheckboxItem>
+                        );
+                      })}
+                    </>
+                  )}
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+          </div>
+
           {/* Sort By */}
           <div className="min-w-[14rem]">
             <Label>Sort by</Label>

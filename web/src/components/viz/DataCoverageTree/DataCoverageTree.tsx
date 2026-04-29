@@ -281,7 +281,10 @@ export default function DataCoverageTree({
         measure.remove();
 
         lines.forEach((line, i) => {
-          const text = nodeGroup
+          // Text outline (paint-order stroke) intentionally omitted — the
+          // light highlight read as visual noise against the new lighter
+          // canvas. Plain fill on the cream-bg holds enough contrast.
+          nodeGroup
             .append('text')
             .attr('y', labelY + i * (currentFontSize + 2))
             .attr('text-anchor', 'middle')
@@ -291,12 +294,6 @@ export default function DataCoverageTree({
             .attr('fill', cfg.textColor)
             .style('pointer-events', 'none')
             .text(line);
-          text
-            .style('paint-order', 'stroke')
-            .style('stroke', cfg.textOutlineColor)
-            .style('stroke-width', isMobile ? cfg.textOutlineWidthMobile : cfg.textOutlineWidthDesktop)
-            .style('stroke-linecap', 'round')
-            .style('stroke-linejoin', 'round');
         });
       });
 
@@ -341,7 +338,8 @@ export default function DataCoverageTree({
           className="data-coverage-tree__tooltip"
           style={{
             left: `${tooltip.x}px`,
-            top: `${tooltip.y - 10}px`,
+            // Tooltip rendered close to the node — small 4px gap (was 10px).
+            top: `${tooltip.y - 4}px`,
             transform: 'translate(-50%, -100%)',
           }}
         >
