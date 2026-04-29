@@ -176,7 +176,9 @@ async function fetchPage(filterBlock, page, attempt = 1) {
       signal: AbortSignal.timeout(60_000),
     });
     if (!res.ok) throw new Error(`USAspending ${res.status}: ${(await res.text()).slice(0, 300)}`);
-    return res.json();
+    // Await inside the try so JSON-parse failures hit our catch (otherwise
+    // the rejected Promise escapes uncaught and crashes the run).
+    return await res.json();
   } catch (err) {
     if (attempt >= 4) throw err;
     const delay = Math.min(2000 * Math.pow(2, attempt - 1), 20_000);
@@ -199,7 +201,7 @@ async function postPage(viewId, runId, pageData, finalize, metadata) {
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  return res.json();
+  return await res.json();
 }
 
 // ─── Per-award detail enrichment (office data) ────────────────────────────
@@ -246,7 +248,7 @@ async function fetchAwardDetail(generatedInternalId, attempt = 1) {
     );
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`detail ${res.status}`);
-    return res.json();
+    return await res.json();
   } catch (err) {
     if (attempt >= 3) {
       log('warn', 'detail fetch giving up', { id: generatedInternalId, error: String(err).slice(0, 120) });

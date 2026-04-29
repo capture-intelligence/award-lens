@@ -19,7 +19,9 @@ ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 ReadWritePaths=/opt/awards-pipeline/sidecar-oracle
-# Tight cap — this poller almost always exits in <1s when no requests are due.
-# Active ingestion shells out to ingest-usaspending.mjs which has its own caps.
-MemoryMax=256M
+# MemoryMax is a cgroup limit shared with child processes (the spawned
+# ingest-usaspending.mjs). Per-award detail enrichment for broader views
+# (e.g. CDC subtier-only ~1500 awards) presses past 256M when caches are
+# cold. 768M leaves headroom on the Always-Free 1G VM.
+MemoryMax=768M
 TimeoutStartSec=20min

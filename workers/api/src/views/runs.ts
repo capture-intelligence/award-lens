@@ -13,7 +13,9 @@
 import { Hono, type Context } from 'hono';
 import { nowIso, requireAdmin, type AuthVars } from '../auth/session.js';
 
-export const MAX_ATTEMPTS = 5;
+// 8 attempts: each retry's enrichment cache hits make later attempts faster,
+// so even cold-cache broadened pulls (~1500 awards) can finish within budget.
+export const MAX_ATTEMPTS = 8;
 export const FETCH_LIMIT = 5;       // max pending rows the sidecar picks per poll
 
 export interface RunsEnv {

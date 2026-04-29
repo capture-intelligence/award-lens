@@ -19,6 +19,8 @@ ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 ReadWritePaths=/opt/awards-pipeline/sidecar-oracle
-# Resource caps — this job is tiny
-MemoryMax=256M
+# Per-award detail enrichment can hold significant state (Promise.all over
+# concurrency=5 + JSON detail bodies + funding rows). 768M leaves headroom
+# on the Always-Free 1G VM; 256M wasn't enough for cold-cache CDC pulls.
+MemoryMax=768M
 TimeoutStartSec=20min
