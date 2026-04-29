@@ -57,18 +57,35 @@ export default function DataCoverageTree({
       .attr('height', containerHeight)
       .attr('viewBox', `0 0 ${containerWidth} ${containerHeight}`)
       .attr('preserveAspectRatio', 'xMidYMid meet')
-      .append('g')
-      .attr('transform', `translate(${containerWidth / 2}, 80)`);
+      .append('g');
+
+    // Initial centering transform — applied via zoom.transform below so the
+    // d3.zoom behaviour and the <g> element share a single coordinate system.
+    const initialTransform = d3.zoomIdentity.translate(containerWidth / 2, 80);
 
     const zoom = d3
       .zoom<SVGSVGElement, unknown>()
       .scaleExtent([cfg.zoomMin, cfg.zoomMax])
+      // Ignore pointerdown/click on a node — those should expand/collapse,
+      // not start a pan. (Without this filter, even 1–2px of movement during
+      // a click registers as a drag and snaps `g` back to zoomIdentity,
+      // sending the whole tree to the top-left corner.)
+      .filter((event) => {
+        if (!event) return true;
+        const target = event.target as Element | null;
+        if (target && target.closest && target.closest('.node')) return false;
+        return !event.ctrlKey && !event.button;
+      })
       .on('zoom', (event) => {
-        g.attr('transform', event.transform);
+        g.attr('transform', event.transform.toString());
         setTooltip({ visible: false, content: null, x: 0, y: 0 });
       });
 
     svg.call(zoom);
+    // Seed the zoom behaviour's internal transform to match the initial
+    // centering. This also applies the transform to `g`, replacing the
+    // explicit .attr('transform', ...) we used to set on creation.
+    svg.call(zoom.transform, initialTransform);
 
     const root = d3.hierarchy(data) as any;
     root.x0 = 0;
