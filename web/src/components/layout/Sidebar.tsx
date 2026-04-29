@@ -5,7 +5,6 @@ import {
   CalendarRange,
   History,
   Users,
-  Database,
   Inbox,
   ChevronsLeft,
   ChevronsRight,
@@ -43,9 +42,8 @@ const SECTIONS: NavSection[] = [
   {
     title: 'Admin',
     items: [
-      { to: '#/admin/users',           label: 'Users',           icon: Users,    adminOnly: true },
-      { to: '#/admin/views',           label: 'Views',           icon: Database, adminOnly: true },
-      { to: '#/admin/access-requests', label: 'Access requests', icon: Inbox,    adminOnly: true },
+      { to: '#/admin/users',           label: 'Users',           icon: Users, adminOnly: true },
+      { to: '#/admin/access-requests', label: 'Access requests', icon: Inbox, adminOnly: true },
     ],
   },
 ];
