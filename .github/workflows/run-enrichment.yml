@@ -1,0 +1,60 @@
+name: Run description enrichment
+
+# Manual trigger only — fires the awards-enrich-descriptions.service on the
+# Oracle VM. Use mode=incremental for a single batch of ~50 awards (default,
+# matches the systemd timer behaviour) or mode=backfill to loop until every
+# row is enriched.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'incremental (one timer-style run) or backfill (loop until empty)'
+        required: false
+        default: 'incremental'
+        type: choice
+        options:
+          - incremental
+          - backfill
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.VM_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Run enrichment
+        env:
+          MODE: ${{ inputs.mode }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} bash <<EOF
+            set -e
+            echo "=== mode: $MODE ==="
+            echo "=== service status before ==="
+            sudo systemctl status awards-enrich-descriptions.service --no-pager -n 5 || true
+            sudo systemctl list-timers awards-enrich-descriptions.timer --no-pager || true
+
+            if [ "$MODE" = "backfill" ]; then
+              echo "=== backfill starting (loops until empty) ==="
+              # Run as awards user with the systemd EnvironmentFile loaded.
+              sudo -u awards bash -c 'set -a; source /opt/awards-pipeline/sidecar-oracle/.env; set +a; node /opt/awards-pipeline/sidecar-oracle/enrich-descriptions.mjs --backfill' 2>&1 | tail -200
+            else
+              echo "=== firing one service run ==="
+              sudo systemctl start awards-enrich-descriptions.service
+              # Wait for completion and stream its journal
+              sleep 3
+              sudo journalctl -u awards-enrich-descriptions.service --no-pager -n 200 --since "2 minutes ago"
+              # If still running, follow until exit
+              while sudo systemctl is-active --quiet awards-enrich-descriptions.service; do
+                sleep 5
+                echo "  ...still running"
+              done
+              echo "=== final status ==="
+              sudo systemctl status awards-enrich-descriptions.service --no-pager -n 10 || true
+            fi
+          EOF
