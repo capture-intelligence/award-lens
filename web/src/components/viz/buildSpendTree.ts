@@ -207,7 +207,9 @@ export function buildSpendTree(
       const activityNodes: DataElement[] = Array.from(center.activities.entries())
         .sort((a, b) => b[1].total - a[1].total)
         .map(([paKey, bucket]) => ({
-          title: bucket.pa_name ?? (paKey === '__no_activity__' ? '(no program activity)' : paKey),
+          // Money prefix mirrors the leaf-label format ($X.XXM - name) so
+          // every non-root node reads "size - what" left to right.
+          title: `${fmtMoneyShort(bucket.total)} - ${bucket.pa_name ?? (paKey === '__no_activity__' ? '(no program activity)' : paKey)}`,
           category: 'group',
           description: `${fmtMoneyShort(bucket.total)} · ${bucket.leaves.length} contract${bucket.leaves.length === 1 ? '' : 's'}`,
           htmlDescription:
@@ -223,9 +225,9 @@ export function buildSpendTree(
       const accountList = Array.from(center.accountCodes).filter(Boolean).sort();
 
       return {
-        // Short label — center code (NCHHSTP / NCEZID / …). Long centre name
-        // moves into the tooltip so the canvas stays compact.
-        title: center.code,
+        // Money prefix + short center code (NCHHSTP / NCEZID / …). Long
+        // centre name moves into the tooltip so the canvas stays compact.
+        title: `${fmtMoneyShort(center.total)} - ${center.code}`,
         category: 'group',
         description: `${fmtMoneyShort(center.total)} · ${center.count} contract${center.count === 1 ? '' : 's'}`,
         htmlDescription:
