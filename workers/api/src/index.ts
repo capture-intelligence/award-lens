@@ -21,6 +21,7 @@ import {
   listSidecarRunRequests, claimSidecarRunRequest, completeSidecarRunRequest,
 } from './views/runs.js';
 import { adminDiscoverOfficesApp } from './admin/discover-offices.js';
+import { adminFiltersApp, adminFilterAccessApp, userFiltersApp } from './filters/routes.js';
 import { resolveScope, composeAwardQuery } from './views/scope.js';
 
 export interface Env extends AuthEnv {
@@ -54,6 +55,11 @@ app.route('/admin', adminUsersApp);
 app.route('/admin/views', adminViewsApp);
 app.route('/admin/access-requests', adminAccessApp);
 app.route('/views', userViewsApp);
+// Filter model — PR1 dual-write. Lives parallel to /views; PR2 cuts UI over
+// and PR3 retires the view tables.
+app.route('/admin/filters', adminFiltersApp);
+app.route('/admin/filter-access-requests', adminFilterAccessApp);
+app.route('/filters', userFiltersApp);
 // Per-view "Run now" — admin trigger + recent-runs status (sub-app
 // composes onto /admin/views/:viewId/{run,runs}).
 app.route('/admin/views', adminRunsApp);
@@ -124,12 +130,14 @@ app.get('/explore', async (c) => {
   const scope = await resolveScope(c);
   if (scope.kind === 'error') return scope.response;
   if (scope.kind === 'unscoped') {
-    return c.json({ error: 'view_id_required' }, 400);
+    return c.json({ error: 'view_id_or_filter_id_required' }, 400);
   }
 
   const limit = Math.min(Number(c.req.query('limit') ?? 5000), 10000);
 
-  const r = await c.env.DB.prepare(`
+  // Same column list for both scope kinds — only the FROM/JOIN/WHERE shape
+  // differs depending on whether the caller passed view_id or filter_id.
+  const SELECT_COLUMNS = `
     SELECT
       a.award_id,
       a.award_piid,
@@ -160,9 +168,6 @@ app.get('/explore', async (c) => {
       apl.state            AS pop_state,
       apl.city             AS pop_city,
       apl.congressional_district AS pop_district,
-      -- Federal account rollup. GROUP_CONCAT preserves all (account, activity)
-      -- pairs the award draws funding from; the client splits on '|' and uses
-      -- the first entry for tree placement, all entries for tooltips.
       (SELECT GROUP_CONCAT(federal_account_code, '|')
        FROM   award_federal_account WHERE award_id = a.award_id) AS federal_account_codes,
       (SELECT GROUP_CONCAT(IFNULL(federal_account_name, ''), '|')
@@ -180,23 +185,111 @@ app.get('/explore', async (c) => {
             AND (e.termination_date IS NULL OR date(e.termination_date) >= date('now'))
         ) THEN 1 ELSE 0
       END AS is_excluded
-    FROM view_award vw
-    INNER JOIN award a            ON a.award_id      = vw.award_id
+  `;
+  const COMMON_JOINS = `
     LEFT  JOIN vendor v           ON v.vendor_id     = a.vendor_id
     LEFT  JOIN organization o     ON o.org_id        = a.awarding_org_id
     LEFT  JOIN naics_code n       ON n.naics_code    = a.naics_code
     LEFT  JOIN psc_code p         ON p.psc_code      = a.psc_code
     LEFT  JOIN award_performance_location apl ON apl.award_id = a.award_id
-    WHERE vw.view_id = ?
-    ORDER BY a.pop_end_date DESC NULLS LAST, a.current_value DESC
-    LIMIT ?
-  `).bind(scope.view.view_id, limit).all();
+  `;
+  const ORDER_TAIL = `ORDER BY a.pop_end_date DESC NULLS LAST, a.current_value DESC LIMIT ?`;
+
+  if (scope.kind === 'scoped') {
+    // Legacy view: M2M-tagged via view_award.
+    const r = await c.env.DB.prepare(`
+      ${SELECT_COLUMNS}
+      FROM view_award vw
+      INNER JOIN award a ON a.award_id = vw.award_id
+      ${COMMON_JOINS}
+      WHERE vw.view_id = ?
+      ${ORDER_TAIL}
+    `).bind(scope.view.view_id, limit).all();
+    return c.json({
+      view_id:   scope.view.view_id,
+      view_name: scope.view.name,
+      count:     r.results.length,
+      results:   r.results,
+    });
+  }
+
+  // New filter path: query-time only. Subtier + federal_account expansion,
+  // plus the soft filter clauses (NAICS / PSC / value range / end-date window).
+  const f = scope.filter.filters;
+  const where: string[] = [];
+  const params: unknown[] = [];
+
+  // Awarding-agency narrowing: subtier_agency_name is the canonical CDC label.
+  let agencyJoin = '';
+  if (f.subtier_agency_name) {
+    agencyJoin = ` INNER JOIN organization scope_o ON scope_o.org_id = a.awarding_org_id AND scope_o.canonical_name = ?`;
+    params.push(f.subtier_agency_name);
+  } else if (f.toptier_agency_name) {
+    agencyJoin = ` INNER JOIN organization scope_o ON scope_o.org_id = a.awarding_org_id AND scope_o.short_name = ?`;
+    params.push(f.toptier_agency_name);
+  }
+
+  if (f.federal_account_codes?.length) {
+    const placeholders = f.federal_account_codes.map(() => '?').join(',');
+    where.push(`a.award_id IN (
+      SELECT DISTINCT award_id FROM award_federal_account
+      WHERE federal_account_code IN (${placeholders})
+    )`);
+    params.push(...f.federal_account_codes);
+  }
+  if (f.naics_codes?.length) {
+    const ph = f.naics_codes.map(() => '?').join(',');
+    where.push(`a.naics_code IN (${ph})`);
+    params.push(...f.naics_codes);
+  }
+  if (f.psc_codes?.length) {
+    const ph = f.psc_codes.map(() => '?').join(',');
+    where.push(`a.psc_code IN (${ph})`);
+    params.push(...f.psc_codes);
+  }
+  if (typeof f.min_value === 'number') {
+    where.push('a.current_value >= ?');
+    params.push(f.min_value);
+  }
+  if (typeof f.max_value === 'number') {
+    where.push('a.current_value <= ?');
+    params.push(f.max_value);
+  }
+  const hasLB = typeof f.lookback_months === 'number' && f.lookback_months > 0;
+  const hasFW = typeof f.forward_months  === 'number' && f.forward_months  > 0;
+  if (hasLB && hasFW) {
+    where.push(`(a.pop_end_date IS NULL OR date(a.pop_end_date) BETWEEN date('now', ?) AND date('now', ?))`);
+    params.push(`-${f.lookback_months} months`, `+${f.forward_months} months`);
+  } else if (hasLB) {
+    where.push(`(a.pop_end_date IS NULL OR date(a.pop_end_date) >= date('now', ?))`);
+    params.push(`-${f.lookback_months} months`);
+  } else if (hasFW) {
+    where.push(`(a.pop_end_date IS NULL OR date(a.pop_end_date) <= date('now', ?))`);
+    params.push(`+${f.forward_months} months`);
+  }
+  // pop_states (place-of-performance) — only relevant when set; joins APL.
+  if (f.pop_states?.length) {
+    const ph = f.pop_states.map(() => '?').join(',');
+    where.push(`apl.state IN (${ph})`);
+    params.push(...f.pop_states);
+  }
+
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const r = await c.env.DB.prepare(`
+    ${SELECT_COLUMNS}
+    FROM award a
+    ${agencyJoin}
+    ${COMMON_JOINS}
+    ${whereSql}
+    ${ORDER_TAIL}
+  `).bind(...params, limit).all();
 
   return c.json({
-    view_id:   scope.view.view_id,
-    view_name: scope.view.name,
-    count:     r.results.length,
-    results:   r.results,
+    filter_id:   scope.filter.filter_id,
+    view_id:     scope.filter.filter_id,    // legacy alias for the dashboard until PR2
+    view_name:   scope.filter.name,
+    count:       r.results.length,
+    results:     r.results,
   });
 });
 

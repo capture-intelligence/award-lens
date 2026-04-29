@@ -1,18 +1,18 @@
 /**
- * View-scope resolution for data endpoints.
+ * Scope resolution for data endpoints. Accepts EITHER:
+ *   ?view_id=…   — legacy. Joins view_award (M2M) and applies filter_json.
+ *   ?filter_id=… — new (PR1). No M2M join — filter_json expanded against the
+ *                  full warehouse at query time. Same access-control workflow.
  *
- * Every protected list endpoint takes a `?view_id=` query param. This helper
- * looks up the view (gated by access), and returns SQL fragments the caller
- * splices into queries against `award` / `v_award_current` / `v_vendor_rollup`.
- *
- * Policy:
- *   - Non-admin user MUST specify a view_id, AND must have a 'granted' row.
- *   - Admin: optional. Omit view_id to query unscoped (legacy behavior).
+ * Both branches enforce the same access policy (admin → all, regular user →
+ * must have a 'granted' row). PR2 will cut callers over to filter_id and
+ * retire the view branch.
  */
 
 import type { Context } from 'hono';
 import type { AppUser, AuthVars } from '../auth/session.js';
 import { loadAccessibleView } from './routes.js';
+import { loadAccessibleFilter } from '../filters/routes.js';
 import { buildAwardWhere, type ViewFilters } from './filters.js';
 
 export interface ViewScope {
@@ -21,9 +21,16 @@ export interface ViewScope {
   filters: ViewFilters;
 }
 
+export interface FilterScope {
+  filter_id: string;
+  name: string;
+  filters: ViewFilters;
+}
+
 export type ScopeResult =
-  | { kind: 'scoped'; view: ViewScope }
-  | { kind: 'unscoped' }              // admin without view_id
+  | { kind: 'scoped'; view: ViewScope }      // legacy: M2M-tagged
+  | { kind: 'filter'; filter: FilterScope }  // new: query-time expansion
+  | { kind: 'unscoped' }                     // admin without scope param
   | { kind: 'error'; response: Response };
 
 export async function resolveScope<B extends { DB: D1Database }>(
@@ -33,7 +40,15 @@ export async function resolveScope<B extends { DB: D1Database }>(
   if (!user) return { kind: 'error', response: c.json({ error: 'unauthenticated' }, 401) };
 
   const viewId = c.req.query('view_id');
+  const filterId = c.req.query('filter_id');
   const isAdmin = user.role === 'admin';
+
+  // filter_id takes precedence when both are sent (forward-compat default).
+  if (filterId) {
+    const f = await loadAccessibleFilter(c.env.DB, filterId, user.user_id, isAdmin);
+    if (!f) return { kind: 'error', response: c.json({ error: 'filter_not_accessible' }, 403) };
+    return { kind: 'filter', filter: f };
+  }
 
   if (viewId) {
     const view = await loadAccessibleView(c.env.DB, viewId, user.user_id, isAdmin);
@@ -43,7 +58,7 @@ export async function resolveScope<B extends { DB: D1Database }>(
 
   if (isAdmin) return { kind: 'unscoped' };
 
-  return { kind: 'error', response: c.json({ error: 'view_id_required' }, 400) };
+  return { kind: 'error', response: c.json({ error: 'view_id_or_filter_id_required' }, 400) };
 }
 
 /**
@@ -73,6 +88,7 @@ export function composeAwardQuery(opts: {
   const where: string[] = [];
 
   if (opts.scope.kind === 'scoped') {
+    // Legacy view: M2M-tagged. Join view_award + apply soft filter clauses.
     sql += ' INNER JOIN view_award vw ON vw.award_id = va.award_id AND vw.view_id = ?';
     params.push(opts.scope.view.view_id);
 
@@ -80,6 +96,39 @@ export function composeAwardQuery(opts: {
     if (viewWhere) {
       where.push(viewWhere);
       params.push(...viewParams);
+    }
+  } else if (opts.scope.kind === 'filter') {
+    // New: query-time only. The full filter spec gets expanded into WHERE
+    // clauses (federal_account_codes, naics, psc, value-range, end-date
+    // window). Federal-account membership is enforced via subquery against
+    // award_federal_account, since it's an M2M relationship.
+    const f = opts.scope.filter.filters;
+
+    // Subtier-strict — narrow to the canonical agency before the federal-
+    // account join cuts further. Without this, an unscoped filter would let
+    // (e.g.) Medicaid co-funded contracts from non-CDC awarders sneak in.
+    if (f.subtier_agency_name) {
+      sql += ' INNER JOIN organization scope_o ON scope_o.org_id = va.awarding_org_id AND scope_o.canonical_name = ?';
+      params.push(f.subtier_agency_name);
+    } else if (f.toptier_agency_name) {
+      // Fall back to short_name match (USAspending adapter sets short_name=toptier).
+      sql += ' INNER JOIN organization scope_o ON scope_o.org_id = va.awarding_org_id AND scope_o.short_name = ?';
+      params.push(f.toptier_agency_name);
+    }
+
+    if (f.federal_account_codes?.length) {
+      const placeholders = f.federal_account_codes.map(() => '?').join(',');
+      where.push(`va.award_id IN (
+        SELECT DISTINCT award_id FROM award_federal_account
+        WHERE federal_account_code IN (${placeholders})
+      )`);
+      params.push(...f.federal_account_codes);
+    }
+
+    const { sql: softWhere, params: softParams } = buildAwardWhere(f);
+    if (softWhere) {
+      where.push(softWhere);
+      params.push(...softParams);
     }
   }
 
