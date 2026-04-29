@@ -129,9 +129,9 @@ app.get('/health', async (c) => {
 app.get('/explore', async (c) => {
   const scope = await resolveScope(c);
   if (scope.kind === 'error') return scope.response;
-  if (scope.kind === 'unscoped') {
-    return c.json({ error: 'view_id_or_filter_id_required' }, 400);
-  }
+  // Admin without filter_id is allowed — they see the full warehouse. Caller
+  // is already gated by resolveScope's admin check (only admins can hit the
+  // 'unscoped' branch).
 
   const limit = Math.min(Number(c.req.query('limit') ?? 5000), 10000);
 
@@ -208,6 +208,23 @@ app.get('/explore', async (c) => {
     return c.json({
       view_id:   scope.view.view_id,
       view_name: scope.view.name,
+      count:     r.results.length,
+      results:   r.results,
+    });
+  }
+
+  if (scope.kind === 'unscoped') {
+    // Admin browsing the entire warehouse — no filter applied. Bounded by
+    // limit (default 5000, max 10000) so the JSON payload stays sane.
+    const r = await c.env.DB.prepare(`
+      ${SELECT_COLUMNS}
+      FROM award a
+      ${COMMON_JOINS}
+      ${ORDER_TAIL}
+    `).bind(limit).all();
+    return c.json({
+      view_id:   null,
+      view_name: 'All data (admin)',
       count:     r.results.length,
       results:   r.results,
     });

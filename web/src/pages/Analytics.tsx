@@ -18,6 +18,7 @@ import { Badge } from '@/components/ui/Badge';
 import { TableSkeleton } from '@/components/ui/Skeleton';
 import { api, ApiError } from '@/lib/api';
 import { useViewQuery, useViews } from '@/lib/view-context';
+import { useAuth } from '@/lib/auth-context';
 import { NoViewSelected } from '@/components/ui/NoViewSelected';
 import { fmtInt, fmtMoney, fmtDate } from '@/lib/utils';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -171,18 +172,26 @@ interface ExploreResponse {
 export function AnalyticsPage() {
   const viewQuery = useViewQuery();
   const { active, loading: viewsLoading } = useViews();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [data,  setData]  = React.useState<ExploreResponse | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [reloadToken, setReloadToken] = React.useState(0);
   const [pivotState, setPivotState] = React.useState<any>(DEFAULT_PIVOT_STATE);
   const [selectedAward, setSelectedAward] = React.useState<Record<string, unknown> | null>(null);
 
+  // Admins can browse the full warehouse without picking a filter; everyone
+  // else has to wait for an active filter selection.
+  const canQuery = !viewsLoading && (!!active || isAdmin);
+
   React.useEffect(() => {
-    if (viewsLoading || !active) return;
+    if (!canQuery) return;
     let alive = true;
     setData(null); setError(null);
     (async () => {
       try {
+        // viewQuery is undefined when admin is unscoped — /explore handles
+        // that case by returning the full warehouse.
         const r = await api.get<ExploreResponse>('/explore', viewQuery);
         if (alive) setData(r);
       } catch (e) {
@@ -190,14 +199,14 @@ export function AnalyticsPage() {
       }
     })();
     return () => { alive = false; };
-  }, [viewsLoading, active, viewQuery?.filter_id, reloadToken]);
+  }, [canQuery, viewQuery?.filter_id, reloadToken]);
 
   const pivotData = React.useMemo(
     () => (data ? transformForPivot(data.results) : []),
     [data],
   );
 
-  if (!viewsLoading && !active) {
+  if (!viewsLoading && !active && !isAdmin) {
     return (
       <div className="space-y-6">
         <PageHeader
