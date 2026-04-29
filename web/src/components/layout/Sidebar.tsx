@@ -50,24 +50,19 @@ const SECTIONS: NavSection[] = [
   },
 ];
 
-const STORAGE_KEY = 'awardlens.sidebar.collapsed';
-
-function readCollapsed(): boolean {
-  if (typeof window === 'undefined') return false;
-  return localStorage.getItem(STORAGE_KEY) === '1';
-}
-
-export function Sidebar({ currentRoute }: { currentRoute: string }) {
+// Collapsed state is owned by AppShell — see AppShell.tsx — so the main
+// column can react and drop its max-width cap when the rail is hidden.
+export function Sidebar({
+  currentRoute,
+  collapsed,
+  onToggle,
+}: {
+  currentRoute: string;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
-  const [collapsed, setCollapsed] = React.useState<boolean>(readCollapsed);
-
-  // Persist + expose as a body class so other parts of the layout can react
-  // (the analytics canvas, for instance, gets ~190px more horizontal room).
-  React.useEffect(() => {
-    if (typeof window === 'undefined') return;
-    localStorage.setItem(STORAGE_KEY, collapsed ? '1' : '0');
-  }, [collapsed]);
 
   const visibleSections = SECTIONS
     .map((s) => ({ ...s, items: s.items.filter((i) => !i.adminOnly || isAdmin) }))
@@ -83,7 +78,7 @@ export function Sidebar({ currentRoute }: { currentRoute: string }) {
     >
       <button
         type="button"
-        onClick={() => setCollapsed((v) => !v)}
+        onClick={onToggle}
         aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         className="absolute -right-3 top-5 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-brand-teal-deep text-muted-soft shadow-sm transition-colors hover:border-brand-vermilion hover:text-brand-vermilion-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-sage/60"
