@@ -74,14 +74,19 @@ export default function DataCoverageTree({
     root.x0 = 0;
     root.y0 = 0;
 
-    // Start with root expanded, first level collapsed.
+    // Recursively collapse everything below root's direct children.
+    // Initial visible layer = root + its immediate children. Each subsequent
+    // click expands ONE more layer (per the user's "one click, one layer"
+    // rule), because every grandchild's own children sit in _children.
+    function collapseAll(node: any) {
+      if (node.children) {
+        node.children.forEach(collapseAll);
+        node._children = node.children;
+        node.children = null;
+      }
+    }
     if (root.children) {
-      root.children.forEach((child: any) => {
-        if (child.children) {
-          child._children = child.children;
-          child.children = null;
-        }
-      });
+      root.children.forEach(collapseAll);
     }
 
     const treeLayout = d3.tree<any>().nodeSize([nodeSpacingX, nodeSpacingY]);
@@ -340,9 +345,8 @@ export default function DataCoverageTree({
         <div
           className="data-coverage-tree__tooltip"
           style={{
-            // Anchored right at the node's right edge with a small 8px gap;
-            // vertical center matches the node center.
-            left: `${tooltip.x + 8}px`,
+            // Touches the node — 0px horizontal gap, vertically centered.
+            left: `${tooltip.x}px`,
             top: `${tooltip.y}px`,
             transform: 'translateY(-50%)',
           }}

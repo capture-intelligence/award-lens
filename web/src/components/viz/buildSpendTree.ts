@@ -139,10 +139,17 @@ export function buildSpendTree(
     center.count += 1;
     for (const t of tuples) center.accountCodes.add(t.account_code);
 
-    const paKey = primary?.pa_code ?? primary?.pa_name ?? '__no_activity__';
+    // Dedupe siblings by NAME (lowercased trim). The funding-tuple primary
+    // can vary per row when GROUP_CONCAT order differs across awards funded
+    // from multiple accounts, which previously produced two visually
+    // identical PA branches under the same center. Keying on the visible
+    // label collapses them into one.
+    const paName = primary?.pa_name?.trim() ?? '';
+    const paCode = primary?.pa_code?.trim() ?? '';
+    const paKey = paName ? paName.toLowerCase() : (paCode || '__no_activity__');
     let bucket = center.activities.get(paKey);
     if (!bucket) {
-      bucket = { leaves: [], total: 0, pa_name: primary?.pa_name ?? null };
+      bucket = { leaves: [], total: 0, pa_name: paName || (paCode ? `Program activity ${paCode}` : null) };
       center.activities.set(paKey, bucket);
     }
     bucket.total += value;
