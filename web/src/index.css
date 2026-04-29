@@ -583,22 +583,25 @@
   border-color: var(--al-border-strong) !important;
 }
 
-/* Field chips (the draggable labels) */
+/* Field chips (the draggable labels) — compact, with room for an absolute
+   X button (added at runtime by PivotShell for chips that have been placed
+   into a row/col/value zone). */
 .awardlens-pivot .pvtAttr {
   background: linear-gradient(180deg, var(--al-panel) 0%, #1f3e49 100%) !important;
   color: var(--al-text) !important;
   border: 1px solid var(--al-border) !important;
   border-radius: 8px !important;
-  padding: 5px 10px !important;
-  margin: 3px !important;
-  font-size: 12px !important;
+  padding: 3px 8px !important;
+  margin: 2px !important;
+  font-size: 11.5px !important;
   font-weight: 500 !important;
   cursor: grab !important;
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset !important;
   transition: transform 0.1s, border-color 0.12s, background 0.12s !important;
   display: inline-flex !important;
   align-items: center !important;
-  gap: 6px !important;
+  gap: 4px !important;
+  position: relative !important;
 }
 .awardlens-pivot .pvtAttr:hover {
   background: var(--al-panel-elevated) !important;
@@ -610,6 +613,42 @@
   cursor: grabbing !important;
   background: var(--al-accent-bg) !important;
   border-color: var(--al-accent) !important;
+}
+
+/* X button injected onto chips that have been placed in pvtRows / pvtCols /
+   pvtVals zones. PivotShell appends a <button class="pvtRemoveBtn"> at
+   runtime; CSS does the rest. */
+.awardlens-pivot .pvtRows .pvtAttr,
+.awardlens-pivot .pvtCols .pvtAttr,
+.awardlens-pivot .pvtVals .pvtAttr {
+  padding-right: 22px !important;
+}
+.awardlens-pivot .pvtRemoveBtn {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--al-border);
+  background: var(--al-panel-elevated);
+  color: var(--al-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  transition: color 0.12s, background 0.12s, border-color 0.12s, transform 0.12s;
+  z-index: 1;
+}
+.awardlens-pivot .pvtRemoveBtn:hover {
+  color: #FBE9D0;
+  background: var(--al-vermilion, #E64833);
+  border-color: var(--al-vermilion, #E64833);
+  transform: scale(1.15);
 }
 
 /* Filter trigger (the ▾ caret next to a chip) */
@@ -791,27 +830,29 @@
   color: var(--al-accent-soft) !important;
 }
 
-/* The pivot output table itself */
+/* The pivot output table itself — tightened for compactness so a wide
+   pivot fits on screen without wrapping every cell. */
 .awardlens-pivot table.pvtTable {
   border-collapse: separate !important;
   border-spacing: 0 !important;
   border: 1px solid var(--al-border) !important;
-  border-radius: 12px !important;
+  border-radius: 10px !important;
   overflow: hidden !important;
   background: var(--al-bg) !important;
   width: 100% !important;
-  font-size: 13px !important;
-  margin-top: 12px !important;
+  font-size: 11.5px !important;
+  margin-top: 8px !important;
 }
 
 .awardlens-pivot table.pvtTable th,
 .awardlens-pivot table.pvtTable td {
   border: 1px solid var(--al-border) !important;
-  padding: 8px 12px !important;
+  padding: 4px 8px !important;
   font-variant-numeric: tabular-nums lining-nums !important;
   color: var(--al-text) !important;
   background: var(--al-bg-row) !important;
   transition: background 0.1s !important;
+  line-height: 1.35 !important;
 }
 
 /* Header rows (pvtAxisLabel = "Awarding agency" type label,
@@ -839,7 +880,7 @@
 .awardlens-pivot table.pvtTable th.pvtRowLabel {
   text-transform: none !important;
   text-align: left !important;
-  font-size: 12.5px !important;
+  font-size: 11.5px !important;
   font-weight: 600 !important;
   color: var(--al-text) !important;
   background: linear-gradient(90deg, var(--al-panel) 0%, var(--al-bg-elevated) 100%) !important;
@@ -848,7 +889,7 @@
 
 .awardlens-pivot table.pvtTable th.pvtColLabel {
   text-align: center !important;
-  font-size: 12px !important;
+  font-size: 11px !important;
   font-weight: 600 !important;
   color: var(--al-text) !important;
 }

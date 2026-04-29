@@ -36,10 +36,15 @@ export function AppShell({
           collapsed={collapsed}
           onToggle={() => setCollapsed((v) => !v)}
         />
-        <main className="flex-1 overflow-x-hidden">
+        <main className="flex flex-1 min-h-0 flex-col overflow-x-hidden">
+          {/* Inner content column is a flex container so any page that
+              opts in (Analytics) can have its tab panels grow to fill the
+              full remaining viewport height. The min-h-0 on <main> is
+              what lets that flex chain actually shrink — without it,
+              flex-1 children would push past the viewport instead. */}
           <div
             className={cn(
-              'mx-auto px-6 py-8 transition-[max-width] duration-200 ease-out',
+              'mx-auto flex h-full w-full flex-col px-6 py-8 transition-[max-width] duration-200 ease-out',
               collapsed ? 'max-w-none' : 'max-w-[1400px]',
             )}
           >

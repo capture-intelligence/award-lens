@@ -1,7 +1,7 @@
 import * as React from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Slider from '@radix-ui/react-slider';
-import { ChevronsUpDown, CalendarRange, X } from 'lucide-react';
+import { ChevronsUpDown, CalendarRange, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { useAgency, epochDayToDate } from '@/lib/agency-context';
 import { cn } from '@/lib/utils';
 
@@ -66,33 +66,44 @@ export function DateFilter() {
             </span>
           </div>
 
-          <Slider.Root
-            className="relative flex h-7 w-full touch-none select-none items-center"
-            min={dateBounds.min}
-            max={dateBounds.max}
-            step={1}
-            value={display}
-            onValueChange={(v) => {
-              if (v.length !== 2) return;
-              setPending([v[0]!, v[1]!]);
-            }}
-            onValueCommit={(v) => {
-              if (v.length !== 2) return;
-              if (v[0] === dateBounds.min && v[1] === dateBounds.max) {
-                setDateRange(null);
-              } else {
-                setDateRange([v[0]!, v[1]!]);
-              }
-              setPending(null);
-            }}
-            aria-label="Contract end date range"
-          >
-            <Slider.Track className="relative h-1 grow rounded-full bg-brand-teal-deep">
-              <Slider.Range className="absolute h-full rounded-full bg-brand-vermilion" />
-            </Slider.Track>
-            <Slider.Thumb className="block h-3.5 w-3.5 rounded-full border border-brand-vermilion bg-brand-cream shadow-md outline-none transition-transform hover:scale-110 focus:ring-2 focus:ring-brand-vermilion/50" />
-            <Slider.Thumb className="block h-3.5 w-3.5 rounded-full border border-brand-vermilion bg-brand-cream shadow-md outline-none transition-transform hover:scale-110 focus:ring-2 focus:ring-brand-vermilion/50" />
-          </Slider.Root>
+          {/* Chevrons flank the track to signal "this is a sliding range".
+              They sit OUTSIDE the Slider.Root so they don't intercept pointer
+              events and never get dragged with the thumbs. */}
+          <div className="flex items-center gap-2">
+            <ChevronLeft  className="h-4 w-4 shrink-0 text-brand-sage/70" aria-hidden />
+            <Slider.Root
+              className="relative flex h-7 w-full grow touch-none select-none items-center"
+              min={dateBounds.min}
+              max={dateBounds.max}
+              step={1}
+              value={display}
+              onValueChange={(v) => {
+                if (v.length !== 2) return;
+                setPending([v[0]!, v[1]!]);
+              }}
+              onValueCommit={(v) => {
+                if (v.length !== 2) return;
+                if (v[0] === dateBounds.min && v[1] === dateBounds.max) {
+                  setDateRange(null);
+                } else {
+                  setDateRange([v[0]!, v[1]!]);
+                }
+                setPending(null);
+              }}
+              aria-label="Contract end date range"
+            >
+              {/* Track is taller (h-1.5) and dashed in the unfilled portions
+                  so the "slidable line" reads at a glance even when the
+                  range covers most of the available span. */}
+              <Slider.Track className="relative h-1.5 grow overflow-hidden rounded-full bg-brand-teal-deep ring-1 ring-inset ring-brand-sage/15">
+                <div className="pointer-events-none absolute inset-0 rounded-full bg-[linear-gradient(90deg,rgba(144,174,173,0.0)_0%,rgba(144,174,173,0.35)_50%,rgba(144,174,173,0.0)_100%)]" aria-hidden />
+                <Slider.Range className="absolute h-full rounded-full bg-brand-vermilion" />
+              </Slider.Track>
+              <Slider.Thumb className="block h-4 w-4 rounded-full border-2 border-brand-vermilion bg-brand-cream shadow-md outline-none transition-transform hover:scale-110 focus:ring-2 focus:ring-brand-vermilion/50" />
+              <Slider.Thumb className="block h-4 w-4 rounded-full border-2 border-brand-vermilion bg-brand-cream shadow-md outline-none transition-transform hover:scale-110 focus:ring-2 focus:ring-brand-vermilion/50" />
+            </Slider.Root>
+            <ChevronRight className="h-4 w-4 shrink-0 text-brand-sage/70" aria-hidden />
+          </div>
 
           <div className="mt-3 flex items-center justify-between text-[10px] text-muted-soft">
             <span>Range covers {epochDayToDate(dateBounds.min)} → {epochDayToDate(dateBounds.max)}</span>

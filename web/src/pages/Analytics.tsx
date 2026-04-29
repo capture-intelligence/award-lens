@@ -275,7 +275,7 @@ export function AnalyticsPage() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="flex flex-1 min-h-0 flex-col gap-5">
       {error && (
         <div className="rounded-xl border border-brand-vermilion/40 bg-brand-vermilion/15 px-4 py-3 text-sm text-brand-vermilion-soft">
           {error}
@@ -291,7 +291,7 @@ export function AnalyticsPage() {
           </div>
         </Card>
       ) : (
-        <Tabs.Root defaultValue="tree" className="flex flex-col gap-4">
+        <Tabs.Root defaultValue="tree" className="flex flex-1 min-h-0 flex-col gap-4">
           {/* Tabs + count + actions all share one row. The count sits between
               the view tabs and the Export/Reload cluster so a glance reads:
               "what view → how many awards in scope → what to do with them". */}
@@ -345,9 +345,16 @@ export function AnalyticsPage() {
             </div>
           </div>
 
+          {/* Each tab's content fills the remaining viewport height. The
+              inactive tabs are hidden via Radix's [hidden] state so only
+              the active panel participates in the flex column layout. */}
+
           {/* PIVOT TAB */}
-          <Tabs.Content value="pivot" className="focus:outline-none">
-            <Card>
+          <Tabs.Content
+            value="pivot"
+            className="flex-1 min-h-0 flex flex-col focus:outline-none data-[state=inactive]:hidden"
+          >
+            <Card className="flex flex-1 min-h-0 flex-col">
               <div className="border-b border-border bg-brand-teal-deep/40 px-5 py-3">
                 <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand-sage">
                   Pivot — drag any field
@@ -357,11 +364,10 @@ export function AnalyticsPage() {
                 </div>
               </div>
               <ErrorBoundary label="Pivot grid error">
-                {/* Outer p-4 holds the chrome; inner div is the horizontal-scroll
-                    container so wide pivots get a scrollbar instead of clipping.
-                    PivotShell injects inline styles on every <select> as a final
-                    cascade-proof guarantee that the cream-pill look applies. */}
-                <div className="p-4">
+                {/* Outer p-4 holds the chrome; inner div is the scroll
+                    container so wide/tall pivots scroll inside the card
+                    instead of pushing the page height. */}
+                <div className="flex-1 min-h-0 overflow-auto p-4">
                   <PivotShell
                     pivotData={pivotData}
                     pivotState={pivotState}
@@ -373,12 +379,18 @@ export function AnalyticsPage() {
           </Tabs.Content>
 
           {/* SUMMARY TAB */}
-          <Tabs.Content value="summary" className="focus:outline-none">
+          <Tabs.Content
+            value="summary"
+            className="flex-1 min-h-0 flex flex-col focus:outline-none data-[state=inactive]:hidden"
+          >
             <AwardBrowser rows={filteredRows} onSelect={setSelectedAward} />
           </Tabs.Content>
 
           {/* TREE TAB */}
-          <Tabs.Content value="tree" className="focus:outline-none">
+          <Tabs.Content
+            value="tree"
+            className="flex-1 min-h-0 flex flex-col focus:outline-none data-[state=inactive]:hidden"
+          >
             <SpendTreeTab
               rows={filteredRows}
               viewName={data.view_name}
@@ -694,6 +706,71 @@ function PivotShell({
     [],
   );
 
+  // ── Chip remove-button injection ──────────────────────────────────────
+  // react-pivottable doesn't ship an X-to-remove on placed chips, so we
+  // observe the rendered DOM and decorate any .pvtAttr that lives inside
+  // a pvtRows / pvtCols / pvtVals zone with a small remove button. The
+  // click handler reads the chip's text node (the field name) and strips
+  // it from the corresponding axis array in pivotState. Latest state is
+  // read via a ref so the closure doesn't go stale between observer ticks.
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const stateRef = React.useRef(pivotState);
+  const setStateRef = React.useRef(setPivotState);
+  React.useEffect(() => { stateRef.current = pivotState;       }, [pivotState]);
+  React.useEffect(() => { setStateRef.current = setPivotState; }, [setPivotState]);
+
+  React.useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    function fieldNameOf(chip: Element): string {
+      // The chip's text content includes a "▾" triangle and possibly a
+      // "(N)" filter-active indicator. Strip both for a clean field name.
+      let raw = chip.textContent ?? '';
+      raw = raw.replace(/▾/g, '').replace(/\s*\(\d+\)\s*$/, '').trim();
+      return raw;
+    }
+
+    function decorate() {
+      const zoneSelectors: Array<['rows' | 'cols' | 'vals', string]> = [
+        ['rows', '.pvtRows'],
+        ['cols', '.pvtCols'],
+        ['vals', '.pvtVals'],
+      ];
+      for (const [axis, sel] of zoneSelectors) {
+        container!.querySelectorAll(`${sel} .pvtAttr`).forEach((chip) => {
+          if (chip.querySelector('.pvtRemoveBtn')) return; // already decorated
+          const btn = document.createElement('button');
+          btn.className = 'pvtRemoveBtn';
+          btn.type = 'button';
+          btn.setAttribute('aria-label', 'Remove field from this axis');
+          btn.textContent = '×';
+          btn.addEventListener('mousedown', (e) => {
+            // Prevent pivottable from starting a drag from the X button.
+            e.stopPropagation();
+            e.preventDefault();
+          });
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            const name = fieldNameOf(chip);
+            if (!name) return;
+            const prev = stateRef.current ?? {};
+            const list: string[] = (prev[axis] as string[] | undefined) ?? [];
+            const next = { ...prev, [axis]: list.filter((f) => f !== name) };
+            setStateRef.current(next);
+          });
+          chip.appendChild(btn);
+        });
+      }
+    }
+
+    decorate();
+    const observer = new MutationObserver(decorate);
+    observer.observe(container, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+
   const rendererName  = pivotState.rendererName  ?? 'Table';
   const aggregatorName = pivotState.aggregatorName ?? 'Sum';
   const valueField    = pivotState.vals?.[0]      ?? 'Current value';
@@ -759,7 +836,7 @@ function PivotShell({
         />
       </div>
 
-      <div className="awardlens-pivot awardlens-pivot--scroll">
+      <div ref={containerRef} className="awardlens-pivot awardlens-pivot--scroll">
         <PivotTableUI
           data={pivotData}
           onChange={(s: any) => setPivotState(s)}
@@ -804,7 +881,7 @@ function SpendTreeTab({
   };
 
   return (
-    <Card>
+    <Card className="flex flex-1 min-h-0 flex-col">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4 border-b border-border bg-brand-teal-deep/40 px-5 py-3">
         <div>
@@ -847,8 +924,11 @@ function SpendTreeTab({
         </div>
       </div>
 
-      {/* Tree canvas */}
-      <div className="relative" style={{ height: 'calc(100vh - 320px)', minHeight: 560 }}>
+      {/* Tree canvas — flex-1 so the SVG container fills the rest of
+          the card; DataCoverageTree's useResizeObserver picks up the
+          new height on every layout. min-h-0 lets the flex chain
+          actually shrink below intrinsic content size. */}
+      <div className="relative flex-1 min-h-0">
         <ErrorBoundary label="Spend tree">
           <DataCoverageTree
             data={tree}
@@ -951,7 +1031,7 @@ function AwardBrowser({
   const sortLabel = BROWSER_SORT_OPTIONS.find((o) => o.value === sortKey)?.label ?? 'Sort';
 
   return (
-    <Card>
+    <Card className="flex flex-1 min-h-0 flex-col">
       <div className="flex flex-wrap items-end justify-between gap-4 border-b border-border bg-brand-teal-deep/40 px-5 py-3">
         <div>
           <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand-sage">
@@ -1027,7 +1107,7 @@ function AwardBrowser({
         </div>
       </div>
 
-      <div className="max-h-[640px] overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto">
         {filtered.length === 0 ? (
           <div className="px-6 py-12 text-center text-sm text-muted-soft italic">
             No matches.
