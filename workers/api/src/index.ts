@@ -196,26 +196,47 @@ app.get('/explore', async (c) => {
   `;
   const ORDER_TAIL = `ORDER BY a.pop_end_date DESC NULLS LAST, a.current_value DESC LIMIT ?`;
 
-  // Load center mapping from DB once per request. Falls back to the bundled
-  // TS map for codes the DB doesn't know about (defence in depth — ensures
-  // every row gets _some_ center assignment).
+  // Load center mapping from DB once per request. Multi-account contracts
+  // pick the funding account with the lowest `priority` value — i.e., the
+  // most CDC-specific one — so a contract co-funded from NCHHSTP (priority 1)
+  // and FDA (priority 8) tags as NCHHSTP, not FDA.
   const centerRows = await c.env.DB.prepare(
-    'SELECT federal_account_code, center_code, center_name FROM cdc_center',
-  ).all<{ federal_account_code: string; center_code: string; center_name: string }>();
-  const centerMap = new Map<string, { code: string; name: string }>(
-    centerRows.results.map((r) => [r.federal_account_code, { code: r.center_code, name: r.center_name }]),
+    'SELECT federal_account_code, center_code, center_name, priority FROM cdc_center',
+  ).all<{ federal_account_code: string; center_code: string; center_name: string; priority: number }>();
+  const centerMap = new Map<string, { code: string; name: string; priority: number }>(
+    centerRows.results.map((r) => [
+      r.federal_account_code,
+      { code: r.center_code, name: r.center_name, priority: r.priority ?? 100 },
+    ]),
   );
+
   const lookupCenterDb = (codeJoined: string | null | undefined) => {
     if (!codeJoined) {
       // No funding rows captured for this award yet.
       return { code: 'UNKNOWN', name: '(no funding data captured)' };
     }
-    const first = String(codeJoined).split('|')[0]?.trim();
-    if (!first) return { code: 'UNKNOWN', name: '(no funding data captured)' };
-    const hit = centerMap.get(first);
-    if (hit) return hit;
-    // Fall back to the static TS map for codes the seed missed, then to OTHER.
-    return resolveCenter(first);
+    const codes = String(codeJoined).split('|').map((s) => s.trim()).filter(Boolean);
+    if (codes.length === 0) return { code: 'UNKNOWN', name: '(no funding data captured)' };
+
+    // Pick the funding account with the lowest priority (most specific) — this
+    // is the trick that keeps NCHHSTP contracts tagged as NCHHSTP even when
+    // they're co-funded by FDA / NIH / CMS.
+    let best: { code: string; name: string; priority: number } | null = null;
+    for (const code of codes) {
+      const hit = centerMap.get(code);
+      if (!hit) continue;
+      if (!best || hit.priority < best.priority) best = hit;
+    }
+    if (best) return { code: best.code, name: best.name };
+
+    // None of this award's funding accounts are in the DB seed → fall back
+    // to the static TS map for any code, then to a labelled OTHER.
+    for (const code of codes) {
+      const tsHit = resolveCenter(code);
+      if (tsHit.code !== 'OTHER' && tsHit.code !== 'UNKNOWN') return tsHit;
+    }
+    // Truly unknown — surface the raw first code so it's debuggable.
+    return resolveCenter(codes[0]!);
   };
 
   // Post-process each row to attach derived fields (CDC center). Same shape
