@@ -16,6 +16,21 @@ const STORAGE_KEY        = 'awardlens.awarding_agency';
 const CENTER_STORAGE_KEY = 'awardlens.center_code';
 const DEFAULT_AGENCY     = 'Centers for Disease Control and Prevention';
 
+// Default filter window every time the scope (agency/center) resets.
+// Keeps the dashboard pointed at "active opportunities right now" rather
+// than the entire historical universe. Users can clear or widen.
+const DEFAULT_MIN_VALUE        = '4000000';
+const DEFAULT_LOOKBACK_DAYS    = 60;   // contract ended up to 60 days ago
+const DEFAULT_FORWARD_DAYS     = 180;  // contract ends within next 180 days
+
+function todayEpochDay(): number {
+  return Math.floor(Date.now() / 86400000);
+}
+function defaultDateRange(): [number, number] {
+  const today = todayEpochDay();
+  return [today - DEFAULT_LOOKBACK_DAYS, today + DEFAULT_FORWARD_DAYS];
+}
+
 export interface AwardingAgency {
   name: string;          // canonical_name in the organization table
   toptier: string | null;
@@ -200,18 +215,20 @@ export function AgencyProvider({ children }: { children: React.ReactNode }) {
   void user;
 
   // ─── Top-of-screen value & date filters ───
-  const [minValue, setMinValue] = React.useState('');
+  // Default to a "current opportunities" window: ≥$4M and contracts ending
+  // in [today − 60d, today + 180d]. User can clear or widen at any time;
+  // changing the scope (agency/center) re-applies these defaults.
+  const [minValue, setMinValue] = React.useState(DEFAULT_MIN_VALUE);
   const [maxValue, setMaxValue] = React.useState('');
-  const [dateRange, setDateRange]   = React.useState<[number, number] | null>(null);
+  const [dateRange, setDateRange]   = React.useState<[number, number] | null>(defaultDateRange());
   const [dateBounds, setDateBounds] = React.useState<{ min: number; max: number } | null>(null);
 
-  // Reset value & date filters whenever the scope changes (different agency
-  // or center should start fresh — a $4M filter on CDC means something
-  // different on NIH).
+  // Re-apply defaults whenever the scope changes (different agency or
+  // center starts fresh — keeps the "active opportunities" lens consistent).
   React.useEffect(() => {
-    setMinValue('');
+    setMinValue(DEFAULT_MIN_VALUE);
     setMaxValue('');
-    setDateRange(null);
+    setDateRange(defaultDateRange());
     setDateBounds(null);
   }, [active, activeCenter]);
 
