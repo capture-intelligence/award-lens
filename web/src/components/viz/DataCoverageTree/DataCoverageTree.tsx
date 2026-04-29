@@ -189,11 +189,14 @@ export default function DataCoverageTree({
           if (d.data.description || d.data.details || d.data.htmlDescription) {
             const circle = d3.select(this).select('circle').node() as SVGCircleElement;
             const r = circle.getBoundingClientRect();
+            // Anchor at the node's right edge, vertically centered. Tooltip
+            // CSS pulls it adjacent (translateY -50%) so the card sits
+            // right beside the circle.
             setTooltip({
               visible: true,
               content: d.data,
-              x: r.left + r.width / 2,
-              y: r.top,
+              x: r.right,
+              y: r.top + r.height / 2,
             });
           }
           d3.select(this).select('circle').transition().duration(cfg.hoverDuration).attr('r', nodeRadius * 1.3);
@@ -337,10 +340,11 @@ export default function DataCoverageTree({
         <div
           className="data-coverage-tree__tooltip"
           style={{
-            left: `${tooltip.x}px`,
-            // Tooltip rendered close to the node — small 4px gap (was 10px).
-            top: `${tooltip.y - 4}px`,
-            transform: 'translate(-50%, -100%)',
+            // Anchored right at the node's right edge with a small 8px gap;
+            // vertical center matches the node center.
+            left: `${tooltip.x + 8}px`,
+            top: `${tooltip.y}px`,
+            transform: 'translateY(-50%)',
           }}
         >
           <div className="data-coverage-tree__tooltip-title">{tooltip.content.title}</div>

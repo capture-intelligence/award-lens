@@ -2,13 +2,11 @@
   width: 100%;
   height: 100%;
   position: relative;
-  /* Lighter canvas — gives the dark teal nodes + cream tooltips contrast.
-     Subtle gradient so it doesn't read as a flat slab against the rest
-     of the dark dashboard chrome. */
-  background:
-    radial-gradient(ellipse at top, rgba(251, 233, 208, 0.10), transparent 60%),
-    linear-gradient(180deg, rgba(144, 174, 173, 0.14), rgba(144, 174, 173, 0.06));
-  border-radius: 14px;
+  /* Cream canvas — same tone as the tooltip so the visual stays cohesive
+     and the dark teal nodes pop hard. No rounded corners; the parent
+     Card already handles that and the inner svg should sit flush. */
+  background: #FBE9D0;
+  border-radius: 0;
   padding: 20px;
   overflow: visible;
   display: flex;
@@ -42,11 +40,11 @@
 @keyframes tooltipFadeIn {
   from {
     opacity: 0;
-    transform: translate(-50%, -96%);
+    transform: translate(-4px, -50%);
   }
   to {
     opacity: 1;
-    transform: translate(-50%, -100%);
+    transform: translate(0, -50%);
   }
 }
 
