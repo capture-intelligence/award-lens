@@ -43,6 +43,26 @@ interface AgencyContextValue {
   activeCenter: string | null;
   centersLoading: boolean;
   setActiveCenter: (code: string | null) => void;
+
+  /**
+   * Top-of-screen value filter (current_value $ range).
+   * Either bound is optional; null/empty means "no constraint".
+   * State lives here so the filter applies uniformly to Pivot / Summary / Tree.
+   */
+  minValue: string;
+  maxValue: string;
+  setMinValue: (v: string) => void;
+  setMaxValue: (v: string) => void;
+
+  /**
+   * Top-of-screen date filter (pop_end_date range as epoch-day pair).
+   * null = no filter. dateBounds carries the data's natural extent so the
+   * slider knows where to anchor.
+   */
+  dateRange: [number, number] | null;
+  setDateRange: (r: [number, number] | null) => void;
+  dateBounds: { min: number; max: number } | null;
+  setDateBounds: (b: { min: number; max: number } | null) => void;
 }
 
 const AgencyContext = React.createContext<AgencyContextValue | undefined>(undefined);
@@ -179,9 +199,27 @@ export function AgencyProvider({ children }: { children: React.ReactNode }) {
   // via useAuth for future role-based agency restrictions.
   void user;
 
+  // ─── Top-of-screen value & date filters ───
+  const [minValue, setMinValue] = React.useState('');
+  const [maxValue, setMaxValue] = React.useState('');
+  const [dateRange, setDateRange]   = React.useState<[number, number] | null>(null);
+  const [dateBounds, setDateBounds] = React.useState<{ min: number; max: number } | null>(null);
+
+  // Reset value & date filters whenever the scope changes (different agency
+  // or center should start fresh — a $4M filter on CDC means something
+  // different on NIH).
+  React.useEffect(() => {
+    setMinValue('');
+    setMaxValue('');
+    setDateRange(null);
+    setDateBounds(null);
+  }, [active, activeCenter]);
+
   const value: AgencyContextValue = {
     agencies, active, loading, error, setActive, refresh,
     centers, activeCenter, centersLoading, setActiveCenter,
+    minValue, maxValue, setMinValue, setMaxValue,
+    dateRange, setDateRange, dateBounds, setDateBounds,
   };
 
   return <AgencyContext.Provider value={value}>{children}</AgencyContext.Provider>;
@@ -191,6 +229,17 @@ export function useAgency(): AgencyContextValue {
   const v = React.useContext(AgencyContext);
   if (!v) throw new Error('useAgency must be used inside <AgencyProvider>');
   return v;
+}
+
+/** Epoch-day helpers for the date slider — exported so consumers stay consistent. */
+export function dateToEpochDay(s: string | null | undefined): number | null {
+  if (!s) return null;
+  const d = new Date(String(s).slice(0, 10));
+  if (Number.isNaN(d.getTime())) return null;
+  return Math.floor(d.getTime() / 86400000);
+}
+export function epochDayToDate(d: number): string {
+  return new Date(d * 86400000).toISOString().slice(0, 10);
 }
 
 /**

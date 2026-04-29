@@ -8,6 +8,8 @@ import { useAuth } from '@/lib/auth-context';
 import { initials } from '@/lib/utils';
 import { AgencySelector } from './AgencySelector';
 import { CenterSelector } from './CenterSelector';
+import { ValueFilter } from './ValueFilter';
+import { DateFilter } from './DateFilter';
 
 export function Topbar() {
   const { user, signOut } = useAuth();
@@ -20,6 +22,8 @@ export function Topbar() {
         <div className="hidden flex-1 items-center gap-2 md:flex md:justify-start md:pl-4">
           <AgencySelector />
           <CenterSelector />
+          <ValueFilter />
+          <DateFilter />
         </div>
 
         <div className="ml-auto flex items-center gap-2">
