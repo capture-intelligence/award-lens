@@ -31,6 +31,7 @@ const API_PREFIXES = [
   '/views',
   '/filters',
   '/awarding-agencies',
+  '/centers',
   '/explore',
 ] as const;
 

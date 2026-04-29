@@ -117,6 +117,33 @@ app.get('/health', async (c) => {
   });
 });
 
+// ---------- Centers for a given awarding agency ----------
+//
+// Returns the distinct CDC/HHS centers observed for awards awarded by the
+// specified agency, ranked by award count. Center is derived per-award via
+// the lowest-priority funding account (the same logic /explore's decorate()
+// uses), so the breakdown matches what the user sees on the data tabs.
+app.get('/centers', async (c) => {
+  const agency = c.req.query('awarding_agency')?.trim();
+  if (!agency) return c.json({ error: 'awarding_agency_required' }, 400);
+  const r = await c.env.DB.prepare(`
+    WITH ranked AS (
+      SELECT afa.award_id, cc.center_code, cc.center_name,
+             ROW_NUMBER() OVER (PARTITION BY afa.award_id ORDER BY cc.priority ASC) AS rn
+      FROM award_federal_account afa
+      JOIN cdc_center cc   ON cc.federal_account_code = afa.federal_account_code
+      JOIN award a         ON a.award_id              = afa.award_id
+      JOIN organization o  ON o.org_id                = a.awarding_org_id
+      WHERE o.canonical_name = ?
+    )
+    SELECT center_code AS code, MAX(center_name) AS name, COUNT(*) AS n
+    FROM ranked WHERE rn = 1
+    GROUP BY center_code
+    ORDER BY n DESC
+  `).bind(agency).all<{ code: string; name: string; n: number }>();
+  return c.json({ count: r.results.length, results: r.results });
+});
+
 // ---------- Awarding-agency catalog (top-of-screen scope picker) ----------
 //
 // Returns the distinct awarding agencies present in the warehouse, with
@@ -282,14 +309,30 @@ app.get('/explore', async (c) => {
   if (scope.kind === 'unscoped') {
     // Admin browsing the warehouse — top-of-screen agency picker narrows
     // the scope. The picker defaults to CDC client-side; pass nothing to
-    // get the full warehouse.
+    // get the full warehouse. Optional `center_code` further narrows to
+    // the awards whose lowest-priority funding account belongs to that
+    // center (matches the post-decorate center_code field exactly).
     const awardingAgency = c.req.query('awarding_agency')?.trim();
+    const centerCode = c.req.query('center_code')?.trim();
     const where: string[] = [];
     const params: unknown[] = [];
     let agencyJoin = '';
     if (awardingAgency) {
       agencyJoin = ` INNER JOIN organization scope_o ON scope_o.org_id = a.awarding_org_id AND scope_o.canonical_name = ?`;
       params.push(awardingAgency);
+    }
+    if (centerCode) {
+      // Pre-filter at the SQL level via the same lowest-priority window
+      // the worker's decorate() uses — avoids over-fetching.
+      where.push(`a.award_id IN (
+        SELECT award_id FROM (
+          SELECT afa.award_id, cc.center_code,
+                 ROW_NUMBER() OVER (PARTITION BY afa.award_id ORDER BY cc.priority ASC) AS rn
+          FROM award_federal_account afa
+          JOIN cdc_center cc ON cc.federal_account_code = afa.federal_account_code
+        ) WHERE rn = 1 AND center_code = ?
+      )`);
+      params.push(centerCode);
     }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const r = await c.env.DB.prepare(`
@@ -300,9 +343,12 @@ app.get('/explore', async (c) => {
       ${whereSql}
       ${ORDER_TAIL}
     `).bind(...params, limit).all<Record<string, unknown>>();
+    const label = awardingAgency
+      ? (centerCode ? `${awardingAgency} · ${centerCode}` : `${awardingAgency} (all data)`)
+      : 'All data (admin)';
     return c.json({
       view_id:   null,
-      view_name: awardingAgency ? `${awardingAgency} (all data)` : 'All data (admin)',
+      view_name: label,
       count:     r.results.length,
       results:   decorate(r.results),
     });

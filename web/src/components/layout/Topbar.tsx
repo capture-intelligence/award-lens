@@ -7,6 +7,7 @@ import { Logo, Wordmark } from '@/components/ui/Logo';
 import { useAuth } from '@/lib/auth-context';
 import { initials } from '@/lib/utils';
 import { AgencySelector } from './AgencySelector';
+import { CenterSelector } from './CenterSelector';
 
 export function Topbar() {
   const { user, signOut } = useAuth();
@@ -16,8 +17,9 @@ export function Topbar() {
       <div className="flex h-16 items-center gap-4 px-6">
         <BrandMark />
 
-        <div className="hidden flex-1 md:flex md:justify-start md:pl-4">
+        <div className="hidden flex-1 items-center gap-2 md:flex md:justify-start md:pl-4">
           <AgencySelector />
+          <CenterSelector />
         </div>
 
         <div className="ml-auto flex items-center gap-2">

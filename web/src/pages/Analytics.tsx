@@ -204,7 +204,7 @@ export function AnalyticsPage() {
       }
     })();
     return () => { alive = false; };
-  }, [canQuery, agencyQuery?.awarding_agency, reloadToken]);
+  }, [canQuery, agencyQuery?.awarding_agency, agencyQuery?.center_code, reloadToken]);
 
   const pivotData = React.useMemo(
     () => (data ? transformForPivot(data.results) : []),
