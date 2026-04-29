@@ -14,6 +14,21 @@ const DEFAULT_AVAILABILITY_COLORS = {
   category:   '#90AEAD',
 };
 
+// Number of "shades" we lift link colours away from their parent node
+// colour. One shade ≈ 10% blend toward white, so 4 shades ≈ 40% — visibly
+// softer than the node, still recognisably the same hue family.
+const LINK_LIGHTEN_SHADES = 4;
+
+/** Blend a hex/rgb colour toward white. shades * 0.10 = mix amount. */
+function lighten(color: string, shades: number): string {
+  const c = d3.rgb(color);
+  const t = Math.min(1, Math.max(0, shades) * 0.10);
+  c.r = c.r + (255 - c.r) * t;
+  c.g = c.g + (255 - c.g) * t;
+  c.b = c.b + (255 - c.b) * t;
+  return c.formatHex();
+}
+
 export default function DataCoverageTree({
   data,
   width,
@@ -124,16 +139,26 @@ export default function DataCoverageTree({
       const linkStrokeWidth = isMobile ? cfg.linkBaseWidthMobile : isTablet ? cfg.linkBaseWidthTablet : cfg.linkBaseWidthDesktop;
       const linkOverlayWidth = isMobile ? cfg.linkOverlayWidthMobile : isTablet ? cfg.linkOverlayWidthTablet : cfg.linkOverlayWidthDesktop;
 
+      // Resolve the link colour from the *target* node's intrinsic colour,
+      // then lighten by 4 shades. Category/group nodes share the public
+      // hue but we route them through the same helper so any future
+      // category recolouring lightens links automatically.
+      function linkStrokeFor(d: any): string {
+        const data = d.target.data;
+        const av = data.availability;
+        let base: string;
+        if (av === 'both') base = colors.both;
+        else if (av === 'restricted') base = colors.restricted;
+        else if (data.category) base = colors.category;
+        else base = colors.public;
+        return lighten(base, LINK_LIGHTEN_SHADES);
+      }
+
       linkEnter
         .append('path')
         .attr('class', 'link-base')
         .attr('fill', 'none')
-        .attr('stroke', (d: any) => {
-          const av = d.target.data.availability;
-          if (av === 'both') return colors.both;
-          if (av === 'restricted') return colors.restricted;
-          return colors.public;
-        })
+        .attr('stroke', linkStrokeFor)
         .attr('stroke-width', linkStrokeWidth)
         .attr('opacity', cfg.linkBaseOpacity)
         .attr('stroke-linecap', 'round')
@@ -144,17 +169,12 @@ export default function DataCoverageTree({
 
       linkEnter.each(function (d: any) {
         const linkGroup = d3.select(this);
-        const availability = d.target.data.availability;
-
-        let overlayColor = colors.public;
-        if (availability === 'both') overlayColor = colors.both;
-        else if (availability === 'restricted') overlayColor = colors.restricted;
 
         linkGroup
           .append('path')
           .attr('class', 'link-overlay')
           .attr('fill', 'none')
-          .attr('stroke', overlayColor)
+          .attr('stroke', linkStrokeFor(d))
           .attr('stroke-width', linkOverlayWidth)
           .attr('opacity', cfg.linkOverlayOpacity)
           .attr('stroke-linecap', 'round')
