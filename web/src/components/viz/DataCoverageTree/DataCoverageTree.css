@@ -20,9 +20,12 @@
   touch-action: none;
 }
 
-/* Tooltip */
+/* Tooltip — absolute, anchored to the cream canvas. Coords are passed in
+   container-relative pixels by the component's mouseenter handler. */
 .data-coverage-tree__tooltip {
-  position: fixed;
+  position: absolute;
+  right: auto;
+  bottom: auto;
   z-index: 1000;
   background: #FBE9D0;
   border-radius: 12px;

@@ -194,14 +194,16 @@ export default function DataCoverageTree({
           if (d.data.description || d.data.details || d.data.htmlDescription) {
             const circle = d3.select(this).select('circle').node() as SVGCircleElement;
             const r = circle.getBoundingClientRect();
-            // Anchor at the node's right edge, vertically centered. Tooltip
-            // CSS pulls it adjacent (translateY -50%) so the card sits
-            // right beside the circle.
+            // Container-relative coords. Subtracting the container's BCR
+            // gives us anchor points that work with the tooltip's
+            // `position: absolute` styling — survives page scroll, zoom,
+            // and any parent transforms cleanly.
+            const cRect = containerRef.current?.getBoundingClientRect();
             setTooltip({
               visible: true,
               content: d.data,
-              x: r.right,
-              y: r.top + r.height / 2,
+              x: r.right - (cRect?.left ?? 0),
+              y: r.top + r.height / 2 - (cRect?.top ?? 0),
             });
           }
           d3.select(this).select('circle').transition().duration(cfg.hoverDuration).attr('r', nodeRadius * 1.3);
