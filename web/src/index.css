@@ -931,6 +931,17 @@
   filter: hue-rotate(-10deg) saturate(0.85) !important;
 }
 
+/* ── Radix Tabs.Content fill — guarantee the active panel participates
+   in the parent's flex-column layout. Without this, the rendered panel
+   sometimes settles at content height and a dark gap appears below
+   tab content (Analytics tree canvas, etc.). ───────────────────────── */
+[role="tabpanel"][data-state="active"].awardlens-tab-fill {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0%;
+  min-height: 0;
+}
+
 /* Output area wrapper (right-side div containing pvtTable) */
 .awardlens-pivot .pvtOutput,
 .awardlens-pivot .pvtRendererArea {
