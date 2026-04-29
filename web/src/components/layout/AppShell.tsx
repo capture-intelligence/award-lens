@@ -42,9 +42,13 @@ export function AppShell({
               full remaining viewport height. The min-h-0 on <main> is
               what lets that flex chain actually shrink — without it,
               flex-1 children would push past the viewport instead. */}
+          {/* pt-8 keeps breathing room under the topbar; pb-0 lets a
+              flex-1 child (e.g. Analytics' Tab card) reach the viewport
+              edge. The old py-8 left ~32px of dead space below content
+              that was already flex-1ing to fill. */}
           <div
             className={cn(
-              'mx-auto flex h-full w-full flex-col px-6 py-8 transition-[max-width] duration-200 ease-out',
+              'mx-auto flex h-full w-full flex-col px-6 pt-8 pb-0 transition-[max-width] duration-200 ease-out',
               collapsed ? 'max-w-none' : 'max-w-[1400px]',
             )}
           >
