@@ -17,8 +17,7 @@ import { Input, Label } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { TableSkeleton } from '@/components/ui/Skeleton';
 import { api, ApiError } from '@/lib/api';
-import { useViewQuery, useViews } from '@/lib/view-context';
-import { useAgencyQuery } from '@/lib/agency-context';
+import { useAgencyQuery, useAgency } from '@/lib/agency-context';
 import { useAuth } from '@/lib/auth-context';
 import { NoViewSelected } from '@/components/ui/NoViewSelected';
 import { fmtInt, fmtMoney, fmtDate } from '@/lib/utils';
@@ -173,23 +172,24 @@ interface ExploreResponse {
 }
 
 export function AnalyticsPage() {
-  const viewQuery = useViewQuery();
   const agencyQuery = useAgencyQuery();
-  const { active, loading: viewsLoading } = useViews();
+  const { loading: agencyLoading } = useAgency();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
-  // When the user has a saved filter active, filter_id wins. Otherwise
-  // (typically admin) the agency picker scopes the query.
-  const exploreQuery = viewQuery ?? agencyQuery;
+  // The top-of-screen agency picker is the single source of truth for
+  // Analytics scope. Legacy filters (data_view) live underneath as a
+  // power-user feature accessed elsewhere, but they don't narrow this
+  // page — that decoupling is what the user asked for.
+  const exploreQuery = agencyQuery;
   const [data,  setData]  = React.useState<ExploreResponse | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [reloadToken, setReloadToken] = React.useState(0);
   const [pivotState, setPivotState] = React.useState<any>(DEFAULT_PIVOT_STATE);
   const [selectedAward, setSelectedAward] = React.useState<Record<string, unknown> | null>(null);
 
-  // Admins can browse the full warehouse without picking a filter; everyone
-  // else has to wait for an active filter selection.
-  const canQuery = !viewsLoading && (!!active || isAdmin);
+  // Wait for the agency picker to settle (default-to-CDC resolution); admins
+  // are also allowed to proceed when no agency is set (full warehouse).
+  const canQuery = !agencyLoading && (!!agencyQuery || isAdmin);
 
   React.useEffect(() => {
     if (!canQuery) return;
@@ -204,20 +204,22 @@ export function AnalyticsPage() {
       }
     })();
     return () => { alive = false; };
-  }, [canQuery, viewQuery?.filter_id, agencyQuery?.awarding_agency, reloadToken]);
+  }, [canQuery, agencyQuery?.awarding_agency, reloadToken]);
 
   const pivotData = React.useMemo(
     () => (data ? transformForPivot(data.results) : []),
     [data],
   );
 
-  if (!viewsLoading && !active && !isAdmin) {
+  // Non-admins still need a saved filter to see anything (legacy access
+  // model). Admin always proceeds because the agency picker scopes them.
+  if (!agencyLoading && !agencyQuery && !isAdmin) {
     return (
       <div className="space-y-6">
         <PageHeader
           eyebrow="Explore"
           title="Analytics"
-          description="Pivot grid + click-through detail across the active view."
+          description="Pivot grid + click-through detail across the active agency."
         />
         <NoViewSelected pageLabel="data" />
       </div>
@@ -246,7 +248,7 @@ export function AnalyticsPage() {
               variant="secondary"
               size="sm"
               onClick={() => setReloadToken((n) => n + 1)}
-              disabled={!active}
+              disabled={!canQuery}
             >
               <RefreshCw className="mr-1 h-4 w-4" /> Reload
             </Button>
