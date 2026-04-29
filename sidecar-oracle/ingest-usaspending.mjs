@@ -257,14 +257,52 @@ async function fetchAwardDetail(generatedInternalId, attempt = 1) {
   }
 }
 
-async function enrichWithOffices(rows) {
+// /awards/funding/ paginates 100 per page. Awards with many funding rows
+// (multi-year, multi-FY) can have hundreds of entries; we collapse to distinct
+// (federal_account, program_activity) tuples so storage stays small.
+async function fetchAwardFunding(generatedInternalId, attempt = 1) {
+  try {
+    const res = await fetch(`${USA_BASE}/awards/funding/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ award_id: generatedInternalId, limit: 100, page: 1 }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (res.status === 404) return [];
+    if (!res.ok) throw new Error(`funding ${res.status}`);
+    const data = await res.json();
+    const seen = new Map();
+    for (const r of data.results ?? []) {
+      const fa = r.federal_account;
+      if (!fa) continue;
+      const pa = r.program_activity_code ?? '';
+      const key = `${fa}|${pa}`;
+      if (seen.has(key)) continue;
+      seen.set(key, {
+        federal_account_code: fa,
+        federal_account_name: r.account_title ?? null,
+        program_activity_code: r.program_activity_code ?? null,
+        program_activity_name: r.program_activity_name ?? null,
+      });
+    }
+    return Array.from(seen.values());
+  } catch (err) {
+    if (attempt >= 3) {
+      log('warn', 'funding fetch giving up', { id: generatedInternalId, error: String(err).slice(0, 120) });
+      return null; // distinguish "fetch failed" (null) from "no funding rows" ([])
+    }
+    await new Promise((r) => setTimeout(r, 1000 * attempt));
+    return fetchAwardFunding(generatedInternalId, attempt + 1);
+  }
+}
+
+async function enrichWithDetail(rows) {
   if (DRY) return { fetched: 0, skipped: rows.length };
   const externalIds = rows.map((r) => r['generated_internal_id']).filter(Boolean);
   const alreadyHave = await loadEnrichedIds(externalIds);
 
   const todo = rows.filter((r) => r['generated_internal_id'] && !alreadyHave.has(r['generated_internal_id']));
   let i = 0;
-  const total = todo.length;
   let done = 0;
 
   async function worker() {
@@ -272,7 +310,13 @@ async function enrichWithOffices(rows) {
       const idx = i++;
       if (idx >= todo.length) return;
       const row = todo[idx];
-      const detail = await fetchAwardDetail(row['generated_internal_id']);
+      const id = row['generated_internal_id'];
+      // Two parallel detail calls per award: /awards/{id}/ for office,
+      // /awards/funding/ for federal_account + program_activity.
+      const [detail, funding] = await Promise.all([
+        fetchAwardDetail(id),
+        fetchAwardFunding(id),
+      ]);
       if (detail) {
         const aw = detail.awarding_agency ?? {};
         const fn = detail.funding_agency  ?? {};
@@ -281,13 +325,21 @@ async function enrichWithOffices(rows) {
         if (fn.office_agency_name) row['Funding Office Name']  = fn.office_agency_name;
         if (fn.office_agency_code) row['Funding Office Code']  = fn.office_agency_code;
       }
+      // null = fetch failed (don't blow away existing rows); [] or array = success.
+      if (Array.isArray(funding)) {
+        row['__funding_accounts'] = funding;
+      }
       done++;
       await new Promise((r) => setTimeout(r, ENRICH_PACE_MS));
     }
   }
   await Promise.all(Array.from({ length: ENRICH_CONCURRENCY }, () => worker()));
-  log('info', 'office enrichment', { fetched: done, skipped: rows.length - total, total: rows.length });
-  return { fetched: done, skipped: rows.length - total };
+  log('info', 'enrichment', {
+    fetched: done,
+    skipped: rows.length - todo.length,
+    total: rows.length,
+  });
+  return { fetched: done, skipped: rows.length - todo.length };
 }
 
 // ─── Pull views catalog from worker ────────────────────────────────────────
@@ -337,7 +389,7 @@ async function ingestView(view) {
 
     if (Array.isArray(data.results) && data.results.length > 0) {
       const t1 = Date.now();
-      await enrichWithOffices(data.results);
+      await enrichWithDetail(data.results);
       log('info', 'page enriched', { view_id: view.view_id, page, ms: Date.now() - t1 });
     }
 

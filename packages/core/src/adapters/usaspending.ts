@@ -253,6 +253,24 @@ export class UsaspendingAdapter extends BaseSourceAdapter {
         name: fundingOfficeName ?? fundingOfficeCode!,
         parent_org_external_id: fundingAgency,
       } : undefined,
+      // Per-award funding accounts — sidecar attaches these via /awards/funding/
+      // enrichment as a non-USAspending key (`__funding_accounts`). Empty arrays
+      // pass through unchanged so the upsert can wipe stale rows.
+      funding_accounts: Array.isArray((row as Record<string, unknown>)['__funding_accounts'])
+        ? ((row as Record<string, unknown>)['__funding_accounts'] as Array<{
+            federal_account_code?: string;
+            federal_account_name?: string;
+            program_activity_code?: string;
+            program_activity_name?: string;
+          }>)
+            .filter((fa) => fa && typeof fa.federal_account_code === 'string' && fa.federal_account_code)
+            .map((fa) => ({
+              federal_account_code: fa.federal_account_code!,
+              federal_account_name: fa.federal_account_name ?? undefined,
+              program_activity_code: fa.program_activity_code ?? undefined,
+              program_activity_name: fa.program_activity_name ?? undefined,
+            }))
+        : undefined,
       performance_location: (row['Place of Performance State Code'] || row['Place of Performance Country Code']) ? {
         country_code: row['Place of Performance Country Code'] ?? undefined,
         state:        row['Place of Performance State Code'] ?? undefined,

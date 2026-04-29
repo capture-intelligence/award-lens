@@ -630,18 +630,22 @@ app.get('/sidecar/views', async (c) => {
   });
 });
 
-// ---------- Sidecar: which awards already have office data? ----------
+// ---------- Sidecar: which awards are fully enriched? ----------
 //
-// Lets the sidecar skip the per-award detail enrichment for awards we've
-// already populated. Body: { external_ids: [generated_internal_id, ...] }.
-// Response: { external_ids: [<subset that already has awarding_office_id>] }.
+// "Fully enriched" = has at least one row in award_federal_account AND a
+// non-null awarding_office_id. Both are populated atomically per page by
+// the sidecar's enrichWithDetail loop, so requiring BOTH catches awards that
+// were enriched before federal-account capture was added (those would have
+// office but no funding rows — they need a re-enrich).
+//
+// Body: { external_ids: [generated_internal_id, ...] }.
+// Response: { external_ids: [<subset already fully enriched>] }.
 app.post('/sidecar/awards/with-office', async (c) => {
   const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
   const body = await c.req.json().catch(() => null) as { external_ids?: string[] } | null;
   const ids = (body?.external_ids ?? []).filter((s) => typeof s === 'string' && s.length > 0);
   if (ids.length === 0) return c.json({ external_ids: [] });
 
-  // Chunk into batches of 100 to stay under D1's parameter limit.
   const seen: string[] = [];
   for (let i = 0; i < ids.length; i += 100) {
     const slice = ids.slice(i, i + 100);
@@ -653,6 +657,7 @@ app.post('/sidecar/awards/with-office', async (c) => {
       WHERE m.source_id = 'usaspending'
         AND m.entity_type = 'award'
         AND a.awarding_office_id IS NOT NULL
+        AND EXISTS (SELECT 1 FROM award_federal_account WHERE award_id = a.award_id)
         AND m.external_id IN (${placeholders})
     `).bind(...slice).all<{ external_id: string }>();
     for (const row of r.results) seen.push(row.external_id);
@@ -712,17 +717,21 @@ app.post('/import/awards', async (c) => {
       //      computed from each view's lookback_months / forward_months. With
       //      lookback=18 / forward=6 (the operator standard) that's a 24-month
       //      window that slides on every pull.
-      const a = await purgeAgencyMismatches(c.env.DB, body.view_id);
-      const w = await purgeOutOfDateWindow(c.env.DB, body.view_id);
-      const o = await purgeOfficeMismatches(c.env.DB, body.view_id);
-      const summary = `agency-strict purge: ${a} | end-date window purge: ${w} | office-strict purge: ${o}`;
+      const a  = await purgeAgencyMismatches(c.env.DB, body.view_id);
+      const w  = await purgeOutOfDateWindow(c.env.DB, body.view_id);
+      const o  = await purgeOfficeMismatches(c.env.DB, body.view_id);
+      const fa = await purgeFederalAccountMismatches(c.env.DB, body.view_id);
+      const summary = `agency: ${a} | window: ${w} | office: ${o} | federal_account: ${fa}`;
       await c.env.DB.prepare(`
         UPDATE ingestion_run
         SET status = 'success', finished_at = ?,
             error_summary = COALESCE(error_summary || ' | ', '') || ?
         WHERE run_id = ?
       `).bind(now, summary, runId).run();
-      return c.json({ run_id: runId, upserted: 0, failed: 0, agency_purged: a, window_purged: w, office_purged: o });
+      return c.json({
+        run_id: runId, upserted: 0, failed: 0,
+        agency_purged: a, window_purged: w, office_purged: o, federal_account_purged: fa,
+      });
     }
     return c.json({ run_id: runId, upserted: 0, failed: 0 });
   }
@@ -792,14 +801,16 @@ app.post('/import/awards', async (c) => {
   let agencyPurged = 0;
   let windowPurged = 0;
   let officePurged = 0;
+  let federalAccountPurged = 0;
   if (body.finalize) {
-    agencyPurged = await purgeAgencyMismatches(c.env.DB, body.view_id);
-    windowPurged = await purgeOutOfDateWindow(c.env.DB, body.view_id);
-    officePurged = await purgeOfficeMismatches(c.env.DB, body.view_id);
+    agencyPurged         = await purgeAgencyMismatches(c.env.DB, body.view_id);
+    windowPurged         = await purgeOutOfDateWindow(c.env.DB, body.view_id);
+    officePurged         = await purgeOfficeMismatches(c.env.DB, body.view_id);
+    federalAccountPurged = await purgeFederalAccountMismatches(c.env.DB, body.view_id);
   }
 
   if (body.finalize) {
-    const summary = `agency-strict purge: ${agencyPurged} | end-date window purge: ${windowPurged} | office-strict purge: ${officePurged}`;
+    const summary = `agency: ${agencyPurged} | window: ${windowPurged} | office: ${officePurged} | federal_account: ${federalAccountPurged}`;
     await c.env.DB.prepare(`
       UPDATE ingestion_run
       SET status = 'success', finished_at = ?,
@@ -810,7 +821,10 @@ app.post('/import/awards', async (c) => {
 
   return c.json({
     run_id: runId, upserted, failed,
-    agency_purged: agencyPurged, window_purged: windowPurged, office_purged: officePurged,
+    agency_purged: agencyPurged,
+    window_purged: windowPurged,
+    office_purged: officePurged,
+    federal_account_purged: federalAccountPurged,
   });
 });
 
@@ -963,6 +977,50 @@ async function purgeOfficeMismatches(db: D1Database, viewId: string): Promise<nu
           )
       )
   `).bind(viewId, viewId, ...lowerNames, ...lowerNames).run();
+
+  return result.meta?.changes ?? 0;
+}
+
+/**
+ * Untag awards from a view whose funding doesn't draw from any of the view's
+ * federal_account_codes. No-op when the filter is empty.
+ *
+ * Match: an award passes if it has at least one row in award_federal_account
+ * whose federal_account_code is in the allowlist. Awards with no funding rows
+ * yet (not enriched) are dropped — admins should run an ingest cycle before
+ * locking federal_account_codes.
+ *
+ * Why this is the right precision filter for CDC: awarding office is shared
+ * across all CDC centers ("CDC OFFICE OF ACQUISITION SERVICES"), but federal
+ * account is appropriations-level and discriminates centers exactly:
+ *   075-0950  HIV/AIDS, Viral Hepatitis, STD and TB Prevention   (NCHHSTP)
+ *   075-0948  Chronic Disease Prevention and Health Promotion    (NCCDPHP)
+ *   075-0947  Environmental Health                                (NCEH)
+ *   075-0949  Emerging and Zoonotic Infectious Diseases           (NCEZID)
+ *   075-0959  Public Health Scientific Services                   (NCHS / CSELS)
+ *   075-0943  CDC-Wide Activities and Program Support             (cross-cutting)
+ */
+async function purgeFederalAccountMismatches(db: D1Database, viewId: string): Promise<number> {
+  const v = await db.prepare(
+    'SELECT filters_json FROM data_view WHERE view_id = ?',
+  ).bind(viewId).first<{ filters_json: string }>();
+  if (!v) return 0;
+
+  let f: { federal_account_codes?: string[] };
+  try { f = JSON.parse(v.filters_json); } catch { return 0; }
+  const codes = (f.federal_account_codes ?? []).map((s) => String(s).trim()).filter(Boolean);
+  if (codes.length === 0) return 0;
+
+  const placeholders = codes.map(() => '?').join(',');
+  const result = await db.prepare(`
+    DELETE FROM view_award
+    WHERE view_id = ?
+      AND award_id NOT IN (
+        SELECT DISTINCT afa.award_id
+        FROM award_federal_account afa
+        WHERE afa.federal_account_code IN (${placeholders})
+      )
+  `).bind(viewId, ...codes).run();
 
   return result.meta?.changes ?? 0;
 }

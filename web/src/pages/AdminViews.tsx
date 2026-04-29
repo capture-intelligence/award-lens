@@ -354,6 +354,7 @@ function ScopeSummary({ filters }: { filters: ViewFilters }) {
     chips.push(sub?.abbrev ?? filters.subtier_agency_name);
   }
   if (filters.office_names?.length) chips.push(`Offices: ${filters.office_names.join(', ')}`);
+  if (filters.federal_account_codes?.length) chips.push(`Fed accts: ${filters.federal_account_codes.join(', ')}`);
   if (filters.keywords?.length)     chips.push(`Keywords: ${filters.keywords.join(', ')}`);
   if (filters.naics_codes?.length)  chips.push(`NAICS: ${filters.naics_codes.join(', ')}`);
   if (filters.psc_codes?.length)    chips.push(`PSC: ${filters.psc_codes.join(', ')}`);
@@ -395,6 +396,7 @@ function ViewEditorModal({
   const [toptier, setToptier] = React.useState(view?.filters.toptier_agency_name ?? '');
   const [subtier, setSubtier] = React.useState(view?.filters.subtier_agency_name ?? '');
   const [offices, setOffices] = React.useState((view?.filters.office_names ?? []).join(', '));
+  const [federalAccounts, setFederalAccounts] = React.useState((view?.filters.federal_account_codes ?? []).join(', '));
   const [keywords, setKeywords] = React.useState((view?.filters.keywords ?? []).join(', '));
   const [naics, setNaics] = React.useState((view?.filters.naics_codes ?? []).join(', '));
   const [psc, setPsc] = React.useState((view?.filters.psc_codes ?? []).join(', '));
@@ -448,6 +450,7 @@ function ViewEditorModal({
     if (toptier.trim())              filters.toptier_agency_name = toptier.trim();
     if (subtier.trim())              filters.subtier_agency_name = subtier.trim();
     if (offices.trim())              filters.office_names = splitCsv(offices);
+    if (federalAccounts.trim())      filters.federal_account_codes = splitCsv(federalAccounts);
     if (keywords.trim())             filters.keywords     = splitCsv(keywords);
     if (naics.trim())                filters.naics_codes  = splitCsv(naics);
     if (psc.trim())                  filters.psc_codes    = splitCsv(psc);
@@ -549,9 +552,16 @@ function ViewEditorModal({
 
           <div className="md:col-span-2">
             <Label>Awarding office names (comma-separated)</Label>
-            <Input value={offices} onChange={(e) => setOffices(e.target.value)} placeholder="CDC OASB-NCHHSTP, CDC OASB-NCEZID…" />
+            <Input value={offices} onChange={(e) => setOffices(e.target.value)} placeholder="CDC OFFICE OF ACQUISITION SERVICES…" />
             <div className="mt-1 text-[10px] text-muted-soft">
-              Use the "Discover offices" action on the view list to populate this from a sample run, then promote the offices that match your scope.
+              Heads-up: for CDC, every center shares "CDC OFFICE OF ACQUISITION SERVICES" — office is rarely useful as a center-level filter. Prefer Federal account codes below.
+            </div>
+          </div>
+          <div className="md:col-span-2">
+            <Label>Federal account codes (comma-separated)</Label>
+            <Input value={federalAccounts} onChange={(e) => setFederalAccounts(e.target.value)} placeholder="075-0950" />
+            <div className="mt-1 text-[10px] text-muted-soft">
+              Precise center-level scope. CDC examples: <code>075-0950</code> NCHHSTP · <code>075-0948</code> NCCDPHP · <code>075-0947</code> NCEH · <code>075-0949</code> NCEZID · <code>075-0959</code> NCHS / Public Health Scientific Services. Use the Discover button on the view row to see what's actually observed in your data.
             </div>
           </div>
           <div className="md:col-span-2">
@@ -754,7 +764,7 @@ function ViewEditorModal({
   );
 }
 
-// ─── Discover Offices Modal ─────────────────────────────────────────────────
+// ─── Discover Modal — federal accounts (precise) + offices (coarse) ─────────
 
 interface DiscoveredOffice {
   code: string | null;
@@ -762,6 +772,23 @@ interface DiscoveredOffice {
   award_count: number;
   total_value: number;
   sample_piids: string[];
+}
+
+interface DiscoveredFederalAccount {
+  code: string;
+  name: string | null;
+  program_activities: Array<{ code: string; name: string | null }>;
+  award_count: number;
+  total_value: number;
+  sample_piids: string[];
+}
+
+interface DiscoveryResponse {
+  offices: DiscoveredOffice[];
+  federal_accounts: DiscoveredFederalAccount[];
+  total_in_view: number;
+  missing_office_count: number;
+  missing_federal_account_count: number;
 }
 
 function DiscoverOfficesModal({
@@ -773,10 +800,12 @@ function DiscoverOfficesModal({
 }) {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
-  const [offices, setOffices] = React.useState<DiscoveredOffice[]>([]);
-  const [totalInView, setTotalInView] = React.useState(0);
-  const [missingOfficeCount, setMissingOfficeCount] = React.useState(0);
-  const [selected, setSelected] = React.useState<Set<string>>(
+  const [data, setData] = React.useState<DiscoveryResponse | null>(null);
+  const [tab, setTab] = React.useState<'federal_accounts' | 'offices'>('federal_accounts');
+  const [selectedAccounts, setSelectedAccounts] = React.useState<Set<string>>(
+    new Set(view.filters.federal_account_codes ?? []),
+  );
+  const [selectedOffices, setSelectedOffices] = React.useState<Set<string>>(
     new Set(view.filters.office_names ?? []),
   );
   const [saving, setSaving] = React.useState(false);
@@ -785,14 +814,8 @@ function DiscoverOfficesModal({
     setLoading(true);
     setError(null);
     try {
-      const r = await api.post<{
-        offices: DiscoveredOffice[];
-        total_in_view: number;
-        missing_office_count: number;
-      }>(`/admin/views/${view.view_id}/discover-offices`);
-      setOffices(r.offices ?? []);
-      setTotalInView(r.total_in_view ?? 0);
-      setMissingOfficeCount(r.missing_office_count ?? 0);
+      const r = await api.post<DiscoveryResponse>(`/admin/views/${view.view_id}/discover-offices`);
+      setData(r);
     } catch (e) {
       setError(e instanceof ApiError ? `API ${e.status}` : (e instanceof Error ? e.message : 'Discovery failed'));
     } finally {
@@ -802,8 +825,15 @@ function DiscoverOfficesModal({
 
   React.useEffect(() => { void runDiscovery(); }, [runDiscovery]);
 
-  function toggle(name: string) {
-    setSelected((prev) => {
+  function toggleAccount(code: string) {
+    setSelectedAccounts((prev) => {
+      const next = new Set(prev);
+      if (next.has(code)) next.delete(code); else next.add(code);
+      return next;
+    });
+  }
+  function toggleOffice(name: string) {
+    setSelectedOffices((prev) => {
       const next = new Set(prev);
       if (next.has(name)) next.delete(name); else next.add(name);
       return next;
@@ -813,16 +843,16 @@ function DiscoverOfficesModal({
   async function save() {
     setSaving(true);
     try {
-      const nextFilters: ViewFilters = {
-        ...view.filters,
-        office_names: Array.from(selected),
-      };
-      // Strip falsy fields the parser would reject anyway.
-      if (nextFilters.office_names && nextFilters.office_names.length === 0) {
-        delete nextFilters.office_names;
-      }
+      const nextFilters: ViewFilters = { ...view.filters };
+      if (selectedAccounts.size > 0) nextFilters.federal_account_codes = Array.from(selectedAccounts);
+      else delete nextFilters.federal_account_codes;
+      if (selectedOffices.size > 0) nextFilters.office_names = Array.from(selectedOffices);
+      else delete nextFilters.office_names;
       await api.put(`/admin/views/${view.view_id}`, { filters: nextFilters });
-      toast.success(`Saved ${selected.size} office${selected.size === 1 ? '' : 's'} on "${view.name}"`);
+      const parts: string[] = [];
+      if (selectedAccounts.size > 0) parts.push(`${selectedAccounts.size} federal account${selectedAccounts.size === 1 ? '' : 's'}`);
+      if (selectedOffices.size > 0)  parts.push(`${selectedOffices.size} office${selectedOffices.size === 1 ? '' : 's'}`);
+      toast.success(`Saved ${parts.join(' + ') || 'no selections'} on "${view.name}"`);
       onSaved();
     } catch (e) {
       toast.error(e instanceof ApiError ? `API ${e.status}` : 'Save failed');
@@ -832,6 +862,11 @@ function DiscoverOfficesModal({
   }
 
   const fmtMoney = (n: number) => `$${fmtInt(Math.round(n))}`;
+  const totalInView = data?.total_in_view ?? 0;
+  const accounts = data?.federal_accounts ?? [];
+  const offices = data?.offices ?? [];
+  const missingFA = data?.missing_federal_account_count ?? 0;
+  const missingOff = data?.missing_office_count ?? 0;
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 px-6 py-12 backdrop-blur-sm">
@@ -842,30 +877,49 @@ function DiscoverOfficesModal({
         className="glass max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-border p-8 shadow-glass-lg"
       >
         <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-brand-sage">
-          Discover offices
+          Discover scope
         </div>
         <h2 className="mt-1 text-2xl font-bold tracking-tight">
-          Offices for "{view.name}"
+          Scope for "{view.name}"
         </h2>
         <p className="mt-2 text-sm text-muted">
-          Tallies awarding offices observed across awards already in this view.
-          Pick the office(s) that match the program scope; saving sets{' '}
-          <code>office_names</code> on the view so future runs enforce the
-          office filter at finalize.
+          Tallies federal accounts (precise center-level identifier) and awarding
+          offices observed across awards in this view. Saving updates the view's
+          filters; the next ingest's local purges enforce them.
         </p>
 
-        <div className="mt-4 flex items-center justify-between gap-2">
-          <div className="text-xs text-muted-soft">
-            {loading
-              ? 'Reading local data…'
-              : `${offices.length} distinct office${offices.length === 1 ? '' : 's'} across ${totalInView} awards`}
+        {/* Tabs */}
+        <div className="mt-5 flex items-end gap-1 border-b border-border">
+          <button
+            type="button"
+            className={`-mb-px border-b-2 px-3 py-2 text-sm ${tab === 'federal_accounts' ? 'border-brand-sage text-foreground' : 'border-transparent text-muted-soft'}`}
+            onClick={() => setTab('federal_accounts')}
+          >
+            By federal account · {accounts.length}
+          </button>
+          <button
+            type="button"
+            className={`-mb-px border-b-2 px-3 py-2 text-sm ${tab === 'offices' ? 'border-brand-sage text-foreground' : 'border-transparent text-muted-soft'}`}
+            onClick={() => setTab('offices')}
+          >
+            By awarding office · {offices.length}
+          </button>
+          <div className="ml-auto pb-2 text-xs text-muted-soft">
+            {loading ? 'Loading…' : `${totalInView} awards in view`}
           </div>
-          {!loading && missingOfficeCount > 0 && (
-            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[10px] text-amber-300">
-              {missingOfficeCount} of {totalInView} awards have no office data yet — run an ingest before locking office_names.
-            </div>
-          )}
         </div>
+
+        {/* Per-tab missing-data hint */}
+        {!loading && tab === 'federal_accounts' && missingFA > 0 && (
+          <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
+            {missingFA} of {totalInView} awards have no federal account data yet — run an ingest before locking the federal-account filter.
+          </div>
+        )}
+        {!loading && tab === 'offices' && missingOff > 0 && (
+          <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
+            {missingOff} of {totalInView} awards have no office data yet — run an ingest first.
+          </div>
+        )}
 
         {error && (
           <div className="mt-4 rounded-xl border border-brand-vermilion/40 bg-brand-vermilion/15 px-4 py-3 text-sm text-brand-vermilion-soft">
@@ -878,33 +932,79 @@ function DiscoverOfficesModal({
             <div className="p-6 text-center text-sm text-muted-soft">
               <RotateCcw className="mr-2 inline h-4 w-4 animate-spin" /> Querying local data…
             </div>
-          ) : offices.length === 0 ? (
-            <div className="p-6 text-center text-sm text-muted-soft">
-              No offices observed yet. The sidecar enriches each award via the per-award detail
-              endpoint after ingest — run "Run now" on this view (and wait for it to settle), then
-              re-open this dialog.
-            </div>
+          ) : tab === 'federal_accounts' ? (
+            accounts.length === 0 ? (
+              <div className="p-6 text-center text-sm text-muted-soft">
+                No federal accounts observed yet. The sidecar enriches each award via /awards/funding/
+                after ingest — run "Run now" on this view (and wait for it to settle), then re-open.
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-10"></TableHead>
+                    <TableHead>Federal account</TableHead>
+                    <TableHead>Program activities</TableHead>
+                    <TableHead className="text-right">Awards</TableHead>
+                    <TableHead className="text-right">Total value</TableHead>
+                    <TableHead>Sample PIIDs</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {accounts.map((a) => (
+                    <TableRow key={a.code}>
+                      <TableCell>
+                        <input
+                          type="checkbox"
+                          checked={selectedAccounts.has(a.code)}
+                          onChange={() => toggleAccount(a.code)}
+                          aria-label={`Select ${a.code}`}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-mono text-sm text-foreground">{a.code}</div>
+                        <div className="text-[10px] text-muted-soft">{a.name ?? '—'}</div>
+                      </TableCell>
+                      <TableCell className="text-[10px] text-muted">
+                        {a.program_activities.length === 0 ? '—' : a.program_activities.slice(0, 3).map((pa) => (
+                          <div key={pa.code}>{pa.code} {pa.name ? `· ${pa.name}` : ''}</div>
+                        ))}
+                        {a.program_activities.length > 3 && <div className="text-muted-soft">+{a.program_activities.length - 3} more</div>}
+                      </TableCell>
+                      <TableCell className="text-right">{fmtInt(a.award_count)}</TableCell>
+                      <TableCell className="text-right">{fmtMoney(a.total_value)}</TableCell>
+                      <TableCell className="font-mono text-[11px] text-muted">
+                        {a.sample_piids.join(', ') || '—'}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-10"></TableHead>
-                  <TableHead>Office</TableHead>
-                  <TableHead className="text-right">Awards</TableHead>
-                  <TableHead className="text-right">Total value</TableHead>
-                  <TableHead>Sample PIIDs</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {offices.map((o) => {
-                  const isOn = selected.has(o.name);
-                  return (
+            offices.length === 0 ? (
+              <div className="p-6 text-center text-sm text-muted-soft">
+                No offices observed yet. Awarding office data is enriched per-award; run an ingest first.
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-10"></TableHead>
+                    <TableHead>Office</TableHead>
+                    <TableHead className="text-right">Awards</TableHead>
+                    <TableHead className="text-right">Total value</TableHead>
+                    <TableHead>Sample PIIDs</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {offices.map((o) => (
                     <TableRow key={(o.code ?? o.name) + '|' + o.name}>
                       <TableCell>
                         <input
                           type="checkbox"
-                          checked={isOn}
-                          onChange={() => toggle(o.name)}
+                          checked={selectedOffices.has(o.name)}
+                          onChange={() => toggleOffice(o.name)}
                           aria-label={`Select ${o.name}`}
                         />
                       </TableCell>
@@ -918,16 +1018,18 @@ function DiscoverOfficesModal({
                         {o.sample_piids.join(', ') || '—'}
                       </TableCell>
                     </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+                  ))}
+                </TableBody>
+              </Table>
+            )
           )}
         </div>
 
         <div className="mt-6 flex items-center justify-between">
           <div className="text-xs text-muted-soft">
-            {selected.size} office{selected.size === 1 ? '' : 's'} selected
+            {selectedAccounts.size + selectedOffices.size === 0
+              ? 'Nothing selected'
+              : `Saving: ${selectedAccounts.size} fed account${selectedAccounts.size === 1 ? '' : 's'} · ${selectedOffices.size} office${selectedOffices.size === 1 ? '' : 's'}`}
           </div>
           <div className="flex items-center gap-2">
             <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>

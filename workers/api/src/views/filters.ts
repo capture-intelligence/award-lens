@@ -19,6 +19,14 @@ export interface ViewFilters {
    * match a view's keywords/subtier so you can promote them here.
    */
   office_names?: string[];
+  /**
+   * Federal account codes scoping the view (e.g. ["075-0950"] for NCHHSTP).
+   * Enforced LOCALLY by the worker (`purgeFederalAccountMismatches`) using
+   * award_federal_account rows populated by the sidecar's funding-account
+   * enrichment. This is the precise center-level identifier for CDC contracts —
+   * awarding office is shared across all CDC centers, federal account is not.
+   */
+  federal_account_codes?: string[];
   /** Keyword search across description, PIID, recipient, sub-agency. */
   keywords?: string[];
   naics_codes?: string[];
@@ -45,6 +53,7 @@ const ALLOWED_KEYS = new Set<keyof ViewFilters>([
   'toptier_agency_name',
   'subtier_agency_name',
   'office_names',
+  'federal_account_codes',
   'keywords',
   'naics_codes',
   'psc_codes',
@@ -73,6 +82,7 @@ export function parseFilters(raw: unknown): ViewFilters {
         break;
 
       case 'office_names':
+      case 'federal_account_codes':
       case 'keywords':
       case 'naics_codes':
       case 'psc_codes':

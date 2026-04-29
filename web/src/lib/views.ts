@@ -8,6 +8,8 @@ export interface ViewFilters {
   /** Federal subtier agency name (e.g. "Centers for Disease Control and Prevention"). */
   subtier_agency_name?: string;
   office_names?: string[];
+  /** Federal account codes (e.g., ["075-0950"] for NCHHSTP). */
+  federal_account_codes?: string[];
   keywords?: string[];
   naics_codes?: string[];
   psc_codes?: string[];

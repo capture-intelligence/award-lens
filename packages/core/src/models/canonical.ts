@@ -21,6 +21,20 @@ export interface CanonicalOffice {
   parent_org_external_id?: string; // subtier/toptier external_id, ties office → org
 }
 
+/**
+ * A (federal account, program activity) pair the award draws funding from.
+ * Captured per-award via USAspending /awards/funding/. One award may have
+ * several — co-funded contracts touch multiple accounts. Center-level
+ * filtering (e.g., NCHHSTP = federal_account "075-0950") happens against
+ * this table.
+ */
+export interface CanonicalFundingAccount {
+  federal_account_code: string;        // e.g., "075-0950"
+  federal_account_name?: string;
+  program_activity_code?: string;      // e.g., "0012"
+  program_activity_name?: string;
+}
+
 export interface CanonicalVendor {
   external_id: string;           // source's recipient id or UEI
   uei?: string;
@@ -56,6 +70,7 @@ export interface CanonicalAward {
   funding_org?: CanonicalOrganization;
   awarding_office?: CanonicalOffice;
   funding_office?: CanonicalOffice;
+  funding_accounts?: CanonicalFundingAccount[];
 
   naics_code?: string;
   naics_description?: string;

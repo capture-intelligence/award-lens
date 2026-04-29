@@ -155,6 +155,36 @@ export async function buildUpsertStatements(
   );
   stmts.push(externalIdMappingStmt(db, source, award.external_id, 'award', awardId, now));
 
+  // --- federal account funding (M2M) ---
+  // Replace-style: clear existing rows for this award and re-insert. Cheap
+  // (typically <5 rows per award) and avoids stale tuples when funding shifts.
+  // Skip when the field wasn't enriched (undefined). Only `[]` signals
+  // "definitively no funding accounts" and would still wipe stale rows.
+  if (Array.isArray(award.funding_accounts)) {
+    stmts.push(db.prepare('DELETE FROM award_federal_account WHERE award_id = ?').bind(awardId));
+    const seen = new Set<string>();
+    for (const fa of award.funding_accounts) {
+      const pa = fa.program_activity_code ?? '';
+      const dedupeKey = `${fa.federal_account_code}|${pa}`;
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
+      stmts.push(
+        db.prepare(`
+          INSERT OR IGNORE INTO award_federal_account
+            (award_id, federal_account_code, federal_account_name,
+             program_activity_code, program_activity_name)
+          VALUES (?, ?, ?, ?, ?)
+        `).bind(
+          awardId,
+          fa.federal_account_code,
+          fa.federal_account_name ?? null,
+          pa,
+          fa.program_activity_name ?? null,
+        ),
+      );
+    }
+  }
+
   // --- performance location ---
   if (award.performance_location) {
     const loc = award.performance_location;
