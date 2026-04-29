@@ -41,8 +41,14 @@ export function ViewProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     try {
-      const r = await api.get<{ results: BrowseViewRow[] }>('/views');
-      const rows = r.results ?? [];
+      // Reads from /filters (data_view façade). The response carries
+      // filter_id; we alias to view_id locally so existing component code
+      // keeps working until the rename lands.
+      const r = await api.get<{ results: Array<BrowseViewRow & { filter_id?: string }> }>('/filters');
+      const rows = (r.results ?? []).map((row) => ({
+        ...row,
+        view_id: row.filter_id ?? row.view_id,
+      })) as BrowseViewRow[];
       setBrowse(rows);
 
       // Resolve the "active" view from localStorage if still accessible.
@@ -110,8 +116,12 @@ export function useViews(): ViewContextValue {
   return v;
 }
 
-/** For data fetches: returns the query-string fragment to scope by the active view. */
-export function useViewQuery(): { view_id: string } | undefined {
+/**
+ * For data fetches: returns the query-string fragment to scope by the active
+ * filter. Sends `filter_id` (the new path) — the worker still accepts the
+ * legacy `view_id` form too, so older callers don't break.
+ */
+export function useViewQuery(): { filter_id: string } | undefined {
   const { active } = useViews();
-  return active ? { view_id: active.view_id } : undefined;
+  return active ? { filter_id: active.view_id } : undefined;
 }

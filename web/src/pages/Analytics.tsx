@@ -190,7 +190,7 @@ export function AnalyticsPage() {
       }
     })();
     return () => { alive = false; };
-  }, [viewsLoading, active, viewQuery?.view_id, reloadToken]);
+  }, [viewsLoading, active, viewQuery?.filter_id, reloadToken]);
 
   const pivotData = React.useMemo(
     () => (data ? transformForPivot(data.results) : []),

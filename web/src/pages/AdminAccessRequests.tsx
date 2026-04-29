@@ -23,8 +23,11 @@ import { PageHeader } from '@/components/ui/PageHeader';
 
 interface AccessRequestRow {
   access_id: string;
-  view_id: string;
-  view_name: string;
+  filter_id: string;
+  filter_name: string;
+  // Legacy aliases — present in older responses; pre-PR2 callers read these.
+  view_id?: string;
+  view_name?: string;
   user_id: string;
   user_email: string;
   user_display_name: string | null;
@@ -58,7 +61,7 @@ export function AdminAccessRequestsPage() {
     (async () => {
       try {
         const r = await api.get<{ results: AccessRequestRow[] }>(
-          '/admin/access-requests',
+          '/admin/filter-access-requests',
           { status: filter },
         );
         if (alive) setRows(r.results ?? []);
@@ -70,10 +73,11 @@ export function AdminAccessRequestsPage() {
   }, [filter, token]);
 
   async function decide(row: AccessRequestRow, action: 'grant' | 'deny' | 'revoke') {
-    if (action !== 'grant' && !confirm(`${action[0]!.toUpperCase() + action.slice(1)} ${row.user_email} access to "${row.view_name}"?`)) return;
+    const label = row.filter_name ?? row.view_name ?? '(unnamed)';
+    if (action !== 'grant' && !confirm(`${action[0]!.toUpperCase() + action.slice(1)} ${row.user_email} access to "${label}"?`)) return;
     setBusy(row.access_id);
     try {
-      await api.post(`/admin/access-requests/${row.access_id}/${action}`);
+      await api.post(`/admin/filter-access-requests/${row.access_id}/${action}`);
       toast.success(`${row.user_email} → ${action}ed`);
       setToken((n) => n + 1);
     } catch (e) {
@@ -150,7 +154,7 @@ export function AdminAccessRequestsPage() {
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell className="font-medium">{r.view_name}</TableCell>
+                      <TableCell className="font-medium">{r.filter_name ?? r.view_name ?? '—'}</TableCell>
                       <TableCell>
                         <Badge
                           variant={

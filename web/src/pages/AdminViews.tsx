@@ -64,8 +64,14 @@ export function AdminViewsPage() {
     setError(null);
     (async () => {
       try {
-        const r = await api.get<{ results: AdminViewRow[] }>('/admin/views');
-        if (alive) setRows(r.results ?? []);
+        // /admin/filters is the new path; the response carries filter_id which
+        // we alias to view_id locally so existing component code keeps working.
+        const r = await api.get<{ results: Array<AdminViewRow & { filter_id?: string }> }>('/admin/filters');
+        const rows = (r.results ?? []).map((row) => ({
+          ...row,
+          view_id: row.filter_id ?? row.view_id,
+        })) as AdminViewRow[];
+        if (alive) setRows(rows);
       } catch (e) {
         if (alive) setError(e instanceof ApiError ? `API ${e.status}` : 'Failed to load');
       }
@@ -77,7 +83,7 @@ export function AdminViewsPage() {
 
   async function toggleEnabled(v: AdminViewRow) {
     try {
-      await api.put(`/admin/views/${v.view_id}`, { enabled: !v.enabled });
+      await api.put(`/admin/filters/${v.view_id}`, { enabled: !v.enabled });
       toast.success(`View ${v.enabled ? 'paused' : 'resumed'}`);
       reload();
     } catch (e) {
@@ -88,7 +94,7 @@ export function AdminViewsPage() {
   async function deleteView(v: AdminViewRow) {
     if (!confirm(`Delete view "${v.name}"? This removes user access grants and view-award tags but keeps the underlying award rows.`)) return;
     try {
-      await api.del(`/admin/views/${v.view_id}`);
+      await api.del(`/admin/filters/${v.view_id}`);
       toast.success(`Deleted ${v.name}`);
       reload();
     } catch (e) {
@@ -475,8 +481,8 @@ function ViewEditorModal({
     };
 
     try {
-      if (isEdit) await api.put(`/admin/views/${view!.view_id}`, body);
-      else        await api.post('/admin/views', body);
+      if (isEdit) await api.put(`/admin/filters/${view!.view_id}`, body);
+      else        await api.post('/admin/filters', body);
       toast.success(isEdit ? 'View updated' : 'View created');
       onSaved();
     } catch (e) {
@@ -848,7 +854,7 @@ function DiscoverOfficesModal({
       else delete nextFilters.federal_account_codes;
       if (selectedOffices.size > 0) nextFilters.office_names = Array.from(selectedOffices);
       else delete nextFilters.office_names;
-      await api.put(`/admin/views/${view.view_id}`, { filters: nextFilters });
+      await api.put(`/admin/filters/${view.view_id}`, { filters: nextFilters });
       const parts: string[] = [];
       if (selectedAccounts.size > 0) parts.push(`${selectedAccounts.size} federal account${selectedAccounts.size === 1 ? '' : 's'}`);
       if (selectedOffices.size > 0)  parts.push(`${selectedOffices.size} office${selectedOffices.size === 1 ? '' : 's'}`);

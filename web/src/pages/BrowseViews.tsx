@@ -24,7 +24,8 @@ export function BrowseViewsPage() {
 
   async function request(viewId: string) {
     try {
-      await api.post(`/views/${viewId}/request`);
+      // /filters is the new path; viewId == filterId post-PR1 façade.
+      await api.post(`/filters/${viewId}/request`);
       toast.success('Access requested. An admin will review.');
       void refresh();
     } catch (e) {
