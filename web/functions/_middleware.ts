@@ -29,6 +29,8 @@ const API_PREFIXES = [
   '/diag',
   '/health',
   '/views',
+  '/filters',
+  '/awarding-agencies',
   '/explore',
 ] as const;
 
