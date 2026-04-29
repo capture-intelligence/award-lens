@@ -749,6 +749,7 @@ app.post('/import/awards', async (c) => {
   let upserted = 0;
   let failed = 0;
   const awardIds: string[] = [];
+  let firstError: string | null = null;
   for (const award of canonical) {
     try {
       const stmts = await buildUpsertStatements(c.env.DB, 'usaspending', award);
@@ -756,10 +757,22 @@ app.post('/import/awards', async (c) => {
       const awardId = await deterministicId('usaspending', `award::${award.external_id}`);
       awardIds.push(awardId);
       upserted++;
-    } catch {
+    } catch (err) {
       failed++;
+      if (failed <= 5) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[upsert-fail]', JSON.stringify({
+          external_id: award.external_id,
+          piid: award.award_piid,
+          has_office: !!award.awarding_office,
+          has_funding: Array.isArray(award.funding_accounts) ? award.funding_accounts.length : null,
+          err: msg.slice(0, 400),
+        }));
+        if (!firstError) firstError = msg.slice(0, 200);
+      }
     }
   }
+  if (firstError) console.error('[upsert-summary]', `${failed}/${canonical.length} failed; first error: ${firstError}`);
 
   // Bucket the awards under this view.
   if (awardIds.length > 0) {

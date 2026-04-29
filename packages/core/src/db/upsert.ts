@@ -284,7 +284,7 @@ async function upsertOffice(
       office.name,
     ),
   );
-  stmts.push(externalIdMappingStmt(db, source, office.external_id, 'contracting_office', officeId, now));
+  stmts.push(externalIdMappingStmt(db, source, office.external_id, 'office', officeId, now));
   return officeId;
 }
 
