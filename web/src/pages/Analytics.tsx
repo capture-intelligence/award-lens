@@ -9,6 +9,7 @@ import { motion } from 'framer-motion';
 import { RefreshCw, Download, Search, X, Eye, ChevronDown, Check, Filter, ChevronRight } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tabs from '@radix-ui/react-tabs';
+import * as Slider from '@radix-ui/react-slider';
 
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -691,6 +692,18 @@ function PivotShell({
 
 // ─── Award browser (clickable list with search) ─────────────────────────────
 
+// Convert YYYY-MM-DD ↔ epoch-day (days since 1970-01-01) — gives the slider
+// integer bounds without needing a 32-bit timestamp range.
+function dateToEpochDay(s: string | null | undefined): number | null {
+  if (!s) return null;
+  const d = new Date(String(s).slice(0, 10));
+  if (Number.isNaN(d.getTime())) return null;
+  return Math.floor(d.getTime() / 86400000);
+}
+function epochDayToDate(d: number): string {
+  return new Date(d * 86400000).toISOString().slice(0, 10);
+}
+
 function AwardBrowser({
   rows, onSelect,
 }: {
@@ -698,46 +711,196 @@ function AwardBrowser({
   onSelect: (a: Record<string, unknown>) => void;
 }) {
   const [search, setSearch] = React.useState('');
+  const [minValue, setMinValue] = React.useState<string>('');
+  const [maxValue, setMaxValue] = React.useState<string>('');
+
+  // Date bounds derived from the data — slider operates over these.
+  // Only awards with a valid pop_end_date contribute to the bounds; rows
+  // with missing dates are kept regardless of the slider position (they
+  // can't be meaningfully placed on a date axis).
+  const dateBounds = React.useMemo(() => {
+    let min = Infinity;
+    let max = -Infinity;
+    for (const r of rows) {
+      const d = dateToEpochDay(r.pop_end_date as string | undefined);
+      if (d == null) continue;
+      if (d < min) min = d;
+      if (d > max) max = d;
+    }
+    if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
+    return { min, max };
+  }, [rows]);
+
+  // Date slider state — undefined means "full range" (no filter applied).
+  const [dateRange, setDateRange] = React.useState<[number, number] | null>(null);
+
+  // Reset slider when the underlying bounds change (new data load).
+  React.useEffect(() => { setDateRange(null); }, [dateBounds?.min, dateBounds?.max]);
+
+  const minVNum = minValue.trim() === '' ? null : Number(minValue);
+  const maxVNum = maxValue.trim() === '' ? null : Number(maxValue);
+  const minVValid = minVNum == null || (Number.isFinite(minVNum) && minVNum >= 0);
+  const maxVValid = maxVNum == null || (Number.isFinite(maxVNum) && maxVNum >= 0);
 
   const filtered = React.useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
-      Object.values(r).some((v) => String(v ?? '').toLowerCase().includes(q)),
-    );
-  }, [rows, search]);
+    return rows.filter((r) => {
+      // Search across all string-stringified values.
+      if (q && !Object.values(r).some((v) => String(v ?? '').toLowerCase().includes(q))) {
+        return false;
+      }
+      // Value filter.
+      const value = Number(r.current_value ?? 0);
+      if (minVNum != null && Number.isFinite(minVNum) && value < minVNum) return false;
+      if (maxVNum != null && Number.isFinite(maxVNum) && value > maxVNum) return false;
+      // Date filter (only when the slider has been moved off full range).
+      if (dateRange) {
+        const d = dateToEpochDay(r.pop_end_date as string | undefined);
+        // Awards without a date pass through — caller has no way to place them.
+        if (d != null && (d < dateRange[0] || d > dateRange[1])) return false;
+      }
+      return true;
+    });
+  }, [rows, search, minVNum, maxVNum, dateRange]);
+
+  const valueActive = minVNum != null || maxVNum != null;
+  const dateActive = dateRange != null;
+  const anyActive = !!search || valueActive || dateActive;
+
+  function resetAll() {
+    setSearch('');
+    setMinValue('');
+    setMaxValue('');
+    setDateRange(null);
+  }
 
   return (
     <Card>
-      <div className="flex items-center justify-between gap-4 border-b border-border bg-brand-teal-deep/40 px-5 py-3">
-        <div>
-          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand-sage">
-            Browse · click any row for full detail
+      <div className="space-y-3 border-b border-border bg-brand-teal-deep/40 px-5 py-3">
+        {/* Top row: title + count + reset */}
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand-sage">
+              Browse · click any row for full detail
+            </div>
+            <div className="mt-0.5 text-xs text-muted">
+              {fmtInt(filtered.length)} of {fmtInt(rows.length)} awards
+              {anyActive ? ' (filtered)' : ''}
+            </div>
           </div>
-          <div className="mt-0.5 text-xs text-muted">
-            {fmtInt(filtered.length)} of {fmtInt(rows.length)} awards
-            {search ? ' (filtered)' : ''}
-          </div>
+          {anyActive && (
+            <button
+              type="button"
+              onClick={resetAll}
+              className="rounded-md border border-border px-2 py-1 text-[11px] uppercase tracking-[0.08em] text-muted-soft transition-colors hover:border-brand-vermilion hover:text-brand-vermilion-soft"
+            >
+              <X className="mr-1 inline h-3 w-3" /> Clear all
+            </button>
+          )}
         </div>
-        <div className="w-72">
-          <Label>Search</Label>
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="PIID, vendor, NAICS, anything…"
-              className="pl-10"
-            />
-            {search && (
-              <button
-                type="button"
-                onClick={() => setSearch('')}
-                aria-label="Clear"
-                className="absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center text-muted-soft hover:text-foreground"
+
+        {/* Filter row — search + value + date */}
+        <div className="grid gap-3 md:grid-cols-[1fr_auto_1fr]">
+          {/* Search */}
+          <div>
+            <Label>Search</Label>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="PIID, vendor, NAICS, anything…"
+                className="pl-10"
+              />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch('')}
+                  aria-label="Clear search"
+                  className="absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center text-muted-soft hover:text-foreground"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Value */}
+          <div className="min-w-0">
+            <Label>Current value</Label>
+            <div className="flex items-center gap-1.5">
+              <Input
+                value={minValue}
+                onChange={(e) => setMinValue(e.target.value)}
+                placeholder="min"
+                inputMode="numeric"
+                aria-invalid={!minVValid}
+                className={`w-24 font-mono text-sm ${!minVValid ? 'border-brand-vermilion' : ''}`}
+              />
+              <span className="text-xs text-muted-soft">–</span>
+              <Input
+                value={maxValue}
+                onChange={(e) => setMaxValue(e.target.value)}
+                placeholder="max"
+                inputMode="numeric"
+                aria-invalid={!maxVValid}
+                className={`w-24 font-mono text-sm ${!maxVValid ? 'border-brand-vermilion' : ''}`}
+              />
+            </div>
+            <div className="mt-1 flex flex-wrap gap-1">
+              {[
+                { label: '≥ $4M',   min: 4_000_000   },
+                { label: '≥ $10M',  min: 10_000_000  },
+                { label: '≥ $50M',  min: 50_000_000  },
+                { label: '≥ $100M', min: 100_000_000 },
+              ].map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => { setMinValue(String(p.min)); setMaxValue(''); }}
+                  className="rounded-md border border-border bg-brand-teal-deep/40 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.08em] text-muted-soft transition-colors hover:border-brand-sage hover:text-foreground"
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Date slider */}
+          <div className="min-w-0">
+            <div className="flex items-baseline justify-between gap-2">
+              <Label>Contract end date</Label>
+              <span className="font-mono text-[11px] text-muted-soft">
+                {dateBounds
+                  ? `${epochDayToDate(dateRange?.[0] ?? dateBounds.min)} → ${epochDayToDate(dateRange?.[1] ?? dateBounds.max)}`
+                  : '—'}
+              </span>
+            </div>
+            {dateBounds ? (
+              <Slider.Root
+                className="relative flex h-7 w-full touch-none select-none items-center"
+                min={dateBounds.min}
+                max={dateBounds.max}
+                step={1}
+                value={dateRange ?? [dateBounds.min, dateBounds.max]}
+                onValueChange={(v) => {
+                  if (v.length !== 2) return;
+                  // Only treat the range as "active" when the user has moved
+                  // off the full extent — otherwise keep dateRange null so the
+                  // filter is a no-op and the count says "unfiltered".
+                  if (v[0] === dateBounds.min && v[1] === dateBounds.max) setDateRange(null);
+                  else setDateRange([v[0]!, v[1]!]);
+                }}
+                aria-label="Contract end date range"
               >
-                <X className="h-3 w-3" />
-              </button>
+                <Slider.Track className="relative h-1 grow rounded-full bg-brand-teal-deep">
+                  <Slider.Range className="absolute h-full rounded-full bg-brand-vermilion" />
+                </Slider.Track>
+                <Slider.Thumb className="block h-3.5 w-3.5 rounded-full border border-brand-vermilion bg-brand-cream shadow-md outline-none transition-transform hover:scale-110 focus:ring-2 focus:ring-brand-vermilion/50" />
+                <Slider.Thumb className="block h-3.5 w-3.5 rounded-full border border-brand-vermilion bg-brand-cream shadow-md outline-none transition-transform hover:scale-110 focus:ring-2 focus:ring-brand-vermilion/50" />
+              </Slider.Root>
+            ) : (
+              <div className="text-[11px] italic text-muted-soft">No dated awards in this set.</div>
             )}
           </div>
         </div>
