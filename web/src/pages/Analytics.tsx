@@ -851,11 +851,21 @@ function AwardBrowser({
     return { min, max };
   }, [rows]);
 
-  // Date slider state — undefined means "full range" (no filter applied).
-  const [dateRange, setDateRange] = React.useState<[number, number] | null>(null);
+  // Two-tier slider state:
+  //   pendingDateRange — visual position while the user is dragging (cheap,
+  //                      updates per pixel via onValueChange)
+  //   dateRange        — committed value used by the filter (only updates on
+  //                      onValueCommit, i.e., pointer release)
+  // Without this split, dragging across the slider would re-filter 2.5K rows
+  // hundreds of times per drag and lock the browser.
+  const [pendingDateRange, setPendingDateRange] = React.useState<[number, number] | null>(null);
+  const [dateRange,        setDateRange]        = React.useState<[number, number] | null>(null);
 
-  // Reset slider when the underlying bounds change (new data load).
-  React.useEffect(() => { setDateRange(null); }, [dateBounds?.min, dateBounds?.max]);
+  // Reset both when the underlying bounds change (new data load).
+  React.useEffect(() => {
+    setPendingDateRange(null);
+    setDateRange(null);
+  }, [dateBounds?.min, dateBounds?.max]);
 
   const minVNum = minValue.trim() === '' ? null : Number(minValue);
   const maxVNum = maxValue.trim() === '' ? null : Number(maxValue);
@@ -864,20 +874,26 @@ function AwardBrowser({
 
   const filtered = React.useMemo(() => {
     const q = search.trim().toLowerCase();
+    const hasSearch = q.length > 0;
+    const hasMin = minVNum != null && Number.isFinite(minVNum);
+    const hasMax = maxVNum != null && Number.isFinite(maxVNum);
+    const hasDate = dateRange != null;
+    // Fast path: no filters → return rows reference unchanged so React.memo
+    // children don't churn on every keystroke / slider tick.
+    if (!hasSearch && !hasMin && !hasMax && !hasDate) return rows;
     return rows.filter((r) => {
-      // Search across all string-stringified values.
-      if (q && !Object.values(r).some((v) => String(v ?? '').toLowerCase().includes(q))) {
+      if (hasSearch && !Object.values(r).some((v) => String(v ?? '').toLowerCase().includes(q))) {
         return false;
       }
-      // Value filter.
-      const value = Number(r.current_value ?? 0);
-      if (minVNum != null && Number.isFinite(minVNum) && value < minVNum) return false;
-      if (maxVNum != null && Number.isFinite(maxVNum) && value > maxVNum) return false;
-      // Date filter (only when the slider has been moved off full range).
-      if (dateRange) {
+      if (hasMin || hasMax) {
+        const value = Number(r.current_value ?? 0);
+        if (hasMin && value < (minVNum as number)) return false;
+        if (hasMax && value > (maxVNum as number)) return false;
+      }
+      if (hasDate) {
         const d = dateToEpochDay(r.pop_end_date as string | undefined);
-        // Awards without a date pass through — caller has no way to place them.
-        if (d != null && (d < dateRange[0] || d > dateRange[1])) return false;
+        // Awards without a date pass through — can't be placed on the axis.
+        if (d != null && (d < dateRange![0] || d > dateRange![1])) return false;
       }
       return true;
     });
@@ -891,6 +907,7 @@ function AwardBrowser({
     setSearch('');
     setMinValue('');
     setMaxValue('');
+    setPendingDateRange(null);
     setDateRange(null);
   }
 
@@ -992,7 +1009,7 @@ function AwardBrowser({
               <Label>Contract end date</Label>
               <span className="font-mono text-[11px] text-muted-soft">
                 {dateBounds
-                  ? `${epochDayToDate(dateRange?.[0] ?? dateBounds.min)} → ${epochDayToDate(dateRange?.[1] ?? dateBounds.max)}`
+                  ? `${epochDayToDate(pendingDateRange?.[0] ?? dateRange?.[0] ?? dateBounds.min)} → ${epochDayToDate(pendingDateRange?.[1] ?? dateRange?.[1] ?? dateBounds.max)}`
                   : '—'}
               </span>
             </div>
@@ -1002,14 +1019,22 @@ function AwardBrowser({
                 min={dateBounds.min}
                 max={dateBounds.max}
                 step={1}
-                value={dateRange ?? [dateBounds.min, dateBounds.max]}
+                value={pendingDateRange ?? dateRange ?? [dateBounds.min, dateBounds.max]}
                 onValueChange={(v) => {
+                  // Cheap: only the visual handle position. No filter recompute.
                   if (v.length !== 2) return;
-                  // Only treat the range as "active" when the user has moved
-                  // off the full extent — otherwise keep dateRange null so the
-                  // filter is a no-op and the count says "unfiltered".
-                  if (v[0] === dateBounds.min && v[1] === dateBounds.max) setDateRange(null);
-                  else setDateRange([v[0]!, v[1]!]);
+                  setPendingDateRange([v[0]!, v[1]!]);
+                }}
+                onValueCommit={(v) => {
+                  // Pointer release — commit to the actual filter state.
+                  if (v.length !== 2) return;
+                  if (v[0] === dateBounds.min && v[1] === dateBounds.max) {
+                    setDateRange(null);
+                    setPendingDateRange(null);
+                  } else {
+                    setDateRange([v[0]!, v[1]!]);
+                    setPendingDateRange(null);
+                  }
                 }}
                 aria-label="Contract end date range"
               >
@@ -1043,7 +1068,10 @@ function AwardBrowser({
   );
 }
 
-function AwardRow({
+// React.memo'd so individual rows don't re-render when only the search/filter
+// state changes upstream. With ~2,500 rows in the unscoped admin view this
+// shaves seconds off every keystroke.
+const AwardRow = React.memo(function AwardRow({
   row, onSelect,
 }: {
   row: Record<string, unknown>;
@@ -1106,7 +1134,7 @@ function AwardRow({
       </motion.button>
     </li>
   );
-}
+});
 
 // ─── Export menu ────────────────────────────────────────────────────────────
 
