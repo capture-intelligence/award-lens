@@ -71,15 +71,22 @@ function splitFundingTuples(row: Record<string, unknown>): Array<{
   }));
 }
 
-// Concise leaf label — the contract's PIID is the natural short identifier
-// in federal-procurement land. Falls back to a description-snippet when a
-// PIID is missing (rare). Kept short so the tree doesn't waste real estate.
+// Concise leaf label — money up front, then the first ≤3 words of the
+// contract description so the eye reads "what it's worth, what it is" at
+// a glance. Falls back to PIID when the description is empty (rare), and
+// to a placeholder when both are missing.
 function leafTitle(row: Record<string, unknown>): string {
-  const piid = String(row.award_piid ?? '').trim();
-  if (piid) return piid;
-  const desc = String(row.description ?? '').trim();
-  if (desc) return desc.length > 28 ? desc.slice(0, 25) + '…' : desc;
-  return '(unnamed contract)';
+  const money = fmtMoneyShort(Number(row.current_value ?? 0));
+  const desc  = String(row.description ?? '').trim();
+  const words = desc.split(/\s+/).filter(Boolean).slice(0, 3);
+  let namePart: string;
+  if (words.length > 0) {
+    namePart = words.join(' ');
+  } else {
+    const piid = String(row.award_piid ?? '').trim();
+    namePart = piid || '(unnamed)';
+  }
+  return `${money} - ${namePart}`;
 }
 
 export function buildSpendTree(
