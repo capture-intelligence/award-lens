@@ -6,7 +6,7 @@ import PivotTableUI from 'react-pivottable/PivotTableUI';
 import TableRenderers from 'react-pivottable/TableRenderers';
 import 'react-pivottable/pivottable.css';
 import { motion } from 'framer-motion';
-import { RefreshCw, Download, Search, X, Eye, ChevronDown, Check, Filter, ChevronRight } from 'lucide-react';
+import { RefreshCw, Download, Search, X, Eye, ChevronDown, Check, Filter, ChevronRight, ArrowDownUp } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tabs from '@radix-ui/react-tabs';
 
@@ -866,6 +866,63 @@ function SpendTreeTab({
 
 // ─── Award browser (clickable list with search) ─────────────────────────────
 
+type SortKey =
+  | 'end_soonest'
+  | 'end_latest'
+  | 'value_desc'
+  | 'value_asc'
+  | 'vendor_az'
+  | 'description_az'
+  | 'days_left_asc';
+
+const BROWSER_SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
+  { value: 'end_soonest',   label: 'Contract end · soonest first' },
+  { value: 'end_latest',    label: 'Contract end · latest first' },
+  { value: 'days_left_asc', label: 'Days left · least first' },
+  { value: 'value_desc',    label: 'Current value · high → low' },
+  { value: 'value_asc',     label: 'Current value · low → high' },
+  { value: 'vendor_az',     label: 'Vendor · A → Z' },
+  { value: 'description_az',label: 'Description · A → Z' },
+];
+
+function compareRows(key: SortKey, a: Record<string, unknown>, b: Record<string, unknown>): number {
+  const cmpStr = (x: string, y: string) => x.localeCompare(y, undefined, { sensitivity: 'base' });
+  switch (key) {
+    case 'end_soonest':
+    case 'end_latest': {
+      const ax = String(a.pop_end_date ?? '');
+      const bx = String(b.pop_end_date ?? '');
+      // Empties always sink to the bottom regardless of direction.
+      if (!ax && !bx) return 0;
+      if (!ax) return 1;
+      if (!bx) return -1;
+      return key === 'end_soonest' ? cmpStr(ax, bx) : cmpStr(bx, ax);
+    }
+    case 'days_left_asc': {
+      const av = Number(a.days_to_contract_end);
+      const bv = Number(b.days_to_contract_end);
+      const aOk = Number.isFinite(av);
+      const bOk = Number.isFinite(bv);
+      if (!aOk && !bOk) return 0;
+      if (!aOk) return 1;
+      if (!bOk) return -1;
+      return av - bv;
+    }
+    case 'value_desc':
+    case 'value_asc': {
+      const av = Number(a.current_value ?? 0);
+      const bv = Number(b.current_value ?? 0);
+      return key === 'value_desc' ? bv - av : av - bv;
+    }
+    case 'vendor_az':
+      return cmpStr(String(a.vendor_name ?? ''), String(b.vendor_name ?? ''));
+    case 'description_az':
+      return cmpStr(String(a.description ?? ''), String(b.description ?? ''));
+    default:
+      return 0;
+  }
+}
+
 function AwardBrowser({
   rows, onSelect,
 }: {
@@ -873,21 +930,25 @@ function AwardBrowser({
   onSelect: (a: Record<string, unknown>) => void;
 }) {
   // Value + date filters now live in the topbar (agency-context); rows
-  // arriving here are already filtered. Only the local search input stays
-  // — it's specific to scrolling this list.
+  // arriving here are already filtered. Search + sort stay local — they're
+  // specific to scrolling this list.
   const [search, setSearch] = React.useState('');
+  const [sortKey, setSortKey] = React.useState<SortKey>('end_soonest');
 
   const filtered = React.useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
-      Object.values(r).some((v) => String(v ?? '').toLowerCase().includes(q)),
-    );
-  }, [rows, search]);
+    const base = q
+      ? rows.filter((r) => Object.values(r).some((v) => String(v ?? '').toLowerCase().includes(q)))
+      : rows;
+    // Sort returns a fresh array so we don't mutate the parent's reference.
+    return [...base].sort((a, b) => compareRows(sortKey, a, b));
+  }, [rows, search, sortKey]);
+
+  const sortLabel = BROWSER_SORT_OPTIONS.find((o) => o.value === sortKey)?.label ?? 'Sort';
 
   return (
     <Card>
-      <div className="flex items-center justify-between gap-4 border-b border-border bg-brand-teal-deep/40 px-5 py-3">
+      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-border bg-brand-teal-deep/40 px-5 py-3">
         <div>
           <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand-sage">
             Browse · click any row for full detail
@@ -897,26 +958,67 @@ function AwardBrowser({
             {search ? ' (search)' : ''}
           </div>
         </div>
-        <div className="w-72">
-          <Label>Search</Label>
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="PIID, vendor, NAICS, anything…"
-              className="pl-10"
-            />
-            {search && (
-              <button
-                type="button"
-                onClick={() => setSearch('')}
-                aria-label="Clear search"
-                className="absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center text-muted-soft hover:text-foreground"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            )}
+
+        <div className="flex items-end gap-3">
+          {/* Sort By */}
+          <div className="min-w-[14rem]">
+            <Label>Sort by</Label>
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <button
+                  type="button"
+                  className="flex h-10 w-full items-center gap-2 rounded-md border border-border bg-brand-teal-deep/60 px-3 text-sm transition-colors hover:bg-brand-teal-soft/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-sage/60"
+                >
+                  <ArrowDownUp className="h-4 w-4 text-brand-sage" />
+                  <span className="flex-1 truncate text-left">{sortLabel}</span>
+                  <ChevronDown className="h-3.5 w-3.5 text-muted-soft" />
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content
+                  align="end"
+                  sideOffset={6}
+                  className="z-50 min-w-[18rem] rounded-xl border border-border bg-brand-teal-deep/95 p-1 shadow-glass-lg backdrop-blur-xl"
+                >
+                  {BROWSER_SORT_OPTIONS.map((o) => (
+                    <DropdownMenu.Item
+                      key={o.value}
+                      onSelect={() => setSortKey(o.value)}
+                      className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-sm outline-none data-[highlighted]:bg-brand-teal-soft/30"
+                    >
+                      <span className="flex-1">{o.label}</span>
+                      {sortKey === o.value && (
+                        <Check className="h-3.5 w-3.5 text-brand-sage" />
+                      )}
+                    </DropdownMenu.Item>
+                  ))}
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+          </div>
+
+          {/* Search */}
+          <div className="w-72">
+            <Label>Search</Label>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="PIID, vendor, NAICS, anything…"
+                className="pl-10"
+              />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch('')}
+                  aria-label="Clear search"
+                  className="absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center text-muted-soft hover:text-foreground"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -951,6 +1053,13 @@ const AwardRow = React.memo(function AwardRow({
   const value = Number(row.current_value ?? 0);
   const days = Number(row.days_to_contract_end);
   const excluded = Number(row.is_excluded) === 1;
+  const nature = natureOfWork({
+    description:        (row.description       ?? '') as string,
+    psc_description:    (row.psc_description   ?? '') as string,
+    psc_code:           (row.psc_code          ?? '') as string,
+    naics_description:  (row.naics_description ?? '') as string,
+    naics_code:         (row.naics_code        ?? '') as string,
+  });
 
   const dayChip = (() => {
     if (!Number.isFinite(days)) return null;
@@ -982,6 +1091,14 @@ const AwardRow = React.memo(function AwardRow({
             <span>{String(row.vendor_name ?? '—')}</span>
             <span>·</span>
             <span>{String(row.awarding_agency ?? '—')}</span>
+            {nature && (
+              <>
+                <span>·</span>
+                <span className="rounded-md border border-brand-sage/40 bg-brand-sage/10 px-1.5 py-0.5 font-medium text-brand-sage">
+                  {nature}
+                </span>
+              </>
+            )}
             {row.psc_description ? (
               <>
                 <span>·</span>
