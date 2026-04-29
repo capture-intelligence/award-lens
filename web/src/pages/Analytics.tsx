@@ -24,6 +24,8 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { AwardDetail } from '@/components/AwardDetail';
 import { natureOfWork } from '@/lib/nature-of-work';
+import { DataCoverageTree } from '@/components/viz/DataCoverageTree';
+import { buildSpendTree } from '@/components/viz/buildSpendTree';
 
 // ─── Field display map (snake_case → friendly caption) ───────────────────────
 
@@ -270,6 +272,12 @@ export function AnalyticsPage() {
             >
               Summary <span className="ml-1 text-[10px] opacity-80">({fmtInt(data.count)})</span>
             </Tabs.Trigger>
+            <Tabs.Trigger
+              value="tree"
+              className="rounded-lg px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-muted-soft transition-colors hover:text-foreground data-[state=active]:bg-brand-vermilion data-[state=active]:text-white data-[state=active]:shadow-sm"
+            >
+              Tree
+            </Tabs.Trigger>
           </Tabs.List>
 
           {/* PIVOT TAB */}
@@ -302,6 +310,15 @@ export function AnalyticsPage() {
           {/* SUMMARY TAB */}
           <Tabs.Content value="summary" className="focus:outline-none">
             <AwardBrowser rows={data.results} onSelect={setSelectedAward} />
+          </Tabs.Content>
+
+          {/* TREE TAB */}
+          <Tabs.Content value="tree" className="focus:outline-none">
+            <SpendTreeTab
+              rows={data.results}
+              viewName={data.view_name}
+              onSelect={setSelectedAward}
+            />
           </Tabs.Content>
         </Tabs.Root>
       )}
@@ -687,6 +704,100 @@ function PivotShell({
         />
       </div>
     </div>
+  );
+}
+
+// ─── Spend tree (D3 hierarchy) ──────────────────────────────────────────────
+
+function SpendTreeTab({
+  rows, viewName, onSelect,
+}: {
+  rows: Record<string, unknown>[];
+  viewName: string;
+  onSelect: (a: Record<string, unknown>) => void;
+}) {
+  const tree = React.useMemo(() => buildSpendTree(rows, { rootTitle: viewName || 'CDC' }), [rows, viewName]);
+
+  const totals = React.useMemo(() => {
+    let total = 0;
+    let unenriched = 0;
+    let urgent = 0;
+    for (const r of rows) {
+      total += Number(r.current_value ?? 0);
+      const codes = String(r.federal_account_codes ?? '');
+      if (!codes) unenriched += 1;
+      const days = Number(r.days_to_contract_end);
+      if (Number.isFinite(days) && days < 30) urgent += 1;
+    }
+    return { total, unenriched, urgent };
+  }, [rows]);
+
+  const fmtT = (n: number) => {
+    if (Math.abs(n) >= 1e9) return '$' + (n / 1e9).toFixed(2) + 'B';
+    if (Math.abs(n) >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
+    return '$' + Math.round(n).toLocaleString();
+  };
+
+  return (
+    <Card>
+      {/* Header */}
+      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-border bg-brand-teal-deep/40 px-5 py-3">
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand-sage">
+            Spend tree · click branches to expand · click a leaf for full detail
+          </div>
+          <div className="mt-0.5 text-xs text-muted">
+            {viewName} · {fmtInt(rows.length)} contracts · {fmtT(totals.total)} total
+            {totals.unenriched > 0 && (
+              <span className="ml-2 text-amber-300">
+                ({fmtInt(totals.unenriched)} unenriched — landed under "Unclassified")
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Legend */}
+        <div className="flex items-center gap-3 text-[11px] text-muted-soft">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: '#244855' }} />
+            Root
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: '#90AEAD' }} />
+            Group
+          </span>
+          <span className="mx-1 text-muted-soft/60">|</span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: '#90AEAD' }} />
+            &gt; 180d left
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: '#874F41' }} />
+            30–180d
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: '#E64833' }} />
+            &lt; 30d / expired
+          </span>
+        </div>
+      </div>
+
+      {/* Tree canvas */}
+      <div className="relative" style={{ height: 'calc(100vh - 320px)', minHeight: 560 }}>
+        <ErrorBoundary label="Spend tree">
+          <DataCoverageTree
+            data={tree}
+            onLeafClick={(node) => {
+              const row = node.payload as Record<string, unknown> | undefined;
+              if (row) onSelect(row);
+            }}
+          />
+        </ErrorBoundary>
+        <div className="pointer-events-none absolute bottom-3 right-4 text-[10px] uppercase tracking-[0.12em] text-muted-soft/70">
+          Scroll to zoom · Drag to pan
+        </div>
+      </div>
+    </Card>
   );
 }
 

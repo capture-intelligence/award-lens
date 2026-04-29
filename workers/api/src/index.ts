@@ -160,6 +160,17 @@ app.get('/explore', async (c) => {
       apl.state            AS pop_state,
       apl.city             AS pop_city,
       apl.congressional_district AS pop_district,
+      -- Federal account rollup. GROUP_CONCAT preserves all (account, activity)
+      -- pairs the award draws funding from; the client splits on '|' and uses
+      -- the first entry for tree placement, all entries for tooltips.
+      (SELECT GROUP_CONCAT(federal_account_code, '|')
+       FROM   award_federal_account WHERE award_id = a.award_id) AS federal_account_codes,
+      (SELECT GROUP_CONCAT(IFNULL(federal_account_name, ''), '|')
+       FROM   award_federal_account WHERE award_id = a.award_id) AS federal_account_names,
+      (SELECT GROUP_CONCAT(IFNULL(program_activity_code, ''), '|')
+       FROM   award_federal_account WHERE award_id = a.award_id) AS program_activity_codes,
+      (SELECT GROUP_CONCAT(IFNULL(program_activity_name, ''), '|')
+       FROM   award_federal_account WHERE award_id = a.award_id) AS program_activity_names,
       CAST(julianday(a.pop_end_date) - julianday('now') AS INTEGER) AS days_to_contract_end,
       CASE
         WHEN EXISTS (
