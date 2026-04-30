@@ -9,6 +9,12 @@ User=awards
 Group=awards
 WorkingDirectory=/opt/awards-pipeline/sidecar-oracle
 EnvironmentFile=/opt/awards-pipeline/sidecar-oracle/.env
+# Force Node to prefer IPv4 over IPv6 for DNS resolution. Oracle Always-Free
+# VMs occasionally see api.usaspending.gov resolve to an IPv6-only response
+# from local resolvers, and outbound IPv6 from these instances is flaky —
+# every fetch then dies with "TypeError: fetch failed". curl works in the
+# same env because curl defaults to A-records-first; this brings Node in line.
+Environment=NODE_OPTIONS=--dns-result-order=ipv4first
 ExecStart=/usr/bin/node /opt/awards-pipeline/sidecar-oracle/enrich-descriptions.mjs
 StandardOutput=journal
 StandardError=journal

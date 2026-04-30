@@ -188,6 +188,11 @@ async function enrichOne(row) {
     fetchAwardTransactions(id),
   ]);
   const mod_history = buildModHistory(txns);
+  // If both fields came back null, the upstream fetches failed (network
+  // outage, IPv6 DNS issue, etc.). Don't stamp this row — returning null
+  // keeps it eligible for the next sweep instead of marking it "enriched"
+  // with empty data and never being retried.
+  if (desc == null && mod_history == null) return null;
   return {
     award_id:         row.award_id,
     description_long: desc,

@@ -70,8 +70,13 @@ jobs:
                 sudo chown awards:awards $LOG
                 # Detach with nohup + setsid + closed stdin so SSH disconnect
                 # doesn't propagate SIGHUP. PID lands in PIDFILE.
+                # NODE_OPTIONS=--dns-result-order=ipv4first works around an
+                # Oracle Always-Free quirk where DNS returns AAAA-only for
+                # USAspending and v6 outbound flakes. Curl is fine; Node was
+                # not. Same env var is also baked into the systemd unit.
                 sudo -u awards bash -c "
                   set -a; source /opt/awards-pipeline/sidecar-oracle/.env; set +a
+                  export NODE_OPTIONS='--dns-result-order=ipv4first'
                   nohup setsid node /opt/awards-pipeline/sidecar-oracle/enrich-descriptions.mjs --backfill \
                     >> $LOG 2>&1 < /dev/null &
                   echo \\\$! > $PIDFILE

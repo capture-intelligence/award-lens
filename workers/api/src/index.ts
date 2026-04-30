@@ -989,6 +989,28 @@ app.get('/sidecar/awards/needing-description-enrich', async (c) => {
   return c.json({ count: r.results.length, results: r.results });
 });
 
+// Reset rows that got stamped during a failed run. The sidecar's old
+// behaviour was to stamp `description_enriched_at = now` even when both
+// description_long and mod_history came back null (network failure). Those
+// rows now look "enriched" with no data and won't be retried by the
+// sidecar's normal sweep. This endpoint clears the timestamp on rows where
+// both fields are null so they re-enter the queue.
+//
+// Optional query: ?since=<epoch_ms> — only reset rows stamped after this.
+app.post('/sidecar/awards/reset-failed-enrichment', async (c) => {
+  const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
+  const since = Number(c.req.query('since') ?? 0);
+  const r = await c.env.DB.prepare(`
+    UPDATE award
+    SET description_enriched_at = NULL
+    WHERE description_long IS NULL
+      AND mod_history IS NULL
+      AND description_enriched_at IS NOT NULL
+      AND description_enriched_at >= ?
+  `).bind(since).run();
+  return c.json({ reset: r.meta.changes ?? 0, since });
+});
+
 app.post('/sidecar/awards/description-enrich', async (c) => {
   const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
   const body = await c.req.json().catch(() => null) as {
