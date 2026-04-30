@@ -118,34 +118,55 @@ jobs:
               ;;
 
             diag)
-              # Network reachability + USAspending probe from the VM.
-              $SSH bash <<EOF
+              # Probe USAspending reachability from the VM. We use ssh + a
+              # local script to avoid heredoc-in-heredoc escaping pain.
+              cat > /tmp/usa-diag.sh <<'DIAG'
+                #!/usr/bin/env bash
                 set +e
-                echo "=== DNS ==="
+                echo "=== DNS A records ==="
+                dig +short api.usaspending.gov A
+                echo "=== DNS AAAA records ==="
+                dig +short api.usaspending.gov AAAA
+                echo "=== getent hosts ==="
                 getent hosts api.usaspending.gov
                 echo
-                echo "=== plain TCP to api.usaspending.gov:443 ==="
-                timeout 5 bash -c '</dev/tcp/api.usaspending.gov/443' && echo OPEN || echo BLOCKED
-                echo
-                echo "=== HTTPS HEAD via curl ==="
-                curl -sS -o /dev/null -w "status=%{http_code} time=%{time_total}s\n" \
+
+                echo "=== curl over IPv4 (-4) ==="
+                curl -4 -sS -o /dev/null -w "status=%{http_code} time=%{time_total}s\n" \
                   --max-time 15 \
-                  "https://api.usaspending.gov/api/v2/references/agency/"
+                  "https://api.usaspending.gov/api/v2/references/agency/" 2>&1 || echo "curl -4 FAILED"
+                echo "=== curl over IPv6 (-6) ==="
+                curl -6 -sS -o /dev/null -w "status=%{http_code} time=%{time_total}s\n" \
+                  --max-time 15 \
+                  "https://api.usaspending.gov/api/v2/references/agency/" 2>&1 || echo "curl -6 FAILED"
                 echo
-                echo "=== Node fetch test ==="
-                cat <<'JS' > /tmp/usa-probe.mjs
+
+                echo "=== Node fetch (default DNS order) ==="
+                cat > /tmp/usa-probe-default.mjs <<'JS'
+                try {
                   const r = await fetch('https://api.usaspending.gov/api/v2/references/agency/', { signal: AbortSignal.timeout(15000) });
-                  console.log({ status: r.status, ok: r.ok });
-                JS
-                sudo -u awards node /tmp/usa-probe.mjs 2>&1 || echo "node fetch FAILED with exit \$?"
-                rm -f /tmp/usa-probe.mjs
+                  console.log(JSON.stringify({ ok: r.ok, status: r.status }));
+                } catch (e) {
+                  console.log(JSON.stringify({ ok: false, error: String(e.message ?? e) }));
+                }
+JS
+                sudo -u awards node /tmp/usa-probe-default.mjs
+
+                echo "=== Node fetch (NODE_OPTIONS=--dns-result-order=ipv4first) ==="
+                sudo -u awards env NODE_OPTIONS=--dns-result-order=ipv4first \
+                  node /tmp/usa-probe-default.mjs
+
+                rm -f /tmp/usa-probe-default.mjs
                 echo
-                echo "=== outbound IP ==="
-                curl -sS https://ifconfig.me/ip; echo
-                echo
-                echo "=== iptables OUTPUT chain (top 10) ==="
-                sudo iptables -L OUTPUT -n --line-numbers | head -15
-          EOF
+                echo "=== outbound IPv4 ==="
+                curl -4 -sS --max-time 5 https://ifconfig.me/ip 2>/dev/null; echo
+                echo "=== outbound IPv6 ==="
+                curl -6 -sS --max-time 5 https://ifconfig.me/ip 2>/dev/null || echo "(no IPv6 outbound)"
+              DIAG
+              chmod +x /tmp/usa-diag.sh
+              scp -i ~/.ssh/id_ed25519 /tmp/usa-diag.sh \
+                ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}:/tmp/usa-diag.sh
+              $SSH 'bash /tmp/usa-diag.sh; rm -f /tmp/usa-diag.sh'
               ;;
 
             stop)
