@@ -139,9 +139,14 @@ jobs:
                 PROBE='fetch("https://api.usaspending.gov/api/v2/references/agency/",{signal:AbortSignal.timeout(15000)}).then(r=>console.log(JSON.stringify({ok:r.ok,status:r.status}))).catch(e=>console.log(JSON.stringify({ok:false,error:String(e.message||e)})))'
 
                 echo "=== Node fetch (default DNS order) ==="
-                sudo -u awards node -e "\$PROBE"
+                sudo -u awards node -e "\$PROBE" 2>&1
                 echo "=== Node fetch (NODE_OPTIONS=--dns-result-order=ipv4first) ==="
-                sudo -u awards env NODE_OPTIONS=--dns-result-order=ipv4first node -e "\$PROBE"
+                sudo -u awards env NODE_OPTIONS=--dns-result-order=ipv4first node -e "\$PROBE" 2>&1
+                echo "=== Node version ==="
+                node --version
+                echo "=== Probe via explicit dns.lookup family:4 ==="
+                PROBE4='const dns=require("dns"); dns.setDefaultResultOrder("ipv4first"); fetch("https://api.usaspending.gov/api/v2/references/agency/",{signal:AbortSignal.timeout(15000)}).then(r=>console.log(JSON.stringify({ok:r.ok,status:r.status}))).catch(e=>console.log(JSON.stringify({ok:false,error:String(e.message||e)})))'
+                sudo -u awards node -e "\$PROBE4" 2>&1
 
                 echo
                 echo "=== outbound IPv4 ==="
