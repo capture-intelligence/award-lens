@@ -1,0 +1,81 @@
+name: Enrich descriptions (Actions runner)
+
+# Runs the description-enrichment script directly on a GitHub-hosted Ubuntu
+# runner — no Oracle VM, no SSH. Each dispatch gets a fresh Azure-pool egress
+# IP, which sidesteps any IP-level rate-limit ban on the Oracle VM.
+#
+# Use this when:
+#   - The Oracle VM has been TLS-banned by USAspending
+#   - You're spinning up a new VM and want to keep enrichment moving in the meantime
+#   - You want a clean "off-VM" enrichment path that doesn't depend on any
+#     persistent infrastructure
+#
+# Modes mirror run-enrichment.yml: incremental (one batch) or backfill (loop until empty).
+# Cap is the GitHub Actions job timeout — 350 minutes (just under the 6h limit).
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'incremental | backfill'
+        required: false
+        default: 'incremental'
+        type: choice
+        options:
+          - incremental
+          - backfill
+      pace_ms:
+        description: 'ms between awards (default 600 incremental, 2500 backfill)'
+        required: false
+        default: ''
+      batch_size:
+        description: 'awards per batch (default 50 incremental, 25 backfill)'
+        required: false
+        default: ''
+
+jobs:
+  enrich:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Show egress IP (helpful when debugging rate limits)
+        run: |
+          curl -4 -sS --max-time 5 https://ifconfig.me/ip || true
+          echo
+
+      - name: Run enrichment
+        env:
+          API_BASE:    ${{ secrets.API_BASE }}
+          INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
+          MODE:        ${{ inputs.mode }}
+          # Conservative defaults when unset, slower for backfill to avoid
+          # tripping rate limits — Actions runner IPs aren't cleaner than
+          # any other if we hammer USAspending.
+          ENRICH_BATCH_SIZE: ${{ inputs.batch_size }}
+          ENRICH_PACE_MS:    ${{ inputs.pace_ms }}
+        run: |
+          # Apply mode-specific defaults if the user didn't override.
+          if [ -z "$ENRICH_PACE_MS" ]; then
+            if [ "$MODE" = "backfill" ]; then export ENRICH_PACE_MS=2500; else export ENRICH_PACE_MS=600; fi
+          fi
+          if [ -z "$ENRICH_BATCH_SIZE" ]; then
+            if [ "$MODE" = "backfill" ]; then export ENRICH_BATCH_SIZE=25; else export ENRICH_BATCH_SIZE=50; fi
+          fi
+
+          echo "MODE=$MODE PACE_MS=$ENRICH_PACE_MS BATCH_SIZE=$ENRICH_BATCH_SIZE"
+
+          # Force IPv4-first DNS so we don't hit the same Node-via-IPv6 issue
+          # the Oracle VM had. GitHub-hosted runners have full v4 + v6 but v4
+          # is reliably reachable for USAspending.
+          export NODE_OPTIONS=--dns-result-order=ipv4first
+
+          if [ "$MODE" = "backfill" ]; then
+            node sidecar-oracle/enrich-descriptions.mjs --backfill
+          else
+            node sidecar-oracle/enrich-descriptions.mjs
+          fi
