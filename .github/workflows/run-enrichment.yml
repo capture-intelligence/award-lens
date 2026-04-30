@@ -19,6 +19,7 @@ on:
           - status
           - stop
           - diag
+          - stats
 
 jobs:
   run:
@@ -161,6 +162,21 @@ jobs:
                 echo "=== last 50 USAspending requests in journalctl (rough rate check) ==="
                 sudo journalctl -u awards-sidecar.service -n 200 --no-pager 2>/dev/null | grep -ci "fetch\|usaspending" || echo "(no recent sidecar journal)"
           DIAGEOF
+              ;;
+
+            stats)
+              # Hit the worker's diagnostic route (auth-gated) and pretty-print
+              # the enrichment counts. Read the token from the VM's .env so no
+              # extra repo secret is needed.
+              $SSH bash <<'STATSEOF'
+                set -e
+                API_BASE=$(sudo grep ^API_BASE= /opt/awards-pipeline/sidecar-oracle/.env | cut -d= -f2-)
+                TOKEN=$(sudo grep ^INGEST_TOKEN= /opt/awards-pipeline/sidecar-oracle/.env | cut -d= -f2-)
+                echo "=== /sidecar/awards/enrichment-stats ==="
+                curl -sS -H "Authorization: Bearer $TOKEN" "$API_BASE/sidecar/awards/enrichment-stats" | python3 -m json.tool 2>/dev/null \
+                  || curl -sS -H "Authorization: Bearer $TOKEN" "$API_BASE/sidecar/awards/enrichment-stats"
+                echo
+STATSEOF
               ;;
 
             stop)
