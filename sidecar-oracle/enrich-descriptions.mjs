@@ -219,20 +219,59 @@ async function runBatch() {
   }
   if (updates.length > 0) {
     const result = await postBackToWorker(updates);
-    log('info', 'batch done', { processed: updates.length, applied: result?.count ?? 0 });
+    // Worker now reports both `accepted` (post-coercion input count) and
+    // `applied` (actual D1 rows changed). Older worker versions only
+    // returned `count`; treat that as both. If the worker rejected rows
+    // OR D1 matched zero, log a warn so the next run can investigate
+    // instead of silently looping for hours.
+    const accepted = result?.accepted ?? result?.count ?? 0;
+    const applied  = result?.applied  ?? result?.count ?? 0;
+    const rejected = result?.rejected ?? 0;
+    log('info', 'batch done', {
+      processed: updates.length,
+      accepted,
+      applied,
+      rejected,
+    });
+    if (applied < updates.length) {
+      log('warn', 'batch had partial-write — D1 didn\'t match every row', {
+        processed: updates.length,
+        applied,
+        rejected,
+      });
+    }
+    return applied;
   } else {
     log('warn', 'batch produced no updates');
+    return 0;
   }
-  return updates.length;
 }
 
 async function main() {
   const limit = BACKFILL ? Infinity : MAX_BATCHES_RUN;
   let total = 0;
+  let consecutiveZeroBatches = 0;
   for (let i = 0; i < limit; i++) {
     const n = await runBatch();
     total += n;
-    if (n === 0) break;
+    // The script used to break the loop the moment any single batch
+    // returned 0. That's right when the queue is genuinely empty, but
+    // wrong when one batch happens to fail entirely (rate limit blip,
+    // network hiccup) — we'd exit thinking we were done. Now require
+    // 3 consecutive zero-applied batches before giving up.
+    if (n === 0) {
+      consecutiveZeroBatches += 1;
+      if (consecutiveZeroBatches >= 3) {
+        log('info', 'no progress for 3 batches — exiting', { total });
+        break;
+      }
+      log('info', 'zero-applied batch, will retry', { consecutiveZeroBatches });
+      // Back off briefly before retrying so we don't hammer a flaky
+      // upstream.
+      await new Promise((r) => setTimeout(r, 5000));
+    } else {
+      consecutiveZeroBatches = 0;
+    }
   }
   log('info', 'enrichment complete', { total, mode: BACKFILL ? 'backfill' : 'incremental', dry: DRY });
 }

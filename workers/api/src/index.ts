@@ -1015,13 +1015,49 @@ app.post('/sidecar/awards/description-enrich', async (c) => {
   const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
   const body = await c.req.json().catch(() => null) as {
     updates?: Array<{
-      award_id: number;
+      award_id: number | string | bigint;
       description_long?: string | null;
       mod_history?: string | null;
     }>;
   } | null;
-  const updates = (body?.updates ?? []).filter((u) => Number.isInteger(u?.award_id));
-  if (updates.length === 0) return c.json({ count: 0 });
+
+  // Coerce award_id into a positive integer, accepting numbers, numeric
+  // strings, or bigints. Earlier `Number.isInteger` filter silently
+  // dropped every row when D1's INTEGER values came through as bigints
+  // or stringified by JSON.parse — applied count was always 0 even
+  // though the sidecar reported successful fetches. Be permissive on
+  // input, strict on validation.
+  const toAwardId = (v: unknown): number | null => {
+    if (typeof v === 'bigint') {
+      // award_id is always small (<2^53). Safe to narrow to Number.
+      return v > 0n ? Number(v) : null;
+    }
+    if (typeof v === 'number') {
+      return Number.isInteger(v) && v > 0 ? v : null;
+    }
+    if (typeof v === 'string') {
+      const n = Number(v);
+      return Number.isInteger(n) && n > 0 ? n : null;
+    }
+    return null;
+  };
+
+  const raw = body?.updates ?? [];
+  const updates: Array<{ award_id: number; description_long?: string | null; mod_history?: string | null }> = [];
+  let rejected = 0;
+  for (const u of raw) {
+    const id = toAwardId(u?.award_id);
+    if (id == null) { rejected += 1; continue; }
+    updates.push({
+      award_id: id,
+      description_long: u.description_long ?? null,
+      mod_history:      u.mod_history ?? null,
+    });
+  }
+
+  if (updates.length === 0) {
+    return c.json({ accepted: 0, applied: 0, rejected, count: 0 });
+  }
 
   // Cap stored size per row so a runaway long contract can't blow up D1.
   // 64 KB per column is plenty — most descriptions are 200-1000 bytes,
@@ -1037,8 +1073,30 @@ app.post('/sidecar/awards/description-enrich', async (c) => {
       'UPDATE award SET description_long = ?, mod_history = ?, description_enriched_at = ? WHERE award_id = ?',
     ).bind(cap(u.description_long ?? null), cap(u.mod_history ?? null), now, u.award_id),
   );
-  await c.env.DB.batch(stmts);
-  return c.json({ count: updates.length });
+  const results = await c.env.DB.batch(stmts);
+  // Sum the actual D1 row-change counts so the sidecar can detect when
+  // an update silently matched zero rows (e.g., bad award_id). `count`
+  // kept for backwards compat with the older sidecar response shape.
+  const applied = results.reduce((sum, r) => sum + ((r.meta?.changes as number | undefined) ?? 0), 0);
+  return c.json({ accepted: updates.length, applied, rejected, count: applied });
+});
+
+// Lightweight diagnostic: counts of rows in each enrichment state. Use this
+// to confirm whether the description-enrich endpoint is actually persisting
+// data without dispatching a full sidecar run. Auth-gated so the numbers
+// don't leak to the public.
+app.get('/sidecar/awards/enrichment-stats', async (c) => {
+  const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
+  const r = await c.env.DB.prepare(`
+    SELECT
+      COUNT(*)                                                    AS total,
+      SUM(CASE WHEN description_enriched_at IS NOT NULL THEN 1 ELSE 0 END) AS stamped,
+      SUM(CASE WHEN description_long       IS NOT NULL THEN 1 ELSE 0 END) AS has_description_long,
+      SUM(CASE WHEN mod_history            IS NOT NULL THEN 1 ELSE 0 END) AS has_mod_history,
+      SUM(CASE WHEN description_long IS NOT NULL OR mod_history IS NOT NULL THEN 1 ELSE 0 END) AS has_any
+    FROM award
+  `).first();
+  return c.json(r ?? {});
 });
 
 // ---------- Import: USAspending awards (called by VM sidecar, per view) ----------
