@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'incremental | backfill (detached) | status | stop'
+        description: 'incremental | backfill (detached) | status | stop | diag'
         required: false
         default: 'incremental'
         type: choice
@@ -18,6 +18,7 @@ on:
           - backfill
           - status
           - stop
+          - diag
 
 jobs:
   run:
@@ -108,6 +109,37 @@ jobs:
                 else
                   echo "no log yet at $LOG"
                 fi
+          EOF
+              ;;
+
+            diag)
+              # Network reachability + USAspending probe from the VM.
+              $SSH bash <<EOF
+                set +e
+                echo "=== DNS ==="
+                getent hosts api.usaspending.gov
+                echo
+                echo "=== plain TCP to api.usaspending.gov:443 ==="
+                timeout 5 bash -c '</dev/tcp/api.usaspending.gov/443' && echo OPEN || echo BLOCKED
+                echo
+                echo "=== HTTPS HEAD via curl ==="
+                curl -sS -o /dev/null -w "status=%{http_code} time=%{time_total}s\n" \
+                  --max-time 15 \
+                  "https://api.usaspending.gov/api/v2/references/agency/"
+                echo
+                echo "=== Node fetch test ==="
+                cat <<'JS' > /tmp/usa-probe.mjs
+                  const r = await fetch('https://api.usaspending.gov/api/v2/references/agency/', { signal: AbortSignal.timeout(15000) });
+                  console.log({ status: r.status, ok: r.ok });
+                JS
+                sudo -u awards node /tmp/usa-probe.mjs 2>&1 || echo "node fetch FAILED with exit \$?"
+                rm -f /tmp/usa-probe.mjs
+                echo
+                echo "=== outbound IP ==="
+                curl -sS https://ifconfig.me/ip; echo
+                echo
+                echo "=== iptables OUTPUT chain (top 10) ==="
+                sudo iptables -L OUTPUT -n --line-numbers | head -15
           EOF
               ;;
 
