@@ -153,6 +153,13 @@ jobs:
                 curl -4 -sS --max-time 5 https://ifconfig.me/ip 2>/dev/null; echo
                 echo "=== outbound IPv6 ==="
                 curl -6 -sS --max-time 5 https://ifconfig.me/ip 2>/dev/null || echo "(no IPv6 outbound)"
+                echo
+                echo "=== sanity check: cloudflare reachability ==="
+                curl -4 -sS -o /dev/null -w "cloudflare 1.1.1.1: status=%{http_code} time=%{time_total}s\n" --max-time 5 https://1.1.1.1/ 2>&1 || echo "cloudflare FAILED"
+                echo "=== sanity check: github reachability ==="
+                curl -4 -sS -o /dev/null -w "github: status=%{http_code} time=%{time_total}s\n" --max-time 5 https://api.github.com/ 2>&1 || echo "github FAILED"
+                echo "=== last 50 USAspending requests in journalctl (rough rate check) ==="
+                sudo journalctl -u awards-sidecar.service -n 200 --no-pager 2>/dev/null | grep -ci "fetch\|usaspending" || echo "(no recent sidecar journal)"
           DIAGEOF
               ;;
 
