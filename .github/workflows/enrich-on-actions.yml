@@ -48,10 +48,30 @@ jobs:
           curl -4 -sS --max-time 5 https://ifconfig.me/ip || true
           echo
 
+      - name: Pull API_BASE + INGEST_TOKEN from the VM
+        # Avoids needing dedicated repo secrets — we already have SSH access
+        # to the VM, and its .env carries both values. Each runner pulls them
+        # fresh; mask them so they never leak into logs.
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.VM_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          API_BASE=$(ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} 'sudo grep ^API_BASE= /opt/awards-pipeline/sidecar-oracle/.env | cut -d= -f2-')
+          INGEST_TOKEN=$(ssh -i ~/.ssh/id_ed25519 ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} 'sudo grep ^INGEST_TOKEN= /opt/awards-pipeline/sidecar-oracle/.env | cut -d= -f2-')
+          if [ -z "$API_BASE" ] || [ -z "$INGEST_TOKEN" ]; then
+            echo "ERROR: failed to read API_BASE or INGEST_TOKEN from VM .env"
+            exit 1
+          fi
+          # Mask both values in subsequent log output.
+          echo "::add-mask::$API_BASE"
+          echo "::add-mask::$INGEST_TOKEN"
+          # Persist for next step.
+          echo "API_BASE=$API_BASE" >> $GITHUB_ENV
+          echo "INGEST_TOKEN=$INGEST_TOKEN" >> $GITHUB_ENV
+
       - name: Run enrichment
         env:
-          API_BASE:    ${{ secrets.API_BASE }}
-          INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
           MODE:        ${{ inputs.mode }}
           # Conservative defaults when unset, slower for backfill to avoid
           # tripping rate limits — Actions runner IPs aren't cleaner than
