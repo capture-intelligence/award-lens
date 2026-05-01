@@ -1,0 +1,23 @@
+[Unit]
+Description=Awards Pipeline — SAM.gov Entity vendor enrichment
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=awards
+Group=awards
+WorkingDirectory=/opt/awards-pipeline/sidecar-oracle
+EnvironmentFile=/opt/awards-pipeline/sidecar-oracle/.env
+Environment=NODE_OPTIONS=--dns-result-order=ipv4first
+ExecStart=/usr/bin/node /opt/awards-pipeline/sidecar-oracle/sync-sam-vendors.mjs
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=awards-sam-vendors
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/awards-pipeline/sidecar-oracle
+MemoryMax=384M
+TimeoutStartSec=30min

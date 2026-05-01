@@ -22,6 +22,10 @@ on:
           - stats
           - probe
           - reset-mod-history
+          - trigger-sam-opps
+          - solicitations-stats
+          - trigger-vendor-enrich
+          - vendors-stats
 
 jobs:
   run:
@@ -172,6 +176,24 @@ jobs:
               # description-enrich and what JSON.stringify produces — tells
               # us the runtime type the description-enrich filter is seeing.
               $SSH 'set -e; API_BASE=$(sudo grep ^API_BASE= /opt/awards-pipeline/sidecar-oracle/.env | cut -d= -f2-); TOKEN=$(sudo grep ^INGEST_TOKEN= /opt/awards-pipeline/sidecar-oracle/.env | cut -d= -f2-); echo "=== first row from GET ==="; curl -sS -H "Authorization: Bearer $TOKEN" "$API_BASE/sidecar/awards/needing-description-enrich?limit=1" | (python3 -m json.tool 2>/dev/null || cat); echo; echo "=== same row, types ==="; curl -sS -H "Authorization: Bearer $TOKEN" "$API_BASE/sidecar/awards/needing-description-enrich?limit=1" | python3 -c "import json,sys; d=json.load(sys.stdin); r=d[\"results\"][0] if d.get(\"results\") else {}; print(json.dumps({k:{\"value\":v,\"type\":type(v).__name__} for k,v in r.items()}, indent=2))" 2>&1'
+              ;;
+
+            trigger-sam-opps)
+              # Fire the SAM.gov Opportunities sync immediately rather than
+              # waiting for the daily 09:00 UTC timer.
+              $SSH 'sudo systemctl start awards-sam-opps.service && echo "started" && sleep 2 && sudo journalctl -u awards-sam-opps.service --no-pager -n 5 --since "1 minute ago"'
+              ;;
+
+            solicitations-stats)
+              $SSH 'set -e; API_BASE=$(sudo grep ^API_BASE= /opt/awards-pipeline/sidecar-oracle/.env | cut -d= -f2-); TOKEN=$(sudo grep ^INGEST_TOKEN= /opt/awards-pipeline/sidecar-oracle/.env | cut -d= -f2-); echo "=== solicitations stats ==="; curl -sS -H "Authorization: Bearer $TOKEN" "$API_BASE/sidecar/solicitations/stats" | (python3 -m json.tool 2>/dev/null || cat); echo'
+              ;;
+
+            trigger-vendor-enrich)
+              $SSH 'sudo systemctl start awards-sam-vendors.service && echo "started" && sleep 2 && sudo journalctl -u awards-sam-vendors.service --no-pager -n 5 --since "1 minute ago"'
+              ;;
+
+            vendors-stats)
+              $SSH 'set -e; API_BASE=$(sudo grep ^API_BASE= /opt/awards-pipeline/sidecar-oracle/.env | cut -d= -f2-); TOKEN=$(sudo grep ^INGEST_TOKEN= /opt/awards-pipeline/sidecar-oracle/.env | cut -d= -f2-); echo "=== vendor enrichment stats ==="; curl -sS -H "Authorization: Bearer $TOKEN" "$API_BASE/sidecar/vendors/sam-enrichment-stats" | (python3 -m json.tool 2>/dev/null || cat); echo'
               ;;
 
             reset-mod-history)

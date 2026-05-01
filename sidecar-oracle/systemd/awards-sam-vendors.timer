@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily SAM.gov vendor enrichment
+Requires=awards-sam-vendors.service
+
+[Timer]
+OnCalendar=*-*-* 10:00:00 UTC
+Persistent=true
+RandomizedDelaySec=15min
+Unit=awards-sam-vendors.service
+
+[Install]
+WantedBy=timers.target

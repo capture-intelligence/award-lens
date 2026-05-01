@@ -1288,6 +1288,87 @@ app.get('/sidecar/solicitations/stats', async (c) => {
   });
 });
 
+// ─── Vendor enrichment from SAM.gov Entity Registration ────────────────────
+//
+// Sidecar pulls per-UEI from SAM and posts back. Worker upserts into the
+// existing `vendor` table (columns added by migration 0016).
+
+app.get('/sidecar/vendors/needing-sam-enrich', async (c) => {
+  const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
+  const limit = Math.max(1, Math.min(Number(c.req.query('limit') ?? 100), 500));
+  const maxAgeDays = Math.max(1, Number(c.req.query('max_age_days') ?? 180));
+  const cutoffMs = Date.now() - maxAgeDays * 86_400_000;
+  const r = await c.env.DB.prepare(`
+    SELECT vendor_id, uei, legal_name
+    FROM vendor
+    WHERE uei IS NOT NULL
+      AND uei <> ''
+      AND (sam_enriched_at IS NULL OR sam_enriched_at < ?)
+    ORDER BY sam_enriched_at ASC NULLS FIRST, vendor_id ASC
+    LIMIT ?
+  `).bind(cutoffMs, limit).all<{ vendor_id: string; uei: string; legal_name: string }>();
+  return c.json({ count: r.results.length, results: r.results });
+});
+
+app.post('/sidecar/vendors/sam-enrich', async (c) => {
+  const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
+  const body = await c.req.json().catch(() => null) as {
+    updates?: Array<{
+      vendor_id: string;
+      cage_code?: string | null;
+      business_types?: string | null;
+      sam_status?: string | null;
+      sam_expires_at?: string | null;
+      vendor_naics_codes?: string | null;
+    }>;
+  } | null;
+  const raw = body?.updates ?? [];
+  if (raw.length === 0) return c.json({ accepted: 0, applied: 0 });
+
+  const now = Date.now();
+  const stmts = raw
+    .filter((u) => u?.vendor_id && typeof u.vendor_id === 'string')
+    .map((u) =>
+      c.env.DB.prepare(`
+        UPDATE vendor SET
+          cage_code = ?,
+          business_types = ?,
+          sam_status = ?,
+          sam_expires_at = ?,
+          vendor_naics_codes = ?,
+          sam_enriched_at = ?
+        WHERE vendor_id = ?
+      `).bind(
+        u.cage_code ?? null,
+        u.business_types ?? null,
+        u.sam_status ?? null,
+        u.sam_expires_at ?? null,
+        u.vendor_naics_codes ?? null,
+        now,
+        u.vendor_id,
+      ),
+    );
+  if (stmts.length === 0) return c.json({ accepted: 0, applied: 0 });
+  const results = await c.env.DB.batch(stmts);
+  const applied = results.reduce((s, x) => s + ((x.meta?.changes as number | undefined) ?? 0), 0);
+  return c.json({ accepted: stmts.length, applied });
+});
+
+app.get('/sidecar/vendors/sam-enrichment-stats', async (c) => {
+  const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
+  const r = await c.env.DB.prepare(`
+    SELECT
+      COUNT(*)                                                  AS total,
+      SUM(CASE WHEN uei IS NOT NULL AND uei <> '' THEN 1 ELSE 0 END) AS with_uei,
+      SUM(CASE WHEN sam_enriched_at IS NOT NULL THEN 1 ELSE 0 END)   AS enriched,
+      SUM(CASE WHEN cage_code IS NOT NULL THEN 1 ELSE 0 END)         AS has_cage,
+      SUM(CASE WHEN business_types IS NOT NULL THEN 1 ELSE 0 END)    AS has_business_types,
+      SUM(CASE WHEN sam_status = 'Active' THEN 1 ELSE 0 END)         AS sam_active
+    FROM vendor
+  `).first();
+  return c.json(r ?? {});
+});
+
 // ---------- Import: USAspending awards (called by VM sidecar, per view) ----------
 //
 // Body: { run_id?, view_id, response, finalize, metadata }
