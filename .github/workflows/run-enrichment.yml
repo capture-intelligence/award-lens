@@ -21,6 +21,7 @@ on:
           - diag
           - stats
           - probe
+          - reset-mod-history
 
 jobs:
   run:
@@ -171,6 +172,16 @@ jobs:
               # description-enrich and what JSON.stringify produces — tells
               # us the runtime type the description-enrich filter is seeing.
               $SSH 'set -e; API_BASE=$(sudo grep ^API_BASE= /opt/awards-pipeline/sidecar-oracle/.env | cut -d= -f2-); TOKEN=$(sudo grep ^INGEST_TOKEN= /opt/awards-pipeline/sidecar-oracle/.env | cut -d= -f2-); echo "=== first row from GET ==="; curl -sS -H "Authorization: Bearer $TOKEN" "$API_BASE/sidecar/awards/needing-description-enrich?limit=1" | (python3 -m json.tool 2>/dev/null || cat); echo; echo "=== same row, types ==="; curl -sS -H "Authorization: Bearer $TOKEN" "$API_BASE/sidecar/awards/needing-description-enrich?limit=1" | python3 -c "import json,sys; d=json.load(sys.stdin); r=d[\"results\"][0] if d.get(\"results\") else {}; print(json.dumps({k:{\"value\":v,\"type\":type(v).__name__} for k,v in r.items()}, indent=2))" 2>&1'
+              ;;
+
+            reset-mod-history)
+              # Hits POST /sidecar/awards/reset-missing-mod-history to clear
+              # description_enriched_at on rows where mod_history is NULL.
+              # The next backfill sweep then re-fetches both description and
+              # transactions for those rows. Description gets overwritten
+              # with the same value (fine), mod_history populates for the
+              # first time (the URL bug is fixed).
+              $SSH 'set -e; API_BASE=$(sudo grep ^API_BASE= /opt/awards-pipeline/sidecar-oracle/.env | cut -d= -f2-); TOKEN=$(sudo grep ^INGEST_TOKEN= /opt/awards-pipeline/sidecar-oracle/.env | cut -d= -f2-); echo "=== reset-missing-mod-history ==="; curl -sS -X POST -H "Authorization: Bearer $TOKEN" "$API_BASE/sidecar/awards/reset-missing-mod-history" | (python3 -m json.tool 2>/dev/null || cat); echo'
               ;;
 
             stats)
