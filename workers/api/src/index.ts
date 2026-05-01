@@ -985,7 +985,7 @@ app.get('/sidecar/awards/needing-description-enrich', async (c) => {
        OR a.description_enriched_at < ?
     ORDER BY a.description_enriched_at ASC NULLS FIRST, a.award_id ASC
     LIMIT ?
-  `).bind(cutoffMs, limit).all<{ award_id: number; generated_internal_id: string }>();
+  `).bind(cutoffMs, limit).all<{ award_id: string; generated_internal_id: string }>();
   return c.json({ count: r.results.length, results: r.results });
 });
 
@@ -1015,35 +1015,29 @@ app.post('/sidecar/awards/description-enrich', async (c) => {
   const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
   const body = await c.req.json().catch(() => null) as {
     updates?: Array<{
-      award_id: number | string | bigint;
+      award_id: string | number | bigint;
       description_long?: string | null;
       mod_history?: string | null;
     }>;
   } | null;
 
-  // Coerce award_id into a positive integer, accepting numbers, numeric
-  // strings, or bigints. Earlier `Number.isInteger` filter silently
-  // dropped every row when D1's INTEGER values came through as bigints
-  // or stringified by JSON.parse — applied count was always 0 even
-  // though the sidecar reported successful fetches. Be permissive on
-  // input, strict on validation.
-  const toAwardId = (v: unknown): number | null => {
-    if (typeof v === 'bigint') {
-      // award_id is always small (<2^53). Safe to narrow to Number.
-      return v > 0n ? Number(v) : null;
-    }
-    if (typeof v === 'number') {
-      return Number.isInteger(v) && v > 0 ? v : null;
-    }
+  // award_id is a UUID string in this schema (TEXT PK), not an integer.
+  // Earlier filter assumed integer and rejected every row. Now: accept any
+  // non-empty string up to 64 chars (UUIDs are 36, but some legacy ids
+  // could be a bit longer). Numeric input also tolerated for legacy
+  // compat — coerced to string before binding.
+  const toAwardId = (v: unknown): string | null => {
     if (typeof v === 'string') {
-      const n = Number(v);
-      return Number.isInteger(n) && n > 0 ? n : null;
+      const s = v.trim();
+      return s.length > 0 && s.length <= 64 ? s : null;
     }
+    if (typeof v === 'number' && Number.isInteger(v) && v > 0) return String(v);
+    if (typeof v === 'bigint' && v > 0n) return String(v);
     return null;
   };
 
   const raw = body?.updates ?? [];
-  const updates: Array<{ award_id: number; description_long?: string | null; mod_history?: string | null }> = [];
+  const updates: Array<{ award_id: string; description_long?: string | null; mod_history?: string | null }> = [];
   let rejected = 0;
   for (const u of raw) {
     const id = toAwardId(u?.award_id);
