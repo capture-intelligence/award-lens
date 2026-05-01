@@ -26,11 +26,15 @@ on:
       shape:
         description: 'OCI compute shape (Always-Free options only)'
         required: false
-        default: 'VM.Standard.E2.1.Micro'
+        # Default A1.Flex (ARM Ampere) — new Always-Free accounts no longer
+        # get E2.1.Micro, and even older accounts often hit AMD capacity
+        # limits in popular regions. A1.Flex has its own 4-OCPU/24GB pool
+        # that's almost always available.
+        default: 'VM.Standard.A1.Flex'
         type: choice
         options:
-          - 'VM.Standard.E2.1.Micro'
           - 'VM.Standard.A1.Flex'
+          - 'VM.Standard.E2.1.Micro'
 
 jobs:
   provision:

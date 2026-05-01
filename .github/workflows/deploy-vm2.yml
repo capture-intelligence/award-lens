@@ -67,14 +67,26 @@ jobs:
             systemd/*.service systemd/*.timer \
             ${{ secrets.VM_USER }}@${{ secrets.VM2_HOST }}:/tmp/
 
+      - name: Pull API_BASE + INGEST_TOKEN from existing VM
+        # Avoids needing dedicated repo secrets — the existing VM has them
+        # in its .env from the original setup. Pull and reuse for VM2.
+        run: |
+          ssh-keyscan -H "${{ secrets.VM_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          API_BASE_VAL=$(ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} 'sudo grep ^API_BASE= /opt/awards-pipeline/sidecar-oracle/.env | cut -d= -f2-')
+          INGEST_TOKEN_VAL=$(ssh -i ~/.ssh/id_ed25519 ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} 'sudo grep ^INGEST_TOKEN= /opt/awards-pipeline/sidecar-oracle/.env | cut -d= -f2-')
+          if [ -z "$API_BASE_VAL" ] || [ -z "$INGEST_TOKEN_VAL" ]; then
+            echo "ERROR: failed to read values from existing VM .env"
+            exit 1
+          fi
+          echo "::add-mask::$API_BASE_VAL"
+          echo "::add-mask::$INGEST_TOKEN_VAL"
+          echo "API_BASE_VAL=$API_BASE_VAL"     >> $GITHUB_ENV
+          echo "INGEST_TOKEN_VAL=$INGEST_TOKEN_VAL" >> $GITHUB_ENV
+
       - name: Install code + write .env
         env:
-          API_BASE_VAL:        ${{ secrets.API_BASE }}
-          INGEST_TOKEN_VAL:    ${{ secrets.INGEST_TOKEN }}
-          SAM_KEY_VAL:         ${{ secrets.SAM_API_KEY_NEW }}
+          SAM_KEY_VAL: ${{ secrets.SAM_API_KEY_NEW }}
         run: |
-          # Mask all sensitive values
-          echo "::add-mask::$INGEST_TOKEN_VAL"
           echo "::add-mask::$SAM_KEY_VAL"
           # Pipe the .env contents over stdin so the values never appear on argv.
           printf 'API_BASE=%s\nINGEST_TOKEN=%s\nSAM_API_KEY=%s\n' \
