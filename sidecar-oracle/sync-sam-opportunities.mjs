@@ -15,8 +15,11 @@
 //   API_BASE         required
 //   INGEST_TOKEN     required
 //   SAM_API_KEY      required
-//   SAM_OPPS_AGENCY  optional — default "075" (HHS, includes CDC). Use ""
-//                    to pull all agencies.
+//   SAM_OPPS_ORG     optional — SAM.gov organizationCode. Default "7523"
+//                    (CDC Office of Acquisition Services). Common alternatives:
+//                      "7505" — NIH
+//                      "7530" — CMS
+//                      ""     — no org filter (all of HHS via deptname)
 //   SAM_OPPS_DAYS    optional — lookback window, default 30 (days)
 //   SAM_OPPS_PAGES   optional — hard cap, default 50 (× 100 = 5000 rows max)
 //   PAGE_SIZE        optional — default 100, max 1000
@@ -33,7 +36,7 @@ const API   = require_env('API_BASE').replace(/\/$/, '');
 const TOKEN = require_env('INGEST_TOKEN');
 const KEY   = require_env('SAM_API_KEY');
 
-const AGENCY     = env.SAM_OPPS_AGENCY ?? '075';
+const ORG_CODE   = env.SAM_OPPS_ORG ?? '7523';     // CDC OAS
 const DAYS_BACK  = Number(env.SAM_OPPS_DAYS  ?? 30);
 const MAX_PAGES  = Number(env.SAM_OPPS_PAGES ?? 50);
 const PAGE_SIZE  = Math.min(Number(env.PAGE_SIZE ?? 100), 1000);
@@ -60,7 +63,11 @@ async function fetchPage(offset, attempt = 1) {
   url.searchParams.set('offset',  String(offset));
   url.searchParams.set('postedFrom', mmddyyyy(since));
   url.searchParams.set('postedTo',   mmddyyyy(today));
-  if (AGENCY) url.searchParams.set('ncode', AGENCY);
+  // organizationCode = CDC Office of Acquisition Services (7523 by default).
+  // Earlier code used `ncode` which is NAICS, not agency — silently filtered
+  // every result out. organizationCode is the right SAM.gov param for
+  // narrowing to a specific contracting office.
+  if (ORG_CODE) url.searchParams.set('organizationCode', ORG_CODE);
 
   let status = 0;
   try {
@@ -170,7 +177,7 @@ async function postBatch(path, key, rows) {
 
 (async () => {
   log('info', 'sync-sam-opportunities start', {
-    api: API, sam: SAM_BASE, agency: AGENCY, days: DAYS_BACK,
+    api: API, sam: SAM_BASE, org_code: ORG_CODE, days: DAYS_BACK,
     max_pages: MAX_PAGES, page_size: PAGE_SIZE,
   });
 
