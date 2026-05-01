@@ -200,8 +200,9 @@ jobs:
               ;;
 
             ai-smoke-test)
-              # Three-prompt test: STRUCTURED, SEMANTIC, GENERAL.
-              $SSH 'set -e; API_BASE=$(sudo grep ^API_BASE= /opt/awards-pipeline/sidecar-oracle/.env | cut -d= -f2-); echo "=== STRUCTURED test ==="; curl -sS -X POST -H "content-type: application/json" -d "{\"query\":\"show NCHHSTP contracts ending in 60 days under \\$5M\"}" "$API_BASE/ai/ask" | (python3 -m json.tool 2>/dev/null || cat); echo; echo "=== SEMANTIC test ==="; curl -sS -X POST -H "content-type: application/json" -d "{\"query\":\"find contracts about cybersecurity\"}" "$API_BASE/ai/ask" | (python3 -m json.tool 2>/dev/null || cat); echo; echo "=== GENERAL test ==="; curl -sS -X POST -H "content-type: application/json" -d "{\"query\":\"what is NCHHSTP\"}" "$API_BASE/ai/ask" | (python3 -m json.tool 2>/dev/null || cat); echo'
+              # Three-prompt test: STRUCTURED, SEMANTIC, GENERAL. Using
+              # word "5M" (no dollar sign) to dodge shell expansion.
+              $SSH 'set -e; API_BASE=$(sudo grep ^API_BASE= /opt/awards-pipeline/sidecar-oracle/.env | cut -d= -f2-); echo "=== STRUCTURED test ==="; curl -sS -X POST -H "content-type: application/json" -d "{\"query\":\"show NCHHSTP contracts ending in 60 days under 5 million dollars\"}" "$API_BASE/ai/ask" | (python3 -m json.tool 2>/dev/null || cat); echo; echo "=== SEMANTIC test ==="; curl -sS -X POST -H "content-type: application/json" -d "{\"query\":\"find contracts about cybersecurity\"}" "$API_BASE/ai/ask" | (python3 -m json.tool 2>/dev/null || cat); echo; echo "=== GENERAL test ==="; curl -sS -X POST -H "content-type: application/json" -d "{\"query\":\"what is NCHHSTP\"}" "$API_BASE/ai/ask" | (python3 -m json.tool 2>/dev/null || cat); echo'
               ;;
 
             reset-mod-history)
