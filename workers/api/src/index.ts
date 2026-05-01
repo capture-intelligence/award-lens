@@ -31,6 +31,10 @@ export interface Env extends AuthEnv {
   SAM_API: Fetcher;
   /** Shared secret for ingest/admin endpoints. Required in production. */
   INGEST_TOKEN?: string;
+  /** Workers AI binding — Llama for generation, BGE for embeddings. */
+  AI: Ai;
+  /** Vectorize index for RAG over award rows. */
+  VEC: VectorizeIndex;
 }
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVars }>();
@@ -123,6 +127,108 @@ app.get('/health', async (c) => {
 // specified agency, ranked by award count. Center is derived per-award via
 // the lowest-priority funding account (the same logic /explore's decorate()
 // uses), so the breakdown matches what the user sees on the data tabs.
+// ─── AI: Pattern A — natural language → /explore filter params ─────────────
+//
+// User asks "show me NCHHSTP contracts ending in 60 days under $5M" and the
+// SLM returns a JSON object that Pattern A clients can use to populate the
+// /explore endpoint's query string. No SQL generation — just structured
+// translation onto the existing filter schema.
+//
+// Returns:
+//   { type: "STRUCTURED" | "SEMANTIC" | "GENERAL",
+//     params?: { agency?, center?, min_value?, max_value?,
+//                date_range?: [string, string], natures?: string[] },
+//     reasoning?: string }
+//
+// SEMANTIC + GENERAL paths return type only (caller routes elsewhere). This
+// endpoint is the smoke test for the Workers AI binding.
+app.post('/ai/ask', async (c) => {
+  const body = await c.req.json().catch(() => null) as { query?: string } | null;
+  const query = String(body?.query ?? '').trim();
+  if (!query || query.length > 500) {
+    return c.json({ error: 'query is required, max 500 chars' }, 400);
+  }
+
+  // Step 1: route the query
+  const routerSystem = `You are a router for a federal procurement dashboard. Classify the user's query into exactly one of these types:
+- STRUCTURED: filter / aggregate / rank queries that map to specific fields (agency, center, dollar amount, date range, nature of work)
+- SEMANTIC: "find contracts about X", "similar to Y", topical search across description text
+- GENERAL: definitions, explanations, knowledge questions that don't need data lookup
+
+Respond with JSON only, no prose. Format: {"type": "STRUCTURED"|"SEMANTIC"|"GENERAL"}.`;
+
+  // Step 2: if STRUCTURED, extract params
+  const paramsSystem = `You are a query-to-params translator for a federal procurement dashboard. Extract structured filter params from the user's query.
+
+Available fields:
+- agency: string (e.g. "Centers for Disease Control and Prevention")
+- center: 4-12 letter code (e.g. "NCHHSTP", "NCHS", "NCEZID", "NCIPC")
+- min_value: number (US dollars; "$5M" = 5000000)
+- max_value: number
+- date_range: [start, end] where start and end are ISO YYYY-MM-DD strings, "today", or "today+Nd" / "today-Nd"
+- natures: array of strings from this fixed list: "Research / R&D", "Data / Surveillance Systems", "IT / Software", "Communications / Outreach", "Evaluation / Assessment", "Program Support / PMO", "Goods / Equipment", "Other / Mixed"
+
+Respond with JSON only. Include only the fields the query mentions. Format:
+{"agency"?: string, "center"?: string, "min_value"?: number, "max_value"?: number, "date_range"?: [string, string], "natures"?: string[]}`;
+
+  try {
+    const routerResp = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+      messages: [
+        { role: 'system', content: routerSystem },
+        { role: 'user',   content: query },
+      ],
+      temperature: 0.0,
+      max_tokens: 60,
+    }) as { response?: string } | string;
+
+    const routerText = typeof routerResp === 'string' ? routerResp : (routerResp.response ?? '');
+    const routerJson = extractJson(routerText) ?? { type: 'GENERAL' };
+    const type = (routerJson.type ?? 'GENERAL') as string;
+
+    if (type !== 'STRUCTURED') {
+      return c.json({ type, raw_router: routerText });
+    }
+
+    const paramsResp = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+      messages: [
+        { role: 'system', content: paramsSystem },
+        { role: 'user',   content: query },
+      ],
+      temperature: 0.0,
+      max_tokens: 250,
+    }) as { response?: string } | string;
+
+    const paramsText = typeof paramsResp === 'string' ? paramsResp : (paramsResp.response ?? '');
+    const params = extractJson(paramsText) ?? {};
+
+    return c.json({ type: 'STRUCTURED', params, raw_router: routerText, raw_params: paramsText });
+  } catch (err) {
+    return c.json({ error: 'AI binding error', message: String(err).slice(0, 300) }, 500);
+  }
+});
+
+// Pull the first JSON object out of a string that may have leading/trailing
+// prose. Returns null on parse failure.
+function extractJson(s: string): Record<string, unknown> | null {
+  if (!s) return null;
+  // Try direct parse first
+  try { return JSON.parse(s); } catch { /* fall through */ }
+  // Find first { ... } block
+  const start = s.indexOf('{');
+  if (start < 0) return null;
+  let depth = 0;
+  for (let i = start; i < s.length; i++) {
+    if (s[i] === '{') depth++;
+    else if (s[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        try { return JSON.parse(s.slice(start, i + 1)); } catch { return null; }
+      }
+    }
+  }
+  return null;
+}
+
 app.get('/centers', async (c) => {
   const agency = c.req.query('awarding_agency')?.trim();
   if (!agency) return c.json({ error: 'awarding_agency_required' }, 400);

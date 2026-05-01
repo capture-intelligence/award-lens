@@ -27,6 +27,22 @@ id = "40195caf76f34e4aa043530a3b0c5f3c"
 binding = "SAM_API"
 service = "sam-api-worker"
 
+# Workers AI binding — used by /ai/ask routes. Free tier covers 10K
+# neurons/day which is plenty for prototyping. Same binding handles both
+# generation (Llama 3.1 8B) and embeddings (BGE base). Models referenced
+# at call time via env.AI.run('@cf/meta/...', {...}).
+[ai]
+binding = "AI"
+
+# Vectorize index for RAG over award rows. Created once via:
+#   pnpm exec wrangler vectorize create awardlens-awards \
+#     --dimensions=768 --metric=cosine
+# 768 matches BGE-base-en-v1.5 output dim. Free tier covers 30M vectors
+# stored + 50K queries/month — orders of magnitude over our needs.
+[[vectorize]]
+binding = "VEC"
+index_name = "awardlens-awards"
+
 [observability]
 enabled = true
 head_sampling_rate = 1.0
