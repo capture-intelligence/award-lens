@@ -183,25 +183,23 @@ jobs:
         env:
           COMPARTMENT: ${{ secrets.OCI_COMPARTMENT_OCID }}
         run: |
-          # Build shape-config JSON for flex shapes (A1.Flex needs OCPUs/memory).
-          SHAPE_CFG=""
+          # Use a bash array for args so JSON in --shape-config doesn't get
+          # mangled by eval/word-splitting.
+          ARGS=(
+            --compartment-id "$COMPARTMENT"
+            --availability-domain "${{ steps.ad.outputs.value }}"
+            --shape "${{ inputs.shape }}"
+            --image-id "${{ steps.image.outputs.value }}"
+            --subnet-id "${{ steps.subnet.outputs.value }}"
+            --display-name "${{ inputs.name }}"
+            --ssh-authorized-keys-file "$HOME/.ssh/id_ed25519.pub"
+            --assign-public-ip true
+            --wait-for-state RUNNING
+          )
           if [ "${{ inputs.shape }}" = "VM.Standard.A1.Flex" ]; then
-            SHAPE_CFG='--shape-config {"ocpus":1,"memoryInGBs":6}'
+            ARGS+=(--shape-config '{"ocpus":1,"memoryInGBs":6}')
           fi
-
-          # eval-style to avoid quoting hell with the JSON above.
-          eval oci compute instance launch \
-            --compartment-id "$COMPARTMENT" \
-            --availability-domain "${{ steps.ad.outputs.value }}" \
-            --shape "${{ inputs.shape }}" \
-            --image-id "${{ steps.image.outputs.value }}" \
-            --subnet-id "${{ steps.subnet.outputs.value }}" \
-            --display-name "${{ inputs.name }}" \
-            --ssh-authorized-keys-file ~/.ssh/id_ed25519.pub \
-            --assign-public-ip true \
-            --wait-for-state RUNNING \
-            $SHAPE_CFG \
-            > /tmp/launch.json
+          oci compute instance launch "${ARGS[@]}" > /tmp/launch.json
           INSTANCE_ID=$(jq -r '.data.id' /tmp/launch.json)
           echo "Instance: $INSTANCE_ID"
           echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
