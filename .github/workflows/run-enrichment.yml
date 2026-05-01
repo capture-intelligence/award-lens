@@ -179,9 +179,11 @@ jobs:
               ;;
 
             trigger-sam-opps)
-              # Fire the SAM.gov Opportunities sync immediately rather than
-              # waiting for the daily 09:00 UTC timer.
-              $SSH 'sudo systemctl start awards-sam-opps.service && echo "started" && sleep 2 && sudo journalctl -u awards-sam-opps.service --no-pager -n 5 --since "1 minute ago"'
+              # Fire the SAM.gov Opportunities sync immediately. systemd
+              # `start` returns non-zero when the unit failed; we tolerate
+              # that and dump full journal so the workflow log shows the
+              # cause instead of just "Process completed with exit 1".
+              $SSH 'set +e; sudo systemctl start awards-sam-opps.service; echo "--- status ---"; sudo systemctl status awards-sam-opps.service --no-pager -n 30; echo "--- journal ---"; sudo journalctl -u awards-sam-opps.service --no-pager -n 80 --since "5 minutes ago"; exit 0'
               ;;
 
             solicitations-stats)
@@ -189,7 +191,7 @@ jobs:
               ;;
 
             trigger-vendor-enrich)
-              $SSH 'sudo systemctl start awards-sam-vendors.service && echo "started" && sleep 2 && sudo journalctl -u awards-sam-vendors.service --no-pager -n 5 --since "1 minute ago"'
+              $SSH 'set +e; sudo systemctl start awards-sam-vendors.service; echo "--- status ---"; sudo systemctl status awards-sam-vendors.service --no-pager -n 30; echo "--- journal ---"; sudo journalctl -u awards-sam-vendors.service --no-pager -n 80 --since "5 minutes ago"; exit 0'
               ;;
 
             vendors-stats)
