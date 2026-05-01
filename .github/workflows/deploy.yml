@@ -85,7 +85,10 @@ jobs:
           # null, and the React app crashes with
           # "Cannot read properties of null (reading 'authenticated')".
           workingDirectory: 'web'
-          command: 'pages deploy dist --project-name=awards-dashboard --branch=production --commit-dirty=true'
+          # --commit-message: wrangler 4.x rejects "non-UTF-8" git commit
+          # messages (em-dashes etc.) when reading from git log. Passing an
+          # explicit ASCII message sidesteps the validator.
+          command: 'pages deploy dist --project-name=awards-dashboard --branch=production --commit-dirty=true --commit-message="ci-deploy"'
 
   # ── 3. Oracle VM sidecar — push only the files that changed ────────────
   sidecar:
