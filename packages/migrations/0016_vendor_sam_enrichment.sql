@@ -13,7 +13,9 @@
 -- Sidecar (sync-sam-vendors.mjs) walks vendors lacking sam_enriched_at,
 -- queries SAM by UEI, posts results back to the worker.
 
-ALTER TABLE vendor ADD COLUMN cage_code            TEXT;
+-- NOTE: cage_code already exists in vendor (added in migration 0001).
+-- We just write to it directly in the worker's vendor-sam-enrich UPDATE
+-- — no ALTER needed.
 ALTER TABLE vendor ADD COLUMN business_types       TEXT;       -- pipe-delimited list
 ALTER TABLE vendor ADD COLUMN sam_status           TEXT;       -- "Active" | "Inactive" | "Expired"
 ALTER TABLE vendor ADD COLUMN sam_expires_at       TEXT;       -- ISO YYYY-MM-DD
