@@ -1075,6 +1075,22 @@ app.post('/sidecar/awards/description-enrich', async (c) => {
   return c.json({ accepted: updates.length, applied, rejected, count: applied });
 });
 
+// Targeted reset for rows missing mod_history (typical after the URL-bug
+// backfill that wrote description_long but no transactions). Clears
+// description_enriched_at on rows where mod_history IS NULL so the next
+// sweep re-fetches BOTH endpoints. Existing description_long survives the
+// re-fetch (UPDATE overwrites with the fresh value, which is the same).
+app.post('/sidecar/awards/reset-missing-mod-history', async (c) => {
+  const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
+  const r = await c.env.DB.prepare(`
+    UPDATE award
+    SET description_enriched_at = NULL
+    WHERE mod_history IS NULL
+      AND description_enriched_at IS NOT NULL
+  `).run();
+  return c.json({ reset: r.meta.changes ?? 0 });
+});
+
 // Lightweight diagnostic: counts of rows in each enrichment state. Use this
 // to confirm whether the description-enrich endpoint is actually persisting
 // data without dispatching a full sidecar run. Auth-gated so the numbers

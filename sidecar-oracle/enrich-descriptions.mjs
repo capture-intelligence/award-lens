@@ -113,7 +113,10 @@ async function fetchAwardDescription(generatedInternalId, attempt = 1) {
 
 async function fetchAwardTransactions(generatedInternalId, attempt = 1) {
   try {
-    const res = await fetch(`${USA_BASE}/awards/transactions/`, {
+    // Endpoint is /api/v2/transactions/ — NOT /api/v2/awards/transactions/
+    // (the latter 404s. The earlier all-zero mod_history backfill was the
+    // sidecar silently treating those 404s as "no transactions exist".)
+    const res = await fetch(`${USA_BASE}/transactions/`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -123,8 +126,6 @@ async function fetchAwardTransactions(generatedInternalId, attempt = 1) {
         award_id: generatedInternalId,
         limit:    100,
         page:     1,
-        sort:     'action_date',
-        order:    'asc',
       }),
       signal: AbortSignal.timeout(20_000),
     });
@@ -163,19 +164,36 @@ function buildModHistory(transactions) {
       ?? t?.transaction_number
       ?? '0',
     ).slice(0, 16);
+    const action = String(t?.action_type_description ?? '').trim();
     const rawDesc = String(
       t?.description
       ?? t?.transaction_description
       ?? '',
     );
     const desc = rawDesc.replace(/\s+/g, ' ').trim().slice(0, 500);
+    // Include the obligation amount when non-zero — turns mod_history into a
+    // proper financial narrative ("EXERCISE OPTION +$497k") instead of just
+    // a list of dates.
+    const obligation = Number(t?.federal_action_obligation ?? 0);
+    const oblTag = obligation
+      ? `, ${obligation > 0 ? '+' : ''}$${formatMoney(obligation)}`
+      : '';
+    const actionTag = action ? ` (${action}${oblTag})` : (oblTag ? ` (${oblTag.slice(2)})` : '');
     const sig = `${date}|${mod}|${desc.slice(0, 80)}`;
     if (seenSig.has(sig)) continue;
     seenSig.add(sig);
-    lines.push(`[${date}] MOD ${mod} — ${desc || '(no description)'}`);
+    lines.push(`[${date}] MOD ${mod}${actionTag} — ${desc || '(no description)'}`);
   }
   if (lines.length === 0) return null;
   return lines.join('\n---\n');
+}
+
+function formatMoney(n) {
+  const abs = Math.abs(n);
+  if (abs >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+  if (abs >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+  if (abs >= 1e3) return (n / 1e3).toFixed(0) + 'K';
+  return Math.round(n).toLocaleString();
 }
 
 // ─── Per-award processing ────────────────────────────────────────────────────
