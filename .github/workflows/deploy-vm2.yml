@@ -1,0 +1,115 @@
+name: Deploy sidecar to VM2
+
+# Mirrors the existing sidecar deploy job but targets VM2_HOST (the
+# provisioned Oracle VM in us-ashburn-1). Runs:
+#   1. SCP all *.mjs and systemd unit files to the VM
+#   2. Install Node.js 20 if missing
+#   3. Create the awards user + /opt/awards-pipeline directory
+#   4. Seed /opt/awards-pipeline/sidecar-oracle/.env from VM2 secrets
+#   5. Reload systemd, enable timers
+#
+# Required repo secrets:
+#   VM2_HOST          public IP of the new VM
+#   VM_SSH_KEY        existing private key (matches the public key attached at provision time)
+#   VM_USER           probably "ubuntu" for the Oracle Ubuntu image
+#   API_BASE          worker URL (read by sidecar scripts at runtime)
+#   INGEST_TOKEN      shared secret with the worker
+#   SAM_API_KEY_NEW   the new SAM API key for this VM (separate quota from existing VM)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.VM2_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Bootstrap VM (Node, user, dirs)
+        run: |
+          ssh -i ~/.ssh/id_ed25519 ${{ secrets.VM_USER }}@${{ secrets.VM2_HOST }} bash <<'BOOT'
+            set -e
+            # Idempotent: only install if not present.
+            if ! command -v node >/dev/null 2>&1; then
+              curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+              sudo apt-get install -y nodejs git
+            fi
+            node --version
+
+            # Service user
+            if ! id awards >/dev/null 2>&1; then
+              sudo useradd --system --create-home --shell /usr/sbin/nologin awards
+            fi
+
+            # Install dirs
+            sudo mkdir -p /opt/awards-pipeline/sidecar-oracle/systemd
+            sudo chown -R awards:awards /opt/awards-pipeline
+            echo "Bootstrap OK"
+          BOOT
+
+      - name: Push sidecar code
+        run: |
+          cd sidecar-oracle
+          # Top-level scripts
+          scp -i ~/.ssh/id_ed25519 \
+            *.mjs package.json \
+            ${{ secrets.VM_USER }}@${{ secrets.VM2_HOST }}:/tmp/
+          # systemd units
+          scp -i ~/.ssh/id_ed25519 \
+            systemd/*.service systemd/*.timer \
+            ${{ secrets.VM_USER }}@${{ secrets.VM2_HOST }}:/tmp/
+
+      - name: Install code + write .env
+        env:
+          API_BASE_VAL:        ${{ secrets.API_BASE }}
+          INGEST_TOKEN_VAL:    ${{ secrets.INGEST_TOKEN }}
+          SAM_KEY_VAL:         ${{ secrets.SAM_API_KEY_NEW }}
+        run: |
+          # Mask all sensitive values
+          echo "::add-mask::$INGEST_TOKEN_VAL"
+          echo "::add-mask::$SAM_KEY_VAL"
+          # Pipe the .env contents over stdin so the values never appear on argv.
+          printf 'API_BASE=%s\nINGEST_TOKEN=%s\nSAM_API_KEY=%s\n' \
+            "$API_BASE_VAL" "$INGEST_TOKEN_VAL" "$SAM_KEY_VAL" \
+            | ssh -i ~/.ssh/id_ed25519 ${{ secrets.VM_USER }}@${{ secrets.VM2_HOST }} bash <<'INSTALL'
+              set -e
+              # Move scripts into place
+              for f in /tmp/*.mjs /tmp/package.json; do
+                [ -f "$f" ] || continue
+                sudo install -o awards -g awards -m 0644 "$f" \
+                  "/opt/awards-pipeline/sidecar-oracle/$(basename "$f")"
+              done
+              # systemd units
+              for f in /tmp/*.service /tmp/*.timer; do
+                [ -f "$f" ] || continue
+                sudo install -m 0644 "$f" "/etc/systemd/system/$(basename "$f")"
+              done
+              # Write .env from stdin
+              sudo tee /opt/awards-pipeline/sidecar-oracle/.env >/dev/null
+              sudo chown awards:awards /opt/awards-pipeline/sidecar-oracle/.env
+              sudo chmod 600 /opt/awards-pipeline/sidecar-oracle/.env
+
+              # Reload + enable timers
+              sudo systemctl daemon-reload
+              for u in awards-sam-opps awards-sam-vendors awards-enrich-descriptions; do
+                if sudo systemctl list-unit-files --no-legend "$u.timer" | grep -q .; then
+                  sudo systemctl enable "$u.timer" >/dev/null 2>&1 || true
+                fi
+              done
+              # Cleanup tmp
+              rm -f /tmp/*.mjs /tmp/package.json /tmp/*.service /tmp/*.timer
+              echo "Install OK on VM2"
+INSTALL
+
+      - name: Verify
+        run: |
+          ssh -i ~/.ssh/id_ed25519 ${{ secrets.VM_USER }}@${{ secrets.VM2_HOST }} \
+            'ls -la /opt/awards-pipeline/sidecar-oracle/ | head -20 && echo "---" && sudo systemctl list-unit-files | grep awards-'

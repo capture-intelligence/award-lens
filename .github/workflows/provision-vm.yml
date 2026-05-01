@@ -1,0 +1,238 @@
+name: Provision Oracle VM (vm2)
+
+# One-shot: provisions an Oracle Cloud Infrastructure compute instance
+# (Always-Free tier) using the OCI CLI. Reuses the existing VM_SSH_KEY so
+# the new VM accepts the same private key SSH that runs current workflows.
+#
+# After success, the new VM's public IP is auto-saved to repo secret
+# VM2_HOST. Run the deploy-vm2 workflow next to seed sidecar code.
+#
+# Required repo secrets:
+#   OCI_USER_OCID         ocid1.user.oc1..…
+#   OCI_TENANCY_OCID      ocid1.tenancy.oc1..…
+#   OCI_COMPARTMENT_OCID  (often same as tenancy for root)
+#   OCI_FINGERPRINT       14:0a:…
+#   OCI_REGION            us-ashburn-1
+#   OCI_PRIVATE_KEY       full PEM contents (BEGIN/END included)
+#   VM_SSH_KEY            existing private key, public half attached to VM
+
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        description: 'Display name for the new instance'
+        required: false
+        default: 'awardlens-sidecar-vm2'
+      shape:
+        description: 'OCI compute shape (Always-Free options only)'
+        required: false
+        default: 'VM.Standard.E2.1.Micro'
+        type: choice
+        options:
+          - 'VM.Standard.E2.1.Micro'
+          - 'VM.Standard.A1.Flex'
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Install OCI CLI
+        run: |
+          # Install non-interactively. Pinned to silent mode; uses default install dirs.
+          bash -c "$(curl -sL https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh)" \
+            -- --accept-all-defaults
+          echo "$HOME/bin" >> $GITHUB_PATH
+          echo "$HOME/lib/oracle-cli/bin" >> $GITHUB_PATH
+
+      - name: Configure OCI auth
+        env:
+          OCI_USER:        ${{ secrets.OCI_USER_OCID }}
+          OCI_TENANCY:     ${{ secrets.OCI_TENANCY_OCID }}
+          OCI_FP:          ${{ secrets.OCI_FINGERPRINT }}
+          OCI_KEY:         ${{ secrets.OCI_PRIVATE_KEY }}
+          OCI_REGION:      ${{ secrets.OCI_REGION }}
+        run: |
+          mkdir -p ~/.oci
+          printf '%s\n' "$OCI_KEY" > ~/.oci/key.pem
+          chmod 600 ~/.oci/key.pem
+          cat > ~/.oci/config <<CFG
+          [DEFAULT]
+          user=$OCI_USER
+          tenancy=$OCI_TENANCY
+          region=$OCI_REGION
+          fingerprint=$OCI_FP
+          key_file=$HOME/.oci/key.pem
+          CFG
+          chmod 600 ~/.oci/config
+          # Sanity test
+          oci iam region list --query 'data[0]' >/dev/null
+          echo "OCI auth OK"
+
+      - name: Derive SSH public key from VM_SSH_KEY
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keygen -y -f ~/.ssh/id_ed25519 > ~/.ssh/id_ed25519.pub
+          echo "Public key derived for VM"
+
+      - name: Look up availability domain
+        id: ad
+        env:
+          COMPARTMENT: ${{ secrets.OCI_COMPARTMENT_OCID }}
+        run: |
+          AD=$(oci iam availability-domain list --compartment-id "$COMPARTMENT" \
+                --query 'data[0].name' --raw-output)
+          echo "Found availability domain: $AD"
+          echo "value=$AD" >> $GITHUB_OUTPUT
+
+      - name: Look up Ubuntu 22.04 image
+        id: image
+        env:
+          COMPARTMENT: ${{ secrets.OCI_COMPARTMENT_OCID }}
+        run: |
+          IMG=$(oci compute image list --compartment-id "$COMPARTMENT" \
+                  --operating-system "Canonical Ubuntu" \
+                  --operating-system-version "22.04" \
+                  --shape "${{ inputs.shape }}" \
+                  --sort-by TIMECREATED --sort-order DESC \
+                  --query 'data[0].id' --raw-output)
+          if [ -z "$IMG" ] || [ "$IMG" = "null" ]; then
+            echo "ERROR: no Ubuntu 22.04 image found for shape ${{ inputs.shape }}"
+            exit 1
+          fi
+          echo "Image: $IMG"
+          echo "value=$IMG" >> $GITHUB_OUTPUT
+
+      - name: Find or create VCN + public subnet
+        id: subnet
+        env:
+          COMPARTMENT: ${{ secrets.OCI_COMPARTMENT_OCID }}
+        run: |
+          set -e
+          # 1. Try to find an existing public subnet (prohibit-public-ip-on-vnic = false)
+          SUBNET=$(oci network subnet list --compartment-id "$COMPARTMENT" \
+                    --query 'data[?"prohibit-public-ip-on-vnic"==`false`] | [0].id' \
+                    --raw-output 2>/dev/null || true)
+
+          if [ -n "$SUBNET" ] && [ "$SUBNET" != "null" ]; then
+            echo "Reusing existing public subnet: $SUBNET"
+            echo "value=$SUBNET" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "No public subnet found — creating VCN + IGW + route + subnet…"
+
+          # 2. Create VCN
+          VCN=$(oci network vcn create --compartment-id "$COMPARTMENT" \
+                  --display-name "awardlens-vcn" \
+                  --cidr-block "10.0.0.0/16" \
+                  --dns-label "awardlens" \
+                  --wait-for-state AVAILABLE \
+                  --query 'data.id' --raw-output)
+          echo "VCN: $VCN"
+
+          # 3. Create internet gateway
+          IGW=$(oci network internet-gateway create --compartment-id "$COMPARTMENT" \
+                  --vcn-id "$VCN" \
+                  --display-name "awardlens-igw" \
+                  --is-enabled true \
+                  --wait-for-state AVAILABLE \
+                  --query 'data.id' --raw-output)
+          echo "IGW: $IGW"
+
+          # 4. Get default route table for VCN, add 0.0.0.0/0 -> IGW
+          RT=$(oci network vcn get --vcn-id "$VCN" \
+                --query 'data."default-route-table-id"' --raw-output)
+          oci network route-table update --rt-id "$RT" \
+            --route-rules "[{\"destination\":\"0.0.0.0/0\",\"destinationType\":\"CIDR_BLOCK\",\"networkEntityId\":\"$IGW\"}]" \
+            --force --wait-for-state AVAILABLE >/dev/null
+          echo "Route table updated"
+
+          # 5. Create subnet
+          SUBNET=$(oci network subnet create --compartment-id "$COMPARTMENT" \
+                    --vcn-id "$VCN" \
+                    --cidr-block "10.0.1.0/24" \
+                    --display-name "awardlens-public-subnet" \
+                    --dns-label "awardlenspub" \
+                    --route-table-id "$RT" \
+                    --wait-for-state AVAILABLE \
+                    --query 'data.id' --raw-output)
+          echo "Subnet: $SUBNET"
+          echo "value=$SUBNET" >> $GITHUB_OUTPUT
+
+      - name: Launch instance
+        id: launch
+        env:
+          COMPARTMENT: ${{ secrets.OCI_COMPARTMENT_OCID }}
+        run: |
+          # Build shape-config JSON for flex shapes (A1.Flex needs OCPUs/memory).
+          SHAPE_CFG=""
+          if [ "${{ inputs.shape }}" = "VM.Standard.A1.Flex" ]; then
+            SHAPE_CFG='--shape-config {"ocpus":1,"memoryInGBs":6}'
+          fi
+
+          # eval-style to avoid quoting hell with the JSON above.
+          eval oci compute instance launch \
+            --compartment-id "$COMPARTMENT" \
+            --availability-domain "${{ steps.ad.outputs.value }}" \
+            --shape "${{ inputs.shape }}" \
+            --image-id "${{ steps.image.outputs.value }}" \
+            --subnet-id "${{ steps.subnet.outputs.value }}" \
+            --display-name "${{ inputs.name }}" \
+            --ssh-authorized-keys-file ~/.ssh/id_ed25519.pub \
+            --assign-public-ip true \
+            --wait-for-state RUNNING \
+            $SHAPE_CFG \
+            > /tmp/launch.json
+          INSTANCE_ID=$(jq -r '.data.id' /tmp/launch.json)
+          echo "Instance: $INSTANCE_ID"
+          echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
+
+      - name: Get public IP
+        id: ip
+        env:
+          COMPARTMENT: ${{ secrets.OCI_COMPARTMENT_OCID }}
+        run: |
+          # Wait briefly for VNIC attachment to settle (it's usually ready by the
+          # time the instance reaches RUNNING but be defensive).
+          for i in 1 2 3 4 5; do
+            VNIC_ID=$(oci compute vnic-attachment list \
+              --compartment-id "$COMPARTMENT" \
+              --instance-id "${{ steps.launch.outputs.instance_id }}" \
+              --query 'data[0]."vnic-id"' --raw-output 2>/dev/null || true)
+            if [ -n "$VNIC_ID" ] && [ "$VNIC_ID" != "null" ]; then break; fi
+            echo "Waiting for VNIC attachment ($i)…"
+            sleep 5
+          done
+          IP=$(oci network vnic get --vnic-id "$VNIC_ID" \
+                --query 'data."public-ip"' --raw-output)
+          if [ -z "$IP" ] || [ "$IP" = "null" ]; then
+            echo "ERROR: no public IP assigned"
+            exit 1
+          fi
+          echo "Public IP: $IP"
+          echo "value=$IP" >> $GITHUB_OUTPUT
+
+      - name: Save VM2_HOST repo secret + summary
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # GITHUB_TOKEN can't write secrets. Print instructions instead.
+          echo "## Provisioned: ${{ inputs.name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Instance OCID**: \`${{ steps.launch.outputs.instance_id }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Public IP**: \`${{ steps.ip.outputs.value }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Region**: \`${{ secrets.OCI_REGION }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Shape**: \`${{ inputs.shape }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Next: \`gh secret set VM2_HOST -b \"${{ steps.ip.outputs.value }}\"\`" >> $GITHUB_STEP_SUMMARY
+          echo "Then dispatch the \`deploy-vm2\` workflow to seed sidecar code." >> $GITHUB_STEP_SUMMARY
+
+          # Print to log too so it's grep-able
+          echo "============================================================"
+          echo "VM2 PROVISIONED"
+          echo "Public IP: ${{ steps.ip.outputs.value }}"
+          echo "Instance:  ${{ steps.launch.outputs.instance_id }}"
+          echo "============================================================"
