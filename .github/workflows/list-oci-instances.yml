@@ -1,0 +1,51 @@
+name: List OCI compute instances
+
+# One-shot diagnostic — lists every compute instance in the configured
+# compartment, regardless of state. Useful after a failed provision-vm
+# run to see if the launch actually succeeded server-side despite a
+# client timeout.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Install OCI CLI
+        run: |
+          bash -c "$(curl -sL https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh)" \
+            -- --accept-all-defaults
+          echo "$HOME/bin" >> $GITHUB_PATH
+          echo "$HOME/lib/oracle-cli/bin" >> $GITHUB_PATH
+
+      - name: Configure OCI auth
+        env:
+          OCI_USER:        ${{ secrets.OCI_USER_OCID }}
+          OCI_TENANCY:     ${{ secrets.OCI_TENANCY_OCID }}
+          OCI_FP:          ${{ secrets.OCI_FINGERPRINT }}
+          OCI_KEY:         ${{ secrets.OCI_PRIVATE_KEY }}
+          OCI_REGION:      ${{ secrets.OCI_REGION }}
+        run: |
+          mkdir -p ~/.oci
+          printf '%s\n' "$OCI_KEY" > ~/.oci/key.pem
+          chmod 600 ~/.oci/key.pem
+          cat > ~/.oci/config <<CFG
+          [DEFAULT]
+          user=$OCI_USER
+          tenancy=$OCI_TENANCY
+          region=$OCI_REGION
+          fingerprint=$OCI_FP
+          key_file=$HOME/.oci/key.pem
+          CFG
+          chmod 600 ~/.oci/config
+
+      - name: List all instances
+        env:
+          COMPARTMENT: ${{ secrets.OCI_COMPARTMENT_OCID }}
+        run: |
+          echo "=== ALL instances in compartment ==="
+          oci compute instance list --compartment-id "$COMPARTMENT" \
+            --query 'data[].{name:"display-name", state:"lifecycle-state", shape:shape, id:id}' \
+            | head -100
