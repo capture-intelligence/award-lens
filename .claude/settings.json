@@ -17,6 +17,8 @@
       "Bash(gh run watch *)",
       "Bash(gh run cancel *)",
       "Bash(gh secret list)",
+      "Bash(gh secret set *)",
+      "Bash(gh secret delete *)",
       "Bash(gh api *)",
       "Bash(gh workflow list)",
       "Bash(pnpm exec tsc *)",

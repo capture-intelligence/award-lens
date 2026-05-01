@@ -1,0 +1,61 @@
+name: Rotate SAM_API_KEY on VM
+
+# One-shot: read SAM_API_KEY_NEW from repo secrets, SSH into the VM,
+# replace the SAM_API_KEY=... line in /opt/awards-pipeline/sidecar-oracle/.env,
+# verify the change, exit. Keeps the key out of workflow logs via ::add-mask::
+# and never puts the key on a process command line (passed via stdin to ssh).
+#
+# Usage:
+#   1. gh secret set SAM_API_KEY_NEW -b "<key>"
+#   2. gh workflow run "Rotate SAM_API_KEY on VM" --ref main
+#   3. gh secret delete SAM_API_KEY_NEW (after success)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  rotate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.VM_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Push new key to VM .env
+        env:
+          NEW_KEY: ${{ secrets.SAM_API_KEY_NEW }}
+        run: |
+          if [ -z "$NEW_KEY" ]; then
+            echo "ERROR: SAM_API_KEY_NEW secret is not set. Run: gh secret set SAM_API_KEY_NEW -b '<key>'"
+            exit 1
+          fi
+          echo "::add-mask::$NEW_KEY"
+          # Pipe key via stdin (never on argv, never visible in `ps`).
+          # Single-quoted remote script keeps local shell from expanding it.
+          printf '%s\n' "$NEW_KEY" | ssh -i ~/.ssh/id_ed25519 \
+              -o StrictHostKeyChecking=accept-new \
+              ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} '
+            set -e
+            read -r KEY
+            test -n "$KEY" || { echo "ERROR: empty key on stdin"; exit 1; }
+            ENV=/opt/awards-pipeline/sidecar-oracle/.env
+            sudo cp "$ENV" "$ENV.bak.$(date +%Y%m%d-%H%M%S)"
+            if sudo grep -q "^SAM_API_KEY=" "$ENV"; then
+              sudo sed -i "s|^SAM_API_KEY=.*|SAM_API_KEY=$KEY|" "$ENV"
+            else
+              echo "SAM_API_KEY=$KEY" | sudo tee -a "$ENV" >/dev/null
+            fi
+            # Verify (do not print the value back).
+            if sudo grep -q "^SAM_API_KEY=$KEY$" "$ENV"; then
+              echo "OK: SAM_API_KEY updated"
+              sudo chown awards:awards "$ENV" 2>/dev/null || true
+              sudo chmod 600 "$ENV" 2>/dev/null || true
+            else
+              echo "FAIL: update did not take effect"
+              exit 1
+            fi
+          '
