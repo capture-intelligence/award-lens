@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily SAM.gov Opportunities sync
+Requires=awards-sam-opps.service
+
+[Timer]
+OnCalendar=*-*-* 09:00:00 UTC
+Persistent=true
+RandomizedDelaySec=10min
+Unit=awards-sam-opps.service
+
+[Install]
+WantedBy=timers.target

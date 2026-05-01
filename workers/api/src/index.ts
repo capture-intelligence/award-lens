@@ -1109,6 +1109,185 @@ app.get('/sidecar/awards/enrichment-stats', async (c) => {
   return c.json(r ?? {});
 });
 
+// ─── SAM.gov Opportunities (solicitations) ─────────────────────────────────
+//
+// Pre-award intelligence. The sidecar (sync-sam-opportunities.mjs) pulls
+// from SAM.gov's Opportunities v2 API and posts batches here. The worker
+// upserts solicitations and their attachment metadata into D1. Phase 3a
+// (separate) downloads the actual PDFs into R2 keyed by attachment_id.
+
+app.post('/sidecar/solicitations/upsert', async (c) => {
+  const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
+  const body = await c.req.json().catch(() => null) as {
+    solicitations?: Array<{
+      solicitation_id: string;
+      sol_number?: string | null;
+      notice_type: string;
+      title: string;
+      posted_date?: string | null;
+      response_deadline?: string | null;
+      archive_date?: string | null;
+      agency?: string | null;
+      sub_agency?: string | null;
+      office?: string | null;
+      naics_codes?: string | null;
+      psc_codes?: string | null;
+      set_aside?: string | null;
+      set_aside_code?: string | null;
+      pop_country?: string | null;
+      pop_state?: string | null;
+      pop_city?: string | null;
+      pop_zip?: string | null;
+      description?: string | null;
+      link?: string | null;
+      raw_json?: string | null;
+    }>;
+  } | null;
+  const rows = body?.solicitations ?? [];
+  if (rows.length === 0) return c.json({ accepted: 0, applied: 0 });
+
+  const now = Date.now();
+  const cap = (s: string | null | undefined, max = 65_536): string | null => {
+    if (s == null) return null;
+    return s.length > max ? s.slice(0, max - 1) + '…' : s;
+  };
+
+  let accepted = 0;
+  const stmts = [];
+  for (const r of rows) {
+    if (!r?.solicitation_id || typeof r.solicitation_id !== 'string') continue;
+    accepted += 1;
+    stmts.push(
+      c.env.DB.prepare(`
+        INSERT INTO solicitation (
+          solicitation_id, sol_number, notice_type, title,
+          posted_date, response_deadline, archive_date,
+          agency, sub_agency, office,
+          naics_codes, psc_codes, set_aside, set_aside_code,
+          pop_country, pop_state, pop_city, pop_zip,
+          description, link, raw_json, enriched_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(solicitation_id) DO UPDATE SET
+          sol_number = excluded.sol_number,
+          notice_type = excluded.notice_type,
+          title = excluded.title,
+          posted_date = excluded.posted_date,
+          response_deadline = excluded.response_deadline,
+          archive_date = excluded.archive_date,
+          agency = excluded.agency,
+          sub_agency = excluded.sub_agency,
+          office = excluded.office,
+          naics_codes = excluded.naics_codes,
+          psc_codes = excluded.psc_codes,
+          set_aside = excluded.set_aside,
+          set_aside_code = excluded.set_aside_code,
+          pop_country = excluded.pop_country,
+          pop_state = excluded.pop_state,
+          pop_city = excluded.pop_city,
+          pop_zip = excluded.pop_zip,
+          description = excluded.description,
+          link = excluded.link,
+          raw_json = excluded.raw_json,
+          enriched_at = excluded.enriched_at
+      `).bind(
+        r.solicitation_id,
+        r.sol_number ?? null,
+        r.notice_type ?? '',
+        cap(r.title ?? '(untitled)') ?? '(untitled)',
+        r.posted_date ?? null,
+        r.response_deadline ?? null,
+        r.archive_date ?? null,
+        r.agency ?? null,
+        r.sub_agency ?? null,
+        r.office ?? null,
+        r.naics_codes ?? null,
+        r.psc_codes ?? null,
+        r.set_aside ?? null,
+        r.set_aside_code ?? null,
+        r.pop_country ?? null,
+        r.pop_state ?? null,
+        r.pop_city ?? null,
+        r.pop_zip ?? null,
+        cap(r.description ?? null),
+        r.link ?? null,
+        cap(r.raw_json ?? null),
+        now,
+      ),
+    );
+  }
+  if (stmts.length === 0) return c.json({ accepted: 0, applied: 0 });
+  const results = await c.env.DB.batch(stmts);
+  const applied = results.reduce((s, x) => s + ((x.meta?.changes as number | undefined) ?? 0), 0);
+  return c.json({ accepted, applied });
+});
+
+app.post('/sidecar/solicitations/attachments/upsert', async (c) => {
+  const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
+  const body = await c.req.json().catch(() => null) as {
+    attachments?: Array<{
+      attachment_id: string;
+      solicitation_id: string;
+      file_name?: string | null;
+      file_url?: string | null;
+      file_type?: string | null;
+      content_type?: string | null;
+      size_bytes?: number | null;
+    }>;
+  } | null;
+  const rows = body?.attachments ?? [];
+  if (rows.length === 0) return c.json({ accepted: 0, applied: 0 });
+
+  const stmts = rows
+    .filter((r) => r?.attachment_id && r?.solicitation_id)
+    .map((r) =>
+      c.env.DB.prepare(`
+        INSERT INTO solicitation_attachment (
+          attachment_id, solicitation_id, file_name, file_url, file_type,
+          content_type, size_bytes
+        ) VALUES (?,?,?,?,?,?,?)
+        ON CONFLICT(attachment_id) DO UPDATE SET
+          file_name = excluded.file_name,
+          file_url = excluded.file_url,
+          file_type = excluded.file_type,
+          content_type = excluded.content_type,
+          size_bytes = excluded.size_bytes
+      `).bind(
+        r.attachment_id, r.solicitation_id,
+        r.file_name ?? null, r.file_url ?? null, r.file_type ?? null,
+        r.content_type ?? null, r.size_bytes ?? null,
+      ),
+    );
+  if (stmts.length === 0) return c.json({ accepted: 0, applied: 0 });
+  const results = await c.env.DB.batch(stmts);
+  const applied = results.reduce((s, x) => s + ((x.meta?.changes as number | undefined) ?? 0), 0);
+  return c.json({ accepted: rows.length, applied });
+});
+
+// Diagnostic: counts of solicitations by notice type.
+app.get('/sidecar/solicitations/stats', async (c) => {
+  const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
+  const total = await c.env.DB.prepare('SELECT COUNT(*) as n FROM solicitation').first<{ n: number }>();
+  const byType = await c.env.DB.prepare(`
+    SELECT notice_type, COUNT(*) AS n
+    FROM solicitation
+    GROUP BY notice_type
+    ORDER BY n DESC
+  `).all<{ notice_type: string; n: number }>();
+  const open = await c.env.DB.prepare(`
+    SELECT COUNT(*) AS n
+    FROM solicitation
+    WHERE response_deadline IS NOT NULL
+      AND date(response_deadline) >= date('now')
+  `).first<{ n: number }>();
+  const attachments = await c.env.DB.prepare('SELECT COUNT(*) as n FROM solicitation_attachment').first<{ n: number }>();
+  return c.json({
+    total: total?.n ?? 0,
+    open_now: open?.n ?? 0,
+    attachments_total: attachments?.n ?? 0,
+    by_notice_type: byType.results,
+  });
+});
+
 // ---------- Import: USAspending awards (called by VM sidecar, per view) ----------
 //
 // Body: { run_id?, view_id, response, finalize, metadata }
