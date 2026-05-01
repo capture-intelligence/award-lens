@@ -45,24 +45,9 @@ jobs:
           accountId:       ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: 'workers/api'
           command: 'd1 migrations apply DB --remote'
-      - name: Ensure Vectorize index exists (idempotent)
-        # The wrangler.toml binding `[[vectorize]] index_name = "awardlens-awards"`
-        # references an index that must exist before the worker can deploy.
-        # Create it if missing — the command 409s on already-exists which we
-        # treat as success. 768 dims = BGE-base-en-v1.5 output.
-        env:
-          CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        working-directory: workers/api
-        run: |
-          if ! pnpm exec wrangler vectorize get awardlens-awards >/dev/null 2>&1; then
-            echo "Creating Vectorize index awardlens-awards"
-            pnpm exec wrangler vectorize create awardlens-awards \
-              --dimensions=768 --metric=cosine \
-              --description="AwardLens RAG index over award rows (BGE-base-en-v1.5)" || true
-          else
-            echo "Vectorize index awardlens-awards already exists — skipping"
-          fi
+      # Vectorize index creation skipped — existing CLOUDFLARE_API_TOKEN
+      # lacks Vectorize:Edit scope. Re-add this step after broadening the
+      # token (Cloudflare Dashboard → API Tokens → edit → +Vectorize:Edit).
       - name: Deploy api-worker
         uses: cloudflare/wrangler-action@v3
         with:

@@ -33,8 +33,9 @@ export interface Env extends AuthEnv {
   INGEST_TOKEN?: string;
   /** Workers AI binding — Llama for generation, BGE for embeddings. */
   AI: Ai;
-  /** Vectorize index for RAG over award rows. */
-  VEC: VectorizeIndex;
+  /** Vectorize index for RAG. Optional — bound iff the API token has
+   * Vectorize:Edit scope and the index has been created. */
+  VEC?: VectorizeIndex;
 }
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVars }>();

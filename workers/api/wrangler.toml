@@ -34,14 +34,16 @@ service = "sam-api-worker"
 [ai]
 binding = "AI"
 
-# Vectorize index for RAG over award rows. Created once via:
-#   pnpm exec wrangler vectorize create awardlens-awards \
-#     --dimensions=768 --metric=cosine
-# 768 matches BGE-base-en-v1.5 output dim. Free tier covers 30M vectors
-# stored + 50K queries/month — orders of magnitude over our needs.
-[[vectorize]]
-binding = "VEC"
-index_name = "awardlens-awards"
+# Vectorize binding intentionally commented out — the existing
+# CLOUDFLARE_API_TOKEN secret lacks Vectorize:Edit scope, so wrangler
+# can neither create the index nor reference it during deploy. Once the
+# token is broadened (Cloudflare Dashboard → My Profile → API Tokens
+# → edit token → add "Vectorize: Edit"), uncomment this and re-deploy.
+# RAG / semantic search work depends on this. Pattern A's /ai/ask
+# endpoint works without it (no Vectorize calls in that path).
+# [[vectorize]]
+# binding = "VEC"
+# index_name = "awardlens-awards"
 
 [observability]
 enabled = true
