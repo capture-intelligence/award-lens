@@ -178,7 +178,49 @@ jobs:
           echo "Subnet: $SUBNET"
           echo "value=$SUBNET" >> $GITHUB_OUTPUT
 
+      - name: Check for existing instance with same display name
+        id: existing
+        env:
+          COMPARTMENT: ${{ secrets.OCI_COMPARTMENT_OCID }}
+        run: |
+          # If a previous launch attempt actually succeeded but we timed out
+          # waiting, the instance is here. Reuse it.
+          EXISTING=$(oci compute instance list --compartment-id "$COMPARTMENT" \
+                      --display-name "${{ inputs.name }}" \
+                      --lifecycle-state RUNNING \
+                      --query 'data[0].id' --raw-output 2>/dev/null || true)
+          if [ -n "$EXISTING" ] && [ "$EXISTING" != "null" ]; then
+            echo "Found existing RUNNING instance: $EXISTING"
+            echo "instance_id=$EXISTING" >> $GITHUB_OUTPUT
+            echo "skip_launch=true" >> $GITHUB_OUTPUT
+          else
+            # Also check provisioning state
+            PROV=$(oci compute instance list --compartment-id "$COMPARTMENT" \
+                    --display-name "${{ inputs.name }}" \
+                    --lifecycle-state PROVISIONING \
+                    --query 'data[0].id' --raw-output 2>/dev/null || true)
+            if [ -n "$PROV" ] && [ "$PROV" != "null" ]; then
+              echo "Found instance still PROVISIONING: $PROV"
+              echo "instance_id=$PROV" >> $GITHUB_OUTPUT
+              echo "skip_launch=true" >> $GITHUB_OUTPUT
+              echo "wait_for_running=true" >> $GITHUB_OUTPUT
+            else
+              echo "skip_launch=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Wait for existing instance to become RUNNING
+        if: steps.existing.outputs.wait_for_running == 'true'
+        env:
+          COMPARTMENT: ${{ secrets.OCI_COMPARTMENT_OCID }}
+        run: |
+          oci compute instance get --instance-id "${{ steps.existing.outputs.instance_id }}" \
+            --wait-for-state RUNNING \
+            --max-wait-seconds 600 >/dev/null
+          echo "Instance is now RUNNING"
+
       - name: Launch instance
+        if: steps.existing.outputs.skip_launch != 'true'
         id: launch
         env:
           COMPARTMENT: ${{ secrets.OCI_COMPARTMENT_OCID }}
@@ -199,7 +241,12 @@ jobs:
           if [ "${{ inputs.shape }}" = "VM.Standard.A1.Flex" ]; then
             ARGS+=(--shape-config '{"ocpus":1,"memoryInGBs":6}')
           fi
-          oci compute instance launch "${ARGS[@]}" > /tmp/launch.json
+          # --max-wait-seconds default is 1200 (20 min) but the OCI API
+          # connection itself can drop. Bump and set explicit polling.
+          oci compute instance launch "${ARGS[@]}" \
+            --max-wait-seconds 900 \
+            --wait-interval-seconds 15 \
+            > /tmp/launch.json
           INSTANCE_ID=$(jq -r '.data.id' /tmp/launch.json)
           echo "Instance: $INSTANCE_ID"
           echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
@@ -209,12 +256,18 @@ jobs:
         env:
           COMPARTMENT: ${{ secrets.OCI_COMPARTMENT_OCID }}
         run: |
-          # Wait briefly for VNIC attachment to settle (it's usually ready by the
-          # time the instance reaches RUNNING but be defensive).
+          # Resolve instance ID from either step (launch may be skipped if
+          # we reused an existing instance after a timed-out previous run).
+          INSTANCE_ID="${{ steps.launch.outputs.instance_id }}"
+          if [ -z "$INSTANCE_ID" ]; then
+            INSTANCE_ID="${{ steps.existing.outputs.instance_id }}"
+          fi
+          echo "Resolving public IP for instance: $INSTANCE_ID"
+          # Wait briefly for VNIC attachment to settle.
           for i in 1 2 3 4 5; do
             VNIC_ID=$(oci compute vnic-attachment list \
               --compartment-id "$COMPARTMENT" \
-              --instance-id "${{ steps.launch.outputs.instance_id }}" \
+              --instance-id "$INSTANCE_ID" \
               --query 'data[0]."vnic-id"' --raw-output 2>/dev/null || true)
             if [ -n "$VNIC_ID" ] && [ "$VNIC_ID" != "null" ]; then break; fi
             echo "Waiting for VNIC attachment ($i)…"
