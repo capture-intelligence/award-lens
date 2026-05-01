@@ -33,7 +33,7 @@ const MAX_BATCHES  = Number(env.VENDOR_BATCHES ?? 10);
 const MAX_AGE_DAYS = Number(env.VENDOR_MAX_AGE_DAYS ?? 180);
 const BACKFILL     = process.argv.includes('--backfill');
 
-const SAM_BASE = 'https://api.sam.gov/entity-information/v3/entities';
+const SAM_BASE = 'https://api.sam.gov/entity-information/v4/entities';
 
 const log = (level, msg, extra = {}) =>
   console.log(JSON.stringify({ ts: new Date().toISOString(), level, msg, ...extra }));
@@ -112,25 +112,42 @@ async function fetchEntity(uei, attempt = 1) {
   }
 }
 
-// SAM v3 entity payload reference (top-level keys):
-//   coreData: { entityRegistration: { samRegistered, registrationStatus,
-//               legalBusinessName, dbaName, cageCode, registrationExpirationDate,
-//               registrationDate, lastUpdateDate, ... },
-//             entityInformation, businessTypes, ... }
-//   businessTypes: { businessTypeList: [{ businessTypeCode, businessTypeDesc }] }
-//   assertions, repsAndCerts, pointsOfContact, ...
-//   coreData.naicsList? ...
+// SAM v4 entity payload — verified live response shape (2026-05-01):
+//   {
+//     entityRegistration: { ueiSAM, cageCode, legalBusinessName,
+//                            registrationStatus, registrationExpirationDate,
+//                            samRegistered, dnbOpenData, ... },
+//     coreData: {
+//       businessTypes: { businessTypeList: [{ businessTypeCode,
+//                                              businessTypeDesc }] },
+//       physicalAddress, ...
+//     },
+//     assertions: {
+//       goodsAndServices: {
+//         primaryNaics: "336411",
+//         naicsList: [{ naicsCode, naicsDescription, sbaSmallBusiness }]
+//       }
+//     },
+//     pointsOfContact: { ... }
+//   }
+//
+// CRITICAL: entityRegistration is at the TOP LEVEL, not under coreData.
+// Earlier versions of this code looked under coreData.entityRegistration
+// and got an empty {}, then mapped null fields → every vendor stamped
+// 'Not Found'. Bug found by probing live API on 2026-05-01.
 function mapEntity(entity, vendor) {
   if (!entity) return null;
-  const core = entity?.coreData ?? {};
-  const reg = core?.entityRegistration ?? {};
-  const businessTypes = entity?.businessTypes?.businessTypeList ?? [];
-  const naicsList = entity?.assertions?.goodsAndServices?.primaryNaics
-    ? [entity.assertions.goodsAndServices.primaryNaics]
-    : (entity?.assertions?.goodsAndServices?.naicsList ?? []).map((n) => n?.naicsCode).filter(Boolean);
+  const reg = entity.entityRegistration ?? {};
+  const businessTypes = entity?.coreData?.businessTypes?.businessTypeList ?? [];
+  const naicsList = entity?.assertions?.goodsAndServices?.naicsList ?? [];
 
   const bizTypeStr = businessTypes
     .map((b) => (b?.businessTypeDesc || b?.businessTypeCode || '').toString().trim())
+    .filter(Boolean)
+    .join('|');
+
+  const naicsStr = naicsList
+    .map((n) => n?.naicsCode)
     .filter(Boolean)
     .join('|');
 
@@ -140,7 +157,7 @@ function mapEntity(entity, vendor) {
     business_types:       bizTypeStr || null,
     sam_status:           reg.registrationStatus ?? null,
     sam_expires_at:       (reg.registrationExpirationDate ?? '').slice(0, 10) || null,
-    vendor_naics_codes:   naicsList.length ? naicsList.join('|') : null,
+    vendor_naics_codes:   naicsStr || null,
   };
 }
 
