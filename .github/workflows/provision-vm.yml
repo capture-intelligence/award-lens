@@ -104,23 +104,15 @@ jobs:
             --query 'data[].{name:"display-name", id:id, os_version:"operating-system-version"}' \
             | head -60
 
-          # Fallback strategy: just take the latest Canonical Ubuntu image
-          # compatible with this shape, regardless of OS version. OCI will
-          # ensure the image and shape are compatible when we filter by --shape.
+          # Take the latest Ubuntu image compatible with this shape. The
+          # --shape filter guarantees image-shape compatibility; sorting by
+          # TIMECREATED DESC means we get the freshest. If 22.04 isn't first,
+          # 24.04 also works for our setup (Node 20 install path is identical).
           IMG=$(oci compute image list --compartment-id "$COMPARTMENT" \
                   --shape "${{ inputs.shape }}" \
                   --operating-system "Canonical Ubuntu" \
                   --sort-by TIMECREATED --sort-order DESC \
-                  --query 'data[?contains("display-name", `22.04`)] | [0].id' --raw-output 2>/dev/null || true)
-
-          # If no 22.04 specifically, fall back to whatever's latest.
-          if [ -z "$IMG" ] || [ "$IMG" = "null" ]; then
-            IMG=$(oci compute image list --compartment-id "$COMPARTMENT" \
-                    --shape "${{ inputs.shape }}" \
-                    --operating-system "Canonical Ubuntu" \
-                    --sort-by TIMECREATED --sort-order DESC \
-                    --query 'data[0].id' --raw-output)
-          fi
+                  --query 'data[0].id' --raw-output)
 
           if [ -z "$IMG" ] || [ "$IMG" = "null" ]; then
             echo "ERROR: no Canonical Ubuntu image found for shape ${{ inputs.shape }}"
