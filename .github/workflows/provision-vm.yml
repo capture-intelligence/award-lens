@@ -96,14 +96,23 @@ jobs:
         env:
           COMPARTMENT: ${{ secrets.OCI_COMPARTMENT_OCID }}
         run: |
+          # OCI distinguishes architectures via operating-system-version:
+          #   "22.04"          → x86_64 (E2.1.Micro, etc.)
+          #   "22.04 aarch64"  → ARM (A1.Flex)
+          # The --shape filter alone isn't enough.
+          if [ "${{ inputs.shape }}" = "VM.Standard.A1.Flex" ]; then
+            OS_VER="22.04 aarch64"
+          else
+            OS_VER="22.04"
+          fi
           IMG=$(oci compute image list --compartment-id "$COMPARTMENT" \
                   --operating-system "Canonical Ubuntu" \
-                  --operating-system-version "22.04" \
+                  --operating-system-version "$OS_VER" \
                   --shape "${{ inputs.shape }}" \
                   --sort-by TIMECREATED --sort-order DESC \
                   --query 'data[0].id' --raw-output)
           if [ -z "$IMG" ] || [ "$IMG" = "null" ]; then
-            echo "ERROR: no Ubuntu 22.04 image found for shape ${{ inputs.shape }}"
+            echo "ERROR: no Ubuntu $OS_VER image found for shape ${{ inputs.shape }}"
             exit 1
           fi
           echo "Image: $IMG"
