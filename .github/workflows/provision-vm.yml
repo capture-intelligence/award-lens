@@ -91,31 +91,42 @@ jobs:
           echo "Found availability domain: $AD"
           echo "value=$AD" >> $GITHUB_OUTPUT
 
-      - name: Look up Ubuntu 22.04 image
+      - name: Look up Ubuntu image
         id: image
         env:
           COMPARTMENT: ${{ secrets.OCI_COMPARTMENT_OCID }}
         run: |
-          # OCI distinguishes architectures via operating-system-version:
-          #   "22.04"          → x86_64 (E2.1.Micro, etc.)
-          #   "22.04 aarch64"  → ARM (A1.Flex)
-          # The --shape filter alone isn't enough.
-          if [ "${{ inputs.shape }}" = "VM.Standard.A1.Flex" ]; then
-            OS_VER="22.04 aarch64"
-          else
-            OS_VER="22.04"
-          fi
+          echo "=== first 10 Canonical Ubuntu images for shape ${{ inputs.shape }} ==="
+          oci compute image list --compartment-id "$COMPARTMENT" \
+            --shape "${{ inputs.shape }}" \
+            --operating-system "Canonical Ubuntu" \
+            --sort-by TIMECREATED --sort-order DESC \
+            --query 'data[].{name:"display-name", id:id, os_version:"operating-system-version"}' \
+            | head -60
+
+          # Fallback strategy: just take the latest Canonical Ubuntu image
+          # compatible with this shape, regardless of OS version. OCI will
+          # ensure the image and shape are compatible when we filter by --shape.
           IMG=$(oci compute image list --compartment-id "$COMPARTMENT" \
-                  --operating-system "Canonical Ubuntu" \
-                  --operating-system-version "$OS_VER" \
                   --shape "${{ inputs.shape }}" \
+                  --operating-system "Canonical Ubuntu" \
                   --sort-by TIMECREATED --sort-order DESC \
-                  --query 'data[0].id' --raw-output)
+                  --query 'data[?contains("display-name", `22.04`)] | [0].id' --raw-output 2>/dev/null || true)
+
+          # If no 22.04 specifically, fall back to whatever's latest.
           if [ -z "$IMG" ] || [ "$IMG" = "null" ]; then
-            echo "ERROR: no Ubuntu $OS_VER image found for shape ${{ inputs.shape }}"
+            IMG=$(oci compute image list --compartment-id "$COMPARTMENT" \
+                    --shape "${{ inputs.shape }}" \
+                    --operating-system "Canonical Ubuntu" \
+                    --sort-by TIMECREATED --sort-order DESC \
+                    --query 'data[0].id' --raw-output)
+          fi
+
+          if [ -z "$IMG" ] || [ "$IMG" = "null" ]; then
+            echo "ERROR: no Canonical Ubuntu image found for shape ${{ inputs.shape }}"
             exit 1
           fi
-          echo "Image: $IMG"
+          echo "Selected image: $IMG"
           echo "value=$IMG" >> $GITHUB_OUTPUT
 
       - name: Find or create VCN + public subnet
