@@ -1,0 +1,46 @@
+name: Dump INGEST_TOKEN from VM
+
+# One-shot helper. SSHes to the existing VM, reads INGEST_TOKEN out of the
+# sidecar .env, and writes it to the workflow run summary so the operator
+# can copy it. The repo is private; only repo collaborators can see this.
+#
+# After using, copy the token from the run summary, then delete the run
+# (gh run delete) if you want to scrub it from history.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.VM_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Read INGEST_TOKEN
+        run: |
+          TOKEN=$(ssh -i ~/.ssh/id_ed25519 ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} \
+            'sudo grep ^INGEST_TOKEN= /opt/awards-pipeline/sidecar-oracle/.env | cut -d= -f2-')
+          if [ -z "$TOKEN" ]; then
+            echo "ERROR: empty token"
+            exit 1
+          fi
+          # Write to step summary (private, viewable only by repo collaborators)
+          {
+            echo "## INGEST_TOKEN"
+            echo ""
+            echo '```'
+            echo "$TOKEN"
+            echo '```'
+            echo ""
+            echo "Copy the value above. Then delete this run:"
+            echo '```'
+            echo "gh run delete \$RUN_ID"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Token written to summary (length: ${#TOKEN})"
