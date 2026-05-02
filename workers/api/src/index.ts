@@ -1528,6 +1528,109 @@ app.post('/sidecar/solicitations/sow-summary', async (c) => {
   return c.json({ accepted: stmts.length, applied });
 });
 
+// ─── Phase 3b: Workers-AI summarization (in-worker, no laptop step) ────────
+//
+// Llama 3.1 8B has an 8K-token context. SOW text up to ~6000 chars
+// (~1500 tokens) fits easily with the system prompt and leaves room for
+// a 350-token summary. Longer SOWs get truncated — for the AwardLens use
+// case (decide if the opp is worth pursuing) the first 6K chars almost
+// always cover the scope/objectives/deliverables; legalese boilerplate
+// at the end adds little.
+//
+// Free tier: 10K neurons/day. One 8B summary ≈ 100-150 neurons, so we
+// can comfortably summarize all 29 backfilled PDFs in a single day with
+// budget left over for the /ai/ask traffic.
+//
+// Worker request limits: ~30s CPU on free tier. Each AI call takes 5-10s,
+// so ?limit=3 (default) is safe; ?limit=5 is the practical ceiling on
+// free tier. If we ever hit the wall, switch to a Cron Trigger that
+// processes 3 per minute.
+
+const SOW_SUMMARY_SYSTEM = `You are a federal procurement analyst helping a small contractor decide whether to pursue an opportunity. Read the Statement of Work / Solicitation / Justification document below and produce a concise summary in this exact structure:
+
+**Scope**: 1-2 sentences on what the agency wants done.
+**Key deliverables**: Bulleted list of 2-5 concrete deliverables.
+**Period of performance / timing**: Dates or duration if stated, else "Not specified".
+**Eligibility / set-aside**: Any small-business / 8(a) / SDVOSB requirements, or "Not specified".
+**Required qualifications**: Bulleted list of 2-4 must-have capabilities, certifications, or past-performance criteria.
+**Submission requirements**: How and when to submit (one line), or "Not specified".
+
+Be terse. No preamble, no closing. Use the document's own language where possible. If the document is mostly boilerplate (e.g. a justification with no scope detail), say so in the Scope line and keep other sections short.`;
+
+app.post('/sidecar/solicitations/summarize-batch', async (c) => {
+  const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
+  const limit = Math.max(1, Math.min(Number(c.req.query('limit') ?? 3), 5));
+
+  const rows = await c.env.DB.prepare(`
+    SELECT a.attachment_id, a.extracted_text, s.title, s.notice_type, s.agency
+    FROM solicitation_attachment a
+    LEFT JOIN solicitation s ON s.solicitation_id = a.solicitation_id
+    WHERE a.extracted_text IS NOT NULL
+      AND a.extracted_text <> ''
+      AND a.sow_summary IS NULL
+    ORDER BY a.solicitation_id ASC
+    LIMIT ?
+  `).bind(limit).all<{
+    attachment_id: string; extracted_text: string;
+    title: string | null; notice_type: string | null; agency: string | null;
+  }>();
+
+  if (rows.results.length === 0) {
+    return c.json({ processed: 0, summarized: 0, errored: 0, message: 'no rows need summary' });
+  }
+
+  // Trim each input to a budget that fits the 8K context with a margin for
+  // system prompt + response. 6000 chars ≈ 1500 tokens.
+  const MAX_INPUT_CHARS = 6000;
+
+  let summarized = 0;
+  let errored = 0;
+  const errors: Array<{ attachment_id: string; error: string }> = [];
+
+  for (const row of rows.results) {
+    const inputText = row.extracted_text.slice(0, MAX_INPUT_CHARS);
+    const userPrompt = [
+      `Title: ${row.title ?? '(untitled)'}`,
+      `Notice type: ${row.notice_type ?? '(unknown)'}`,
+      `Agency: ${row.agency ?? '(unknown)'}`,
+      '',
+      'Document text:',
+      inputText,
+    ].join('\n');
+
+    try {
+      const resp = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+        messages: [
+          { role: 'system', content: SOW_SUMMARY_SYSTEM },
+          { role: 'user',   content: userPrompt },
+        ],
+        temperature: 0.2,
+        max_tokens: 400,
+      }) as { response?: string } | string;
+
+      const summary = (typeof resp === 'string' ? resp : (resp.response ?? '')).trim();
+      if (!summary) throw new Error('empty AI response');
+
+      await c.env.DB.prepare(`
+        UPDATE solicitation_attachment
+        SET sow_summary = ?, summarized_at = ?
+        WHERE attachment_id = ?
+      `).bind(summary, Date.now(), row.attachment_id).run();
+      summarized += 1;
+    } catch (e) {
+      errored += 1;
+      errors.push({ attachment_id: row.attachment_id, error: String(e).slice(0, 200) });
+    }
+  }
+
+  return c.json({
+    processed: rows.results.length,
+    summarized,
+    errored,
+    errors: errors.length > 0 ? errors : undefined,
+  });
+});
+
 app.get('/sidecar/solicitations/extraction-stats', async (c) => {
   const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
   const r = await c.env.DB.prepare(`
