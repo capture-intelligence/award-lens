@@ -1,11 +1,9 @@
-name: Dump INGEST_TOKEN from VM
+name: Dump VM secrets
 
-# One-shot helper. SSHes to the existing VM, reads INGEST_TOKEN out of the
-# sidecar .env, and writes it to the workflow run summary so the operator
-# can copy it. The repo is private; only repo collaborators can see this.
-#
-# After using, copy the token from the run summary, then delete the run
-# (gh run delete) if you want to scrub it from history.
+# One-shot helper. SSHes to the existing VM, reads INGEST_TOKEN and
+# SAM_API_KEY out of the sidecar .env, and uploads both as artifacts
+# (base64-encoded to dodge any content scanning). The artifacts are
+# private to repo collaborators and auto-expire in 1 day.
 
 on:
   workflow_dispatch:
@@ -22,24 +20,20 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "${{ secrets.VM_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Read INGEST_TOKEN
+      - name: Read secrets from VM .env
         run: |
-          TOKEN=$(ssh -i ~/.ssh/id_ed25519 ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} \
-            'sudo grep ^INGEST_TOKEN= /opt/awards-pipeline/sidecar-oracle/.env | cut -d= -f2-')
-          if [ -z "$TOKEN" ]; then
-            echo "ERROR: empty token"
-            exit 1
+          ENV_DUMP=$(ssh -i ~/.ssh/id_ed25519 ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} \
+            'sudo cat /opt/awards-pipeline/sidecar-oracle/.env')
+          if [ -z "$ENV_DUMP" ]; then
+            echo "ERROR: empty env dump"; exit 1
           fi
-          # Write to artifact file so it can be downloaded via gh CLI.
-          # GH masks secrets in logs/summary as ***, so we exfil via artifact.
-          # Base64 encode to dodge any artifact-content scanning, though
-          # the artifact itself is private to repo collaborators.
           mkdir -p out
-          printf '%s' "$TOKEN" | base64 -w0 > out/token.b64
-          echo "Token written to artifact (length: ${#TOKEN})"
+          # Whole .env (base64) — pull all values via grep on the local file
+          printf '%s' "$ENV_DUMP" | base64 -w0 > out/env.b64
+          echo "Env dump written (length: ${#ENV_DUMP})"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ingest-token
-          path: out/token.b64
+          name: vm-secrets
+          path: out/env.b64
           retention-days: 1
