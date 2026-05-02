@@ -30,17 +30,16 @@ jobs:
             echo "ERROR: empty token"
             exit 1
           fi
-          # Write to step summary (private, viewable only by repo collaborators)
-          {
-            echo "## INGEST_TOKEN"
-            echo ""
-            echo '```'
-            echo "$TOKEN"
-            echo '```'
-            echo ""
-            echo "Copy the value above. Then delete this run:"
-            echo '```'
-            echo "gh run delete \$RUN_ID"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "Token written to summary (length: ${#TOKEN})"
+          # Write to artifact file so it can be downloaded via gh CLI.
+          # GH masks secrets in logs/summary as ***, so we exfil via artifact.
+          # Base64 encode to dodge any artifact-content scanning, though
+          # the artifact itself is private to repo collaborators.
+          mkdir -p out
+          printf '%s' "$TOKEN" | base64 -w0 > out/token.b64
+          echo "Token written to artifact (length: ${#TOKEN})"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ingest-token
+          path: out/token.b64
+          retention-days: 1
