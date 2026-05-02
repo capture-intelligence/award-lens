@@ -1395,6 +1395,154 @@ app.get('/sidecar/solicitations/stats', async (c) => {
   });
 });
 
+// ─── SOW PDF text extraction (Phase 3a) ────────────────────────────────────
+//
+// A local script (tools/extract-sow-text-local.mjs) drives this:
+//   1. GET /sidecar/solicitations/needing-extraction → batch of attachments
+//      with file_url but no extracted_text (and no prior extract_error).
+//   2. Local downloads the PDF (public S3 redirect, no auth) and runs
+//      pdf-parse to get text.
+//   3. POST /sidecar/solicitations/extract-text writes extracted_text +
+//      char count, OR extract_error if extraction failed.
+//
+// We intentionally do NOT push PDFs into R2 — the API token lacks R2:Edit
+// scope and we only ever consume the text downstream anyway.
+
+app.get('/sidecar/solicitations/needing-extraction', async (c) => {
+  const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
+  const limit = Math.max(1, Math.min(Number(c.req.query('limit') ?? 50), 200));
+  const r = await c.env.DB.prepare(`
+    SELECT a.attachment_id, a.solicitation_id, a.file_url, a.file_name, s.title
+    FROM solicitation_attachment a
+    LEFT JOIN solicitation s ON s.solicitation_id = a.solicitation_id
+    WHERE a.file_url IS NOT NULL
+      AND a.file_type = 'PDF'
+      AND a.extracted_text IS NULL
+      AND a.extract_error IS NULL
+    ORDER BY a.solicitation_id ASC
+    LIMIT ?
+  `).bind(limit).all<{
+    attachment_id: string; solicitation_id: string;
+    file_url: string; file_name: string | null; title: string | null;
+  }>();
+  return c.json({ count: r.results.length, results: r.results });
+});
+
+app.post('/sidecar/solicitations/extract-text', async (c) => {
+  const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
+  const body = await c.req.json().catch(() => null) as {
+    updates?: Array<{
+      attachment_id: string;
+      extracted_text?: string | null;
+      extracted_chars?: number | null;
+      extract_error?: string | null;
+      file_name?: string | null;       // populated from content-disposition or URL
+      content_type?: string | null;
+      size_bytes?: number | null;
+      sha256?: string | null;
+    }>;
+  } | null;
+  const raw = body?.updates ?? [];
+  if (raw.length === 0) return c.json({ accepted: 0, applied: 0 });
+
+  // Cap stored text per row to keep D1 happy. 800K chars ≈ 1MB UTF-8 in
+  // practice — beyond that we truncate and record the original length.
+  const MAX_TEXT = 800_000;
+
+  const now = Date.now();
+  const stmts = raw
+    .filter((u) => u?.attachment_id && typeof u.attachment_id === 'string')
+    .map((u) => {
+      const text = u.extracted_text ?? null;
+      const truncated = text != null && text.length > MAX_TEXT;
+      const finalText = truncated ? text!.slice(0, MAX_TEXT) : text;
+      const errorNote = truncated
+        ? `truncated:${u.extracted_chars ?? text!.length}->${MAX_TEXT}${u.extract_error ? ` | ${u.extract_error}` : ''}`
+        : (u.extract_error ?? null);
+      return c.env.DB.prepare(`
+        UPDATE solicitation_attachment SET
+          extracted_text  = ?,
+          extracted_chars = ?,
+          extracted_at    = ?,
+          extract_error   = ?,
+          file_name       = COALESCE(?, file_name),
+          content_type    = COALESCE(?, content_type),
+          size_bytes      = COALESCE(?, size_bytes),
+          sha256          = COALESCE(?, sha256)
+        WHERE attachment_id = ?
+      `).bind(
+        finalText,
+        u.extracted_chars ?? (text ? text.length : null),
+        now,
+        errorNote,
+        u.file_name ?? null,
+        u.content_type ?? null,
+        u.size_bytes ?? null,
+        u.sha256 ?? null,
+        u.attachment_id,
+      );
+    });
+  if (stmts.length === 0) return c.json({ accepted: 0, applied: 0 });
+  const results = await c.env.DB.batch(stmts);
+  const applied = results.reduce((s, x) => s + ((x.meta?.changes as number | undefined) ?? 0), 0);
+  return c.json({ accepted: stmts.length, applied });
+});
+
+app.get('/sidecar/solicitations/needing-summary', async (c) => {
+  const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
+  const limit = Math.max(1, Math.min(Number(c.req.query('limit') ?? 25), 100));
+  const r = await c.env.DB.prepare(`
+    SELECT a.attachment_id, a.solicitation_id, a.extracted_text, s.title, s.notice_type, s.agency
+    FROM solicitation_attachment a
+    LEFT JOIN solicitation s ON s.solicitation_id = a.solicitation_id
+    WHERE a.extracted_text IS NOT NULL
+      AND a.sow_summary IS NULL
+    ORDER BY a.solicitation_id ASC
+    LIMIT ?
+  `).bind(limit).all();
+  return c.json({ count: r.results.length, results: r.results });
+});
+
+app.post('/sidecar/solicitations/sow-summary', async (c) => {
+  const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
+  const body = await c.req.json().catch(() => null) as {
+    updates?: Array<{ attachment_id: string; sow_summary?: string | null }>;
+  } | null;
+  const raw = body?.updates ?? [];
+  if (raw.length === 0) return c.json({ accepted: 0, applied: 0 });
+
+  const now = Date.now();
+  const stmts = raw
+    .filter((u) => u?.attachment_id && typeof u.attachment_id === 'string')
+    .map((u) =>
+      c.env.DB.prepare(`
+        UPDATE solicitation_attachment SET
+          sow_summary   = ?,
+          summarized_at = ?
+        WHERE attachment_id = ?
+      `).bind(u.sow_summary ?? null, now, u.attachment_id),
+    );
+  if (stmts.length === 0) return c.json({ accepted: 0, applied: 0 });
+  const results = await c.env.DB.batch(stmts);
+  const applied = results.reduce((s, x) => s + ((x.meta?.changes as number | undefined) ?? 0), 0);
+  return c.json({ accepted: stmts.length, applied });
+});
+
+app.get('/sidecar/solicitations/extraction-stats', async (c) => {
+  const err = checkIngestToken(c); if (err) return c.json({ error: err }, 401);
+  const r = await c.env.DB.prepare(`
+    SELECT
+      COUNT(*)                                                       AS total_attachments,
+      SUM(CASE WHEN file_type='PDF' THEN 1 ELSE 0 END)               AS pdfs,
+      SUM(CASE WHEN extracted_text IS NOT NULL THEN 1 ELSE 0 END)    AS extracted,
+      SUM(CASE WHEN extract_error IS NOT NULL THEN 1 ELSE 0 END)     AS errored,
+      SUM(CASE WHEN sow_summary IS NOT NULL THEN 1 ELSE 0 END)       AS summarized,
+      AVG(CASE WHEN extracted_chars IS NOT NULL THEN extracted_chars END) AS avg_chars
+    FROM solicitation_attachment
+  `).first();
+  return c.json(r ?? {});
+});
+
 // ─── Vendor enrichment from SAM.gov Entity Registration ────────────────────
 //
 // Sidecar pulls per-UEI from SAM and posts back. Worker upserts into the

@@ -1,0 +1,14 @@
+{
+  "name": "awardlens-tools",
+  "version": "0.0.0",
+  "description": "Laptop-side helpers for AwardLens (vendor enrichment, SOW PDF extraction). Standalone npm package — kept out of the main workspace so installing pdf-parse here doesn't pull build steps into the worker bundle.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "extract": "node extract-sow-text-local.mjs",
+    "enrich": "node enrich-vendors-local.mjs"
+  },
+  "dependencies": {
+    "pdf-parse": "^1.1.1"
+  }
+}

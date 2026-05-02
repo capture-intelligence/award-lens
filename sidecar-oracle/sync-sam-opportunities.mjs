@@ -146,23 +146,55 @@ function mapSolicitation(raw) {
   };
 }
 
+// SAM Opps live response (verified 2026-05-01) returns resourceLinks as a
+// plain array of download-URL strings:
+//   ["https://sam.gov/api/prod/opps/v3/opportunities/resources/files/<UUID>/download", ...]
+// NOT the {fileName, url, mimeType, ...} object form the original SAM docs
+// suggest. The previous code filtered for .attachmentId/.url on each entry,
+// rejected every string, and silently wrote zero attachments. Handle both
+// shapes defensively — strings get treated as URLs, objects keep their
+// metadata.
 function mapAttachments(raw) {
   const links = Array.isArray(raw?.resourceLinks) ? raw.resourceLinks : [];
   const solId = raw?.noticeId;
   if (!solId) return [];
+
   return links
-    .filter((a) => a?.attachmentId || a?.url)
-    .map((a) => ({
-      attachment_id:   a?.attachmentId ?? `${solId}:${a?.url ?? a?.fileName ?? Math.random()}`,
-      solicitation_id: solId,
-      file_name:       a?.fileName ?? null,
-      file_url:        a?.url ?? null,
-      file_type:       (a?.mimeType ?? '').toLowerCase().includes('pdf') ? 'PDF'
-                       : (a?.mimeType ?? '').toLowerCase().includes('zip') ? 'ZIP'
-                       : 'OTHER',
-      content_type:    a?.mimeType ?? null,
-      size_bytes:      a?.fileSize ?? null,
-    }));
+    .map((entry) => {
+      // String form: just a download URL.
+      if (typeof entry === 'string') {
+        const url = entry;
+        // Extract the SAM resource UUID between "/files/" and "/download"
+        const m = url.match(/\/files\/([^/]+)\/download/);
+        const id = m?.[1] ?? `${solId}:${url}`;
+        return {
+          attachment_id:   id,
+          solicitation_id: solId,
+          file_name:       null,
+          file_url:        url,
+          file_type:       'PDF', // assume; extractor will record actual type/error
+          content_type:    null,
+          size_bytes:      null,
+        };
+      }
+      // Object form (defensive — in case SAM ever returns the richer shape).
+      if (entry && (entry.attachmentId || entry.url)) {
+        const mime = (entry.mimeType ?? '').toLowerCase();
+        return {
+          attachment_id:   entry.attachmentId ?? `${solId}:${entry.url ?? entry.fileName ?? Math.random()}`,
+          solicitation_id: solId,
+          file_name:       entry.fileName ?? null,
+          file_url:        entry.url ?? null,
+          file_type:       mime.includes('pdf') ? 'PDF'
+                           : mime.includes('zip') ? 'ZIP'
+                           : 'OTHER',
+          content_type:    entry.mimeType ?? null,
+          size_bytes:      entry.fileSize ?? null,
+        };
+      }
+      return null;
+    })
+    .filter(Boolean);
 }
 
 async function postBatch(path, key, rows) {
