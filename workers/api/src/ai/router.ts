@@ -17,7 +17,7 @@ import type { AuthVars }    from '../auth/session.js';
 import type { Intent, AskResponse, AwardContext } from './types.js';
 import { callM1, M1_MODEL_ID } from './m1_sql.js';
 import { callM2, M2_MODEL_ID } from './m2_local.js';
-import { callM3, M3_MODEL_ID } from './m3_external.js';
+import { callM3, M3_MODEL_ID, polishSqlWithClaude } from './m3_external.js';
 import { recordAudit, hashQuestion } from './audit.js';
 
 const EMBED_MODEL = '@cf/baai/bge-base-en-v1.5';
@@ -243,7 +243,7 @@ export async function handleAskV2(
     return c.json({ intent, cols, rows, summary, audit_ids: auditIds } satisfies AskResponse);
   }
 
-  // ── sql_query path: M1 → execute → M2 ─────────────────────────────────────
+  // ── sql_query path: M1 → Claude polish → execute → M2 ───────────────────
   if (intent === 'sql_query') {
     let sql: string;
     try {
@@ -254,6 +254,30 @@ export async function handleAskV2(
         promptTokens: m1.promptTokens, outputTokens: m1.outputTokens,
         durationMs: m1.durationMs, status: 'success', dataClass: 'INTERNAL',
       }));
+
+      // Claude polish pass — catches the wildcard / name-equality mistakes
+      // the M1 LoRA still slips on. ~1s latency, falls back to original
+      // SQL if Claude errors or returns something that doesn't parse.
+      if (anthropicKey) {
+        try {
+          const polished = await polishSqlWithClaude(sql, question, anthropicKey);
+          sql = polished.sql;
+          auditIds.push(await recordAudit(db, {
+            userId, questionHash: qHash, intent, model: 'M3', modelId: M3_MODEL_ID,
+            promptTokens: polished.promptTokens, outputTokens: polished.outputTokens,
+            durationMs: polished.durationMs, status: 'success',
+            dataClass: 'INTERNAL',
+            errorMessage: polished.changed ? 'sql-polish: rewritten' : 'sql-polish: unchanged',
+          }));
+        } catch (polishErr) {
+          // Non-fatal: keep the original M1 SQL and log the failure.
+          auditIds.push(await recordAudit(db, {
+            userId, questionHash: qHash, intent, model: 'M3', modelId: M3_MODEL_ID,
+            status: 'error', errorMessage: `sql-polish: ${String(polishErr).slice(0, 400)}`,
+            dataClass: 'INTERNAL',
+          }));
+        }
+      }
     } catch (err) {
       const msg = String(err);
       auditIds.push(await recordAudit(db, {

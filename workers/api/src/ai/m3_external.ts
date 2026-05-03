@@ -40,6 +40,93 @@ function formatContext(ctx: AwardContext): string {
   return lines.join('\n');
 }
 
+/**
+ * SQL-polish pass — Claude reviews M1's candidate SQL and fixes the
+ * common-bug patterns M1 still misses (most importantly: name fields
+ * compared with = instead of LIKE '%X%'). Returns the corrected SQL or
+ * the original if Claude's response wasn't a clean SELECT.
+ *
+ * Privacy note: Claude sees the SQL string + the user's natural-language
+ * question. No warehouse rows, no PII, no internal-class fields.
+ */
+export interface PolishResult {
+  sql:          string;
+  changed:      boolean;
+  promptTokens: number;
+  outputTokens: number;
+  durationMs:   number;
+}
+
+const POLISH_SYSTEM = `You review SQL written by another model for an awards warehouse and return a corrected version. The schema includes: award (a), vendor (v), organization (o), naics_code (nc), psc_code (pc), award_federal_account (afa).
+
+Your single most important job is to enforce wildcard name matching. The warehouse stores full legal names like "LANTANA CONSULTING GROUP", "BOOZ ALLEN HAMILTON INC", "Centers for Disease Control and Prevention". Users type fragments ("Lantana", "BAH", "CDC", "NCHHSTP"). Any of these patterns is wrong and must be rewritten:
+  o.canonical_name = 'X'   →   o.canonical_name LIKE '%X%'
+  o.short_name = 'X'       →   o.short_name LIKE '%X%'
+  v.legal_name = 'X'       →   v.legal_name LIKE '%X%'
+  nc.description = 'X'     →   nc.description LIKE '%X%'
+  pc.description = 'X'     →   pc.description LIKE '%X%'
+Codes (naics_code, psc_code, federal_account_code) keep =.
+
+Other fixes welcome but lower priority: redundant subqueries that re-look-up an organization the query already JOINed, missing ORDER BY / LIMIT on list queries, COUNT/SUM where the user clearly wanted rows.
+
+Return ONLY the corrected SQL ending with ;. No markdown fences, no explanation. If the SQL is already correct, return it unchanged.`;
+
+export async function polishSqlWithClaude(
+  sql: string,
+  question: string,
+  apiKey: string,
+): Promise<PolishResult> {
+  const t0 = Date.now();
+  const userMsg = `User question: ${question}\n\nSQL to review:\n${sql}`;
+
+  const resp = await fetch(ANTHROPIC_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'x-api-key':         apiKey,
+      'anthropic-version': '2023-06-01',
+      'content-type':      'application/json',
+    },
+    body: JSON.stringify({
+      model:      M3_MODEL_ID,
+      max_tokens: 800,
+      system:     POLISH_SYSTEM,
+      messages:   [{ role: 'user', content: userMsg }],
+    }),
+  });
+
+  if (!resp.ok) {
+    const body = await resp.text();
+    throw new Error(`Claude polish error ${resp.status}: ${body.slice(0, 200)}`);
+  }
+
+  const data = await resp.json() as {
+    content: { type: string; text: string }[];
+    usage?: { input_tokens: number; output_tokens: number };
+  };
+
+  // Strip markdown fences if Claude added them despite instructions.
+  let polished = data.content
+    .filter((b) => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+    .trim();
+  const fenced = polished.match(/```(?:sql)?\s*([\s\S]*?)```/i);
+  if (fenced) polished = fenced[1].trim();
+
+  // Safety: if the response doesn't look like a SELECT/WITH, fall back
+  // to the original SQL so we never execute garbage.
+  const head = polished.toUpperCase().trimStart();
+  const looksValid = head.startsWith('SELECT') || head.startsWith('WITH');
+
+  return {
+    sql:          looksValid ? polished : sql,
+    changed:      looksValid && polished.replace(/\s+/g, ' ').trim() !== sql.replace(/\s+/g, ' ').trim(),
+    promptTokens: data.usage?.input_tokens  ?? 0,
+    outputTokens: data.usage?.output_tokens ?? 0,
+    durationMs:   Date.now() - t0,
+  };
+}
+
 export async function callM3(
   question: string,
   apiKey: string,

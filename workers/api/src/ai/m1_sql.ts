@@ -36,6 +36,22 @@ RULES:
 - Always join vendor ON vendor.vendor_id = award.vendor_id to get vendor names
 - Always join organization ON organization.org_id = award.awarding_org_id to get agency names
 
+NAME / TEXT MATCHES — always use LIKE with wildcards, never =:
+The warehouse stores full legal names — e.g. "LANTANA CONSULTING GROUP",
+"BOOZ ALLEN HAMILTON INC", "Centers for Disease Control and Prevention".
+Users type fragments ("Lantana", "BAH", "CDC", "NCHHSTP"). Equality
+comparisons miss every real match.
+- Vendor:    WHERE v.legal_name      LIKE '%Lantana%'
+- Agency:    WHERE o.canonical_name  LIKE '%NCHHSTP%'
+- Center:    WHERE o.short_name      LIKE '%CDC%'
+- NAICS desc: WHERE nc.description   LIKE '%software%'
+- PSC desc:   WHERE pc.description   LIKE '%consulting%'
+- Description: WHERE a.description   LIKE '%term%' OR a.description_long LIKE '%term%'
+NEVER use canonical_name = 'X', legal_name = 'X', or short_name = 'X' for
+user-supplied names. Use LIKE '%X%' even when the user types what looks
+like an exact name. Codes (NAICS / PSC / federal account numbers) are
+the only fields where = is correct.
+
 QUESTION-SHAPE → QUERY-SHAPE:
 - "Does X have any Y" / "Are there any X" / "Is there X" — return a SELECT
   with the actual rows (LIMIT 10), NOT COUNT/SUM. The user wants to see the
