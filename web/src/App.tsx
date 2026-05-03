@@ -19,10 +19,14 @@ import { AdminViewsPage } from '@/pages/AdminViews';
 import { AdminAccessRequestsPage } from '@/pages/AdminAccessRequests';
 import { BrowseViewsPage } from '@/pages/BrowseViews';
 import { PlaceholderPage } from '@/pages/Placeholder';
+import { ConversationalIntelligenceWidget } from '@/components/ConversationalIntelligenceWidget';
+import { AwardDetail } from '@/components/AwardDetail';
+import { AiAwardProvider, useSelectedAward, useSetSelectedAward } from '@/lib/ai-award-context';
 
 export default function App() {
   return (
     <AuthProvider>
+      <AiAwardProvider>
       <ViewProvider>
       <AgencyProvider>
       <Toaster
@@ -40,6 +44,7 @@ export default function App() {
       <RootRouter />
       </AgencyProvider>
       </ViewProvider>
+      </AiAwardProvider>
     </AuthProvider>
   );
 }
@@ -54,22 +59,35 @@ function RootRouter() {
   if (status === 'rejected')       return <RejectedPage />;
 
   return (
-    <AppShell route={route}>
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={route}
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -4 }}
-          transition={{ duration: 0.22 }}
-        >
-          <ErrorBoundary label="Page error">
-            <RouteView route={route} />
-          </ErrorBoundary>
-        </motion.div>
-      </AnimatePresence>
-    </AppShell>
+    <>
+      <AppShell route={route}>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={route}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.22 }}
+          >
+            <ErrorBoundary label="Page error">
+              <RouteView route={route} />
+            </ErrorBoundary>
+          </motion.div>
+        </AnimatePresence>
+      </AppShell>
+      <ConversationalIntelligenceWidget />
+      <GlobalAwardDetail />
+    </>
   );
+}
+
+// AwardDetail rendered at the App level (not inside AnalyticsPage) so it
+// stays mounted across route changes and so the chat widget — which lives
+// outside the route tree — can open it via the shared context.
+function GlobalAwardDetail() {
+  const award      = useSelectedAward();
+  const setSelected = useSetSelectedAward();
+  return <AwardDetail award={award} onClose={() => setSelected(null)} />;
 }
 
 function RouteView({ route }: { route: string }) {

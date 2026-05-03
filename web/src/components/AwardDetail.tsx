@@ -24,26 +24,17 @@ export function AwardDetail({
   return (
     <AnimatePresence>
       {award && (
-        <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-40 bg-black/65 backdrop-blur-sm"
-            onClick={onClose}
-          />
-          <motion.aside
-            key={String(award.award_id)}
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'spring', damping: 28, stiffness: 240 }}
-            className="fixed right-0 top-0 z-50 flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-border bg-brand-teal-deep/95 backdrop-blur-xl shadow-glass-lg"
-          >
-            <Header award={award} onClose={onClose} />
-            <Body award={award} />
-          </motion.aside>
-        </>
+        <motion.aside
+          key={String(award.award_id)}
+          initial={{ x: '-100%' }}
+          animate={{ x: 0 }}
+          exit={{ x: '-100%' }}
+          transition={{ type: 'spring', damping: 28, stiffness: 240 }}
+          className="fixed left-0 top-0 z-50 flex h-full w-1/4 min-w-[320px] flex-col overflow-hidden border-r border-border bg-brand-teal-deep/95 backdrop-blur-xl shadow-glass-lg"
+        >
+          <Header award={award} onClose={onClose} />
+          <Body award={award} />
+        </motion.aside>
       )}
     </AnimatePresence>
   );

@@ -33,6 +33,7 @@ const API_PREFIXES = [
   '/awarding-agencies',
   '/centers',
   '/explore',
+  '/ai',
 ] as const;
 
 const WORKER_ORIGIN = 'https://api-worker.algocrat.workers.dev';

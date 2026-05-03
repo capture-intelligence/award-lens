@@ -39,12 +39,20 @@ binding = "AI"
 # can neither create the index nor reference it during deploy. Once the
 # token is broadened (Cloudflare Dashboard → My Profile → API Tokens
 # → edit token → add "Vectorize: Edit"), uncomment this and re-deploy.
-# RAG / semantic search work depends on this. Pattern A's /ai/ask
-# endpoint works without it (no Vectorize calls in that path).
-# [[vectorize]]
-# binding = "VEC"
-# index_name = "awardlens-awards"
+[[vectorize]]
+binding = "VEC"
+index_name = "awardlens-awards"
 
 [observability]
 enabled = true
 head_sampling_rate = 1.0
+
+# ── AI v2 secrets (Configuration D) ─────────────────────────────────────────
+# These are NOT in [vars] — set them as worker secrets so they never appear
+# in source or wrangler.toml output:
+#
+#   wrangler secret put FIREWORKS_API_KEY  --name api-worker
+#   wrangler secret put ANTHROPIC_API_KEY  --name api-worker
+#
+# After setting, they appear as c.env.FIREWORKS_API_KEY / c.env.ANTHROPIC_API_KEY
+# in the worker. The Env interface in src/index.ts declares both as required strings.

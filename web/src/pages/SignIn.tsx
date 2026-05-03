@@ -23,7 +23,7 @@ export function SignInPage() {
         <div className="relative flex h-full flex-col justify-between px-14 py-14">
           <div className="flex items-center gap-3">
             <Logo size={44} withGlow />
-            <Wordmark size="lg" tagline="Procurement Intelligence" />
+            <Wordmark size="lg" tagline="Capture Intelligence" />
           </div>
 
           <motion.div

@@ -109,7 +109,7 @@ function BrandMark() {
       <Logo size={36} withGlow className="transition-transform duration-300 group-hover:scale-[1.04]" />
       <Wordmark
         size="md"
-        tagline="Procurement Intelligence"
+        tagline="Capture Intelligence"
         className="hidden sm:flex"
       />
     </a>

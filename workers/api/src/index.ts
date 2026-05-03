@@ -24,6 +24,9 @@ import { adminDiscoverOfficesApp } from './admin/discover-offices.js';
 import { adminFiltersApp, adminFilterAccessApp, userFiltersApp } from './filters/routes.js';
 import { resolveCenter } from './cdc/center-map.js';
 import { resolveScope, composeAwardQuery } from './views/scope.js';
+import { handleAskV2 }  from './ai/router.js';
+import { handleReindex } from './ai/reindex.js';
+import { handleReportInaccuracy } from './ai/report.js';
 
 export interface Env extends AuthEnv {
   DB: D1Database;
@@ -33,9 +36,13 @@ export interface Env extends AuthEnv {
   INGEST_TOKEN?: string;
   /** Workers AI binding — Llama for generation, BGE for embeddings. */
   AI: Ai;
-  /** Vectorize index for RAG. Optional — bound iff the API token has
-   * Vectorize:Edit scope and the index has been created. */
-  VEC?: VectorizeIndex;
+  /** Vectorize index for semantic award similarity. */
+  VEC: VectorizeIndex;
+  /** Modal Serverless — used by M1 + M2 fine-tuned LoRA adapters. Optional: falls back to Workers AI. */
+  MODAL_API_KEY?: string;
+  MODAL_ENDPOINT_URL?: string;
+  /** Anthropic API key — used by M3 (general knowledge) calls. */
+  ANTHROPIC_API_KEY: string;
 }
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVars }>();
@@ -207,6 +214,13 @@ Respond with JSON only. Include only the fields the query mentions. Format:
     return c.json({ error: 'AI binding error', message: String(err).slice(0, 300) }, 500);
   }
 });
+
+// ─── AI v2: Configuration D — M1 (SQL) → D1 execute → M2 (summarize) / M3 ──
+// Requires MODAL_API_KEY + MODAL_ENDPOINT_URL + ANTHROPIC_API_KEY worker secrets.
+// See docs/architecture/MODEL-ROUTING.md for the full 3-tier spec.
+app.post('/ai/v2/ask',           async (c) => handleAskV2(c));
+app.post('/ai/reindex-awards',   async (c) => handleReindex(c));
+app.post('/ai/report-inaccuracy', async (c) => handleReportInaccuracy(c));
 
 // Pull the first JSON object out of a string that may have leading/trailing
 // prose. Returns null on parse failure.

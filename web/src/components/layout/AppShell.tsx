@@ -10,6 +10,17 @@ function readCollapsed(): boolean {
   return localStorage.getItem(SIDEBAR_STORAGE_KEY) === '1';
 }
 
+// Lets descendant pages programmatically collapse the sidebar (e.g. Analytics
+// reclaims the left rail when the user switches between Tree / Summary /
+// Pivot tabs). Returns a no-op when used outside the shell.
+const SidebarCollapseContext = React.createContext<(collapsed: boolean) => void>(
+  () => {},
+);
+
+export function useCollapseSidebar() {
+  return React.useContext(SidebarCollapseContext);
+}
+
 export function AppShell({
   route,
   children,
@@ -35,6 +46,7 @@ export function AppShell({
     // overflow-hidden here keeps stray content from forcing root taller;
     // <main> below carries its own overflow-y-auto so any page taller than
     // viewport (Settings, etc.) can still scroll inside the main column.
+    <SidebarCollapseContext.Provider value={setCollapsed}>
     <div className="flex h-screen flex-col overflow-hidden">
       <Topbar />
       <div className="flex flex-1 min-h-0">
@@ -64,5 +76,6 @@ export function AppShell({
         </main>
       </div>
     </div>
+    </SidebarCollapseContext.Provider>
   );
 }

@@ -22,8 +22,9 @@ import { NoViewSelected } from '@/components/ui/NoViewSelected';
 import { fmtInt, fmtMoney, fmtDate } from '@/lib/utils';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { AwardDetail } from '@/components/AwardDetail';
 import { natureOfWork } from '@/lib/nature-of-work';
+import { useSetSelectedAward } from '@/lib/ai-award-context';
+import { useCollapseSidebar } from '@/components/layout/AppShell';
 import { DataCoverageTree } from '@/components/viz/DataCoverageTree';
 import { buildSpendTree } from '@/components/viz/buildSpendTree';
 
@@ -189,7 +190,17 @@ export function AnalyticsPage() {
   const [error, setError] = React.useState<string | null>(null);
   const [reloadToken, setReloadToken] = React.useState(0);
   const [pivotState, setPivotState] = React.useState<any>(DEFAULT_PIVOT_STATE);
-  const [selectedAward, setSelectedAward] = React.useState<Record<string, unknown> | null>(null);
+  // selectedAward lives in AiAwardContext (a global) so the chat result grid
+  // can also open the detail panel. Analytics is just one of the writers.
+  const setSelectedAward = useSetSelectedAward();
+  const collapseSidebar  = useCollapseSidebar();
+  // Any pointer-down inside the Tabs region (triggers OR content) collapses
+  // the sidebar so Tree / Summary / Pivot get the full viewport width before
+  // their layout commits.
+  const collapseOnTabPointer = React.useCallback(
+    () => collapseSidebar(true),
+    [collapseSidebar],
+  );
 
   // Wait for the agency picker to settle (default-to-CDC resolution); admins
   // are also allowed to proceed when no agency is set (full warehouse).
@@ -291,7 +302,11 @@ export function AnalyticsPage() {
           </div>
         </Card>
       ) : (
-        <Tabs.Root defaultValue="tree" className="flex flex-1 min-h-0 flex-col gap-4">
+        <Tabs.Root
+          defaultValue="tree"
+          onPointerDownCapture={collapseOnTabPointer}
+          className="flex flex-1 min-h-0 flex-col gap-4"
+        >
           {/* Tabs + count + actions all share one row. The count sits between
               the view tabs and the Export/Reload cluster so a glance reads:
               "what view → how many awards in scope → what to do with them". */}
@@ -399,8 +414,6 @@ export function AnalyticsPage() {
           </Tabs.Content>
         </Tabs.Root>
       )}
-
-      <AwardDetail award={selectedAward} onClose={() => setSelectedAward(null)} />
     </div>
   );
 }
