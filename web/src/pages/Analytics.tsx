@@ -28,6 +28,7 @@ import { useCollapseSidebar } from '@/components/layout/AppShell';
 import { DataCoverageTree } from '@/components/viz/DataCoverageTree';
 import { buildSpendTree } from '@/components/viz/buildSpendTree';
 import { AwardBubbleTab } from '@/components/viz/AwardBubbleTab';
+import { AwardTimelineTab } from '@/components/viz/AwardTimelineTab';
 
 // ─── Field display map (snake_case → friendly caption) ───────────────────────
 
@@ -323,6 +324,12 @@ export function AnalyticsPage() {
                 Clusters
               </Tabs.Trigger>
               <Tabs.Trigger
+                value="timeline"
+                className="rounded-lg px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-muted-soft transition-colors hover:text-foreground data-[state=active]:bg-brand-vermilion data-[state=active]:text-white data-[state=active]:shadow-sm"
+              >
+                Timeline
+              </Tabs.Trigger>
+              <Tabs.Trigger
                 value="tree"
                 className="rounded-lg px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-muted-soft transition-colors hover:text-foreground data-[state=active]:bg-brand-vermilion data-[state=active]:text-white data-[state=active]:shadow-sm"
               >
@@ -427,6 +434,16 @@ export function AnalyticsPage() {
           >
             <ErrorBoundary label="Bubble chart">
               <AwardBubbleTab rows={filteredRows} viewName={data.view_name} />
+            </ErrorBoundary>
+          </Tabs.Content>
+
+          {/* TIMELINE TAB */}
+          <Tabs.Content
+            value="timeline"
+            className="awardlens-tab-fill flex flex-col focus:outline-none data-[state=inactive]:hidden h-[calc(100dvh-168px)]"
+          >
+            <ErrorBoundary label="Timeline">
+              <AwardTimelineTab rows={filteredRows} viewName={data.view_name} />
             </ErrorBoundary>
           </Tabs.Content>
         </Tabs.Root>

@@ -1,0 +1,517 @@
+/**
+ * Timeline tab — variable-height "pill Gantt" over the same filteredRows
+ * the rest of Analytics consumes.
+ *
+ * Encoding:
+ *   X        time      contract start (left edge) → end (right edge)
+ *   Y        band      one row per award, ordered by the active sort
+ *   height   linear    pill thickness encodes current_value (taller = larger)
+ *   color    nominal   nature of work / vendor / agency (configurable)
+ *
+ * Each pill is an SVG <rect> with rx = ry = h / 2, so it stays a perfect
+ * capsule regardless of thickness, vertically centered on its row's
+ * midpoint. Pill height is clamped to [minH, bandwidth - 2] so low-value
+ * items stay visible and high-value rows don't overlap their neighbors.
+ */
+
+import * as React from 'react';
+import * as d3 from 'd3';
+import { Card } from '@/components/ui/Card';
+import { useSetSelectedAward } from '@/lib/ai-award-context';
+import { natureOfWork } from '@/lib/nature-of-work';
+import { useResizeObserver } from './useResizeObserver';
+import { fmtMoney, fmtInt, fmtDate, cn } from '@/lib/utils';
+
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+type ColorBy = 'nature' | 'vendor' | 'agency';
+type SortBy  = 'start_asc' | 'end_asc' | 'value_desc' | 'value_asc';
+type TopN    = 20 | 50 | 100;
+type Row     = Record<string, unknown>;
+
+interface PillNode {
+  id:    string;
+  award: Row;
+  name:  string;
+  start: Date;
+  end:   Date;
+  value: number;
+  group: string;
+  color: string;
+}
+
+// ─── Earthy palette (matches Clusters tab) ──────────────────────────────────
+
+const NATURE_COLORS: Record<string, string> = {
+  'Research / R&D':              '#9c7aa1',
+  'Data / Surveillance Systems': '#5d9099',
+  'IT / Software':               '#5a7d8a',
+  'Communications / Outreach':   '#d2674a',
+  'Evaluation / Assessment':     '#c0954a',
+  'Program Support / PMO':       '#90AEAD',
+  'Goods / Equipment':           '#a87a52',
+  'Other / Mixed':               '#7d7167',
+};
+
+const PALETTE_BY_RANK = [
+  '#874F41', '#5d9099', '#90AEAD', '#c0954a',
+  '#9c7aa1', '#5a7d8a', '#a87a52', '#d2674a',
+  '#7a9594', '#9aa861', '#7d7167', '#a05a4d',
+];
+
+// ─── Pure helpers ───────────────────────────────────────────────────────────
+
+function parseDate(s: unknown): Date | null {
+  if (typeof s !== 'string' || !s) return null;
+  // pop_start_date / pop_end_date are stored as YYYY-MM-DD; treat as
+  // local midnight so toolbox time zones don't shift the bar by a day.
+  const d = new Date(`${s}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function compare(a: Row, b: Row, sortBy: SortBy): number {
+  const av = Number(a.current_value ?? 0);
+  const bv = Number(b.current_value ?? 0);
+  if (sortBy === 'value_desc') return bv - av;
+  if (sortBy === 'value_asc')  return av - bv;
+  const ka = sortBy === 'start_asc' ? parseDate(a.pop_start_date) : parseDate(a.pop_end_date);
+  const kb = sortBy === 'start_asc' ? parseDate(b.pop_start_date) : parseDate(b.pop_end_date);
+  if (!ka && !kb) return 0;
+  if (!ka) return 1;
+  if (!kb) return -1;
+  return ka.getTime() - kb.getTime();
+}
+
+function natureFor(r: Row): string {
+  return natureOfWork({
+    description:        (r.description       ?? '') as string,
+    psc_description:    (r.psc_description   ?? '') as string,
+    psc_code:           (r.psc_code          ?? '') as string,
+    naics_description:  (r.naics_description ?? '') as string,
+    naics_code:         (r.naics_code        ?? '') as string,
+  });
+}
+
+function buildNodes(
+  rows: Row[],
+  colorBy: ColorBy,
+  sortBy: SortBy,
+  topN: TopN,
+): PillNode[] {
+  // Only awards with both endpoints can be plotted on the time axis.
+  const valid = rows.filter(
+    (r) => parseDate(r.pop_start_date) && parseDate(r.pop_end_date),
+  );
+  // Pick top-N by value first (so the chart shows the biggest contracts),
+  // then re-sort by the user's chosen axis ordering.
+  const top = [...valid]
+    .sort((a, b) => Number(b.current_value ?? 0) - Number(a.current_value ?? 0))
+    .slice(0, topN)
+    .sort((a, b) => compare(a, b, sortBy));
+
+  // Build a stable rank map for vendor / agency coloring so the same
+  // entity gets the same palette slot across renders.
+  const groupRank = new Map<string, number>();
+  if (colorBy !== 'nature') {
+    const totals = new Map<string, number>();
+    const keyOf = (r: Row) =>
+      colorBy === 'vendor'
+        ? String(r.vendor_name      ?? '(unknown)')
+        : String(r.awarding_agency  ?? '(unknown)');
+    for (const r of top) {
+      const k = keyOf(r);
+      totals.set(k, (totals.get(k) ?? 0) + Number(r.current_value ?? 0));
+    }
+    Array.from(totals.entries())
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([k], i) => groupRank.set(k, i));
+  }
+
+  return top.map((r, i) => {
+    const start = parseDate(r.pop_start_date)!;
+    const end   = parseDate(r.pop_end_date)!;
+    const value = Number(r.current_value ?? 0);
+    let group = '';
+    let color = '#7d7167';
+    if (colorBy === 'nature') {
+      group = natureFor(r);
+      color = NATURE_COLORS[group] ?? '#7d7167';
+    } else {
+      group = colorBy === 'vendor'
+        ? String(r.vendor_name     ?? '(unknown)')
+        : String(r.awarding_agency ?? '(unknown)');
+      const rank = groupRank.get(group) ?? 0;
+      color = PALETTE_BY_RANK[rank % PALETTE_BY_RANK.length];
+    }
+    return {
+      id:    String(r.award_id ?? `idx-${i}`),
+      award: r,
+      name:  (String(r.description ?? '').trim() || '(no description)'),
+      start,
+      end,
+      value,
+      group,
+      color,
+    };
+  });
+}
+
+// ─── Component ──────────────────────────────────────────────────────────────
+
+interface Props {
+  rows:     Row[];
+  viewName: string;
+}
+
+export function AwardTimelineTab({ rows, viewName }: Props) {
+  const setSelectedAward = useSetSelectedAward();
+  const [colorBy, setColorBy] = React.useState<ColorBy>('nature');
+  const [sortBy,  setSortBy]  = React.useState<SortBy>('start_asc');
+  const [topN,    setTopN]    = React.useState<TopN>(50);
+
+  const nodes = React.useMemo(
+    () => buildNodes(rows, colorBy, sortBy, topN),
+    [rows, colorBy, sortBy, topN],
+  );
+
+  const totals = React.useMemo(() => {
+    const total = rows.reduce((s, r) => s + Number(r.current_value ?? 0), 0);
+    const eligible = rows.filter(
+      (r) => parseDate(r.pop_start_date) && parseDate(r.pop_end_date),
+    ).length;
+    return { total, count: rows.length, eligible };
+  }, [rows]);
+
+  // Distinct categories present in the current pill set, for the legend.
+  const legendItems = React.useMemo(() => {
+    const seen = new Map<string, string>();
+    nodes.forEach((n) => { if (!seen.has(n.group)) seen.set(n.group, n.color); });
+    return Array.from(seen.entries()).map(([label, color]) => ({ label, color }));
+  }, [nodes]);
+
+  return (
+    <Card className="flex flex-1 min-h-0 flex-col">
+      {/* Header */}
+      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-border bg-brand-teal-deep/40 px-5 py-3.5">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-brand-sage">
+            <span>Timeline</span>
+            <span className="text-muted-soft">·</span>
+            <span className="text-muted-soft">click a pill for full detail</span>
+          </div>
+          <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-display text-[18px] leading-tight tracking-tight text-brand-cream">
+            <span className="font-extrabold">{viewName}</span>
+            <span className="text-[13px] font-medium text-muted">
+              <span className="font-mono tabular-nums text-brand-sage">{fmtInt(totals.eligible)}</span>
+              <span className="ml-1 text-muted-soft">with PoP dates</span>
+              <span className="mx-2 text-muted-soft/60">·</span>
+              <span className="font-mono tabular-nums text-brand-sage">{fmtMoney(totals.total)}</span>
+              <span className="ml-1 text-muted-soft">total</span>
+            </span>
+            {totals.eligible > topN && (
+              <span className="text-[11px] uppercase tracking-[0.14em] text-brand-vermilion-soft/80">
+                top {topN} by value
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-3">
+          <SegControl<ColorBy>
+            label="Color by"
+            value={colorBy}
+            onChange={setColorBy}
+            options={[
+              { value: 'nature', label: 'Nature' },
+              { value: 'vendor', label: 'Vendor' },
+              { value: 'agency', label: 'Agency' },
+            ]}
+          />
+          <SegControl<SortBy>
+            label="Sort"
+            value={sortBy}
+            onChange={setSortBy}
+            options={[
+              { value: 'start_asc',  label: 'Start ↑' },
+              { value: 'end_asc',    label: 'End ↑' },
+              { value: 'value_desc', label: 'Value ↓' },
+              { value: 'value_asc',  label: 'Value ↑' },
+            ]}
+          />
+          <SegControl<TopN>
+            label="Show"
+            value={topN}
+            onChange={(v) => setTopN(v)}
+            options={[
+              { value: 20,  label: 'Top 20'  },
+              { value: 50,  label: 'Top 50'  },
+              { value: 100, label: 'Top 100' },
+            ]}
+          />
+        </div>
+      </div>
+
+      {/* Canvas */}
+      <TimelineCanvas
+        nodes={nodes}
+        onPillClick={(n) => setSelectedAward(n.award)}
+      />
+
+      {/* Legend (only when more than one category is in view) */}
+      {legendItems.length > 1 && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-border bg-brand-teal-deep/30 px-5 py-2.5 text-[11px] text-muted-soft">
+          {legendItems.map((it) => (
+            <span key={it.label} className="inline-flex items-center gap-1.5">
+              <span className="block h-2.5 w-2.5 rounded-full" style={{ background: it.color }} />
+              <span className="text-brand-cream/90">{it.label}</span>
+            </span>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ─── Segmented control (mirrors AwardBubbleTab) ─────────────────────────────
+
+function SegControl<T extends string | number>({
+  label, value, onChange, options,
+}: {
+  label: string;
+  value: T;
+  onChange: (v: T) => void;
+  options: Array<{ value: T; label: string }>;
+}) {
+  return (
+    <div>
+      <div className="mb-1 text-[9.5px] font-bold uppercase tracking-[0.16em] text-muted-soft">
+        {label}
+      </div>
+      <div className="inline-flex items-center rounded-lg border border-border bg-brand-teal-deep/70 p-0.5 shadow-inner shadow-black/20">
+        {options.map((o) => (
+          <button
+            key={String(o.value)}
+            type="button"
+            onClick={() => onChange(o.value)}
+            className={cn(
+              'rounded-md px-2.5 py-1 text-[11.5px] font-semibold transition-all',
+              value === o.value
+                ? 'bg-brand-vermilion text-brand-cream shadow-sm shadow-brand-vermilion/25'
+                : 'text-muted-soft hover:text-brand-cream',
+            )}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── D3 canvas ──────────────────────────────────────────────────────────────
+
+const MARGIN = { top: 18, right: 32, bottom: 38, left: 230 };
+const MIN_PILL_H = 10;
+const MAX_PILL_H = 40;
+
+function TimelineCanvas({
+  nodes, onPillClick,
+}: {
+  nodes: PillNode[];
+  onPillClick: (n: PillNode) => void;
+}) {
+  const { ref: containerRef, rect } = useResizeObserver<HTMLDivElement>();
+  const svgRef     = React.useRef<SVGSVGElement | null>(null);
+  const tooltipRef = React.useRef<HTMLDivElement | null>(null);
+  const onClickRef = React.useRef(onPillClick);
+  React.useEffect(() => { onClickRef.current = onPillClick; }, [onPillClick]);
+
+  React.useEffect(() => {
+    const W = rect.width, H = rect.height;
+    if (!svgRef.current || W < 80 || H < 60 || nodes.length === 0) return;
+    const svg = d3.select(svgRef.current);
+    svg.selectAll('*').remove();
+
+    // ── Scales ────────────────────────────────────────────────────────────
+    const minStart = d3.min(nodes, (n) => n.start) ?? new Date();
+    const maxEnd   = d3.max(nodes, (n) => n.end)   ?? new Date();
+    // Pad the time domain ~3% on each side so end-points don't kiss the axis.
+    const pad = (maxEnd.getTime() - minStart.getTime()) * 0.03;
+    const xScale = d3.scaleTime()
+      .domain([new Date(minStart.getTime() - pad), new Date(maxEnd.getTime() + pad)])
+      .range([MARGIN.left, W - MARGIN.right]);
+
+    const yScale = d3.scaleBand<string>()
+      .domain(nodes.map((n) => n.id))
+      .range([MARGIN.top, H - MARGIN.bottom])
+      .paddingInner(0.28);
+
+    const bandwidth = yScale.bandwidth();
+    const minVal = d3.min(nodes, (n) => n.value) ?? 0;
+    const maxVal = d3.max(nodes, (n) => n.value) ?? 1;
+    // Clamp the upper bound so pills never exceed their row, and so the
+    // visual headroom stays consistent regardless of data extremes.
+    const heightCap = Math.max(MIN_PILL_H + 2, Math.min(MAX_PILL_H, bandwidth - 2));
+    const heightScale = d3.scaleLinear()
+      .domain([minVal, Math.max(maxVal, minVal + 1)])
+      .range([MIN_PILL_H, heightCap])
+      .clamp(true);
+
+    // ── Layers ────────────────────────────────────────────────────────────
+    const gridLayer  = svg.append('g').attr('class', 'grid');
+    const pillLayer  = svg.append('g').attr('class', 'pills');
+    const xAxisLayer = svg.append('g').attr('class', 'x-axis');
+    const yAxisLayer = svg.append('g').attr('class', 'y-axis');
+
+    // ── Vertical gridlines (year ticks, dashed, behind pills) ─────────────
+    const xTicks = xScale.ticks(Math.max(4, Math.floor((W - MARGIN.left - MARGIN.right) / 110)));
+    gridLayer.selectAll('line')
+      .data(xTicks)
+      .join('line')
+      .attr('x1', (d) => xScale(d)).attr('x2', (d) => xScale(d))
+      .attr('y1', MARGIN.top).attr('y2', H - MARGIN.bottom)
+      .attr('stroke', '#90AEAD').attr('stroke-opacity', 0.10)
+      .attr('stroke-dasharray', '3 4');
+
+    // Horizontal row separators — extremely subtle so they read as scaffolding
+    yAxisLayer.selectAll('line.row-rule')
+      .data(nodes)
+      .join('line')
+      .attr('class', 'row-rule')
+      .attr('x1', MARGIN.left).attr('x2', W - MARGIN.right)
+      .attr('y1', (n) => yScale(n.id)! + yScale.bandwidth() + (yScale.step() - yScale.bandwidth()) / 2)
+      .attr('y2', (n) => yScale(n.id)! + yScale.bandwidth() + (yScale.step() - yScale.bandwidth()) / 2)
+      .attr('stroke', '#FBE9D0').attr('stroke-opacity', 0.025);
+
+    // ── X axis (bottom, time format adapts to span) ───────────────────────
+    const span = maxEnd.getTime() - minStart.getTime();
+    const oneYear = 365 * 24 * 3600 * 1000;
+    const fmt = span > 3 * oneYear ? d3.timeFormat('%Y') : d3.timeFormat("%b '%y");
+    const xAxis = d3.axisBottom(xScale)
+      .ticks(xTicks.length)
+      .tickFormat((d) => fmt(d as Date))
+      .tickSize(0).tickPadding(8);
+    xAxisLayer
+      .attr('transform', `translate(0, ${H - MARGIN.bottom})`)
+      .call(xAxis as any);
+    xAxisLayer.select('.domain').attr('stroke', '#90AEAD').attr('stroke-opacity', 0.18);
+    xAxisLayer.selectAll('text')
+      .attr('fill', '#90AEAD').attr('fill-opacity', 0.75)
+      .attr('font-size', 10.5).attr('font-weight', 600)
+      .attr('letter-spacing', '0.06em');
+
+    // ── Y axis (left): truncated award descriptions ───────────────────────
+    yAxisLayer.selectAll('text.row-label')
+      .data(nodes)
+      .join('text')
+      .attr('class', 'row-label')
+      .attr('x', MARGIN.left - 12)
+      .attr('y', (n) => yScale(n.id)! + bandwidth / 2)
+      .attr('dominant-baseline', 'middle')
+      .attr('text-anchor', 'end')
+      .attr('font-size', 11)
+      .attr('font-weight', 600)
+      .attr('fill', '#FBE9D0').attr('fill-opacity', 0.78)
+      .text((n) => truncate(n.name, 32));
+
+    // ── Pills ─────────────────────────────────────────────────────────────
+    const tip = tooltipRef.current;
+    const pills = pillLayer.selectAll<SVGRectElement, PillNode>('rect.pill')
+      .data(nodes, (d) => (d as PillNode).id)
+      .join('rect')
+      .attr('class', 'pill')
+      .attr('x', (n) => Math.min(xScale(n.start), xScale(n.end)))
+      .attr('y', (n) => {
+        const rowY  = yScale(n.id)!;
+        const h     = heightScale(n.value);
+        return rowY + bandwidth / 2 - h / 2;
+      })
+      .attr('width', (n) => Math.max(2, Math.abs(xScale(n.end) - xScale(n.start))))
+      .attr('height', (n) => heightScale(n.value))
+      .attr('rx', (n) => heightScale(n.value) / 2)
+      .attr('ry', (n) => heightScale(n.value) / 2)
+      .attr('fill', (n) => n.color)
+      .attr('fill-opacity', 0.86)
+      .attr('stroke', (n) => n.color)
+      .attr('stroke-opacity', 0.5)
+      .attr('stroke-width', 1)
+      .style('cursor', 'pointer');
+
+    pills
+      .on('mouseover', function (_event, d) {
+        d3.select(this).transition().duration(120).attr('fill-opacity', 1);
+        if (!tip) return;
+        tip.classList.add('visible');
+        tip.innerHTML = tooltipHtml(d);
+      })
+      .on('mousemove', function (event) {
+        if (!tip) return;
+        const e = event as MouseEvent;
+        tip.style.left = `${Math.min(e.clientX + 14, window.innerWidth - 280)}px`;
+        tip.style.top  = `${Math.min(e.clientY - 8,  window.innerHeight - 160)}px`;
+      })
+      .on('mouseout', function () {
+        d3.select(this).transition().duration(160).attr('fill-opacity', 0.86);
+        if (tip) tip.classList.remove('visible');
+      })
+      .on('click', (_event, d) => onClickRef.current(d));
+
+  }, [nodes, rect.width, rect.height]);
+
+  return (
+    <div ref={containerRef} className="relative flex-1 min-h-0">
+      <svg ref={svgRef} className="block h-full w-full" />
+      <div
+        ref={tooltipRef}
+        className="awardlens-timeline-tip pointer-events-none fixed z-50 max-w-[280px] rounded-lg border border-border bg-brand-teal-deep/95 px-3 py-2 text-xs text-foreground opacity-0 shadow-glass-lg backdrop-blur-md transition-opacity duration-100"
+        style={{ left: -9999, top: -9999 }}
+      />
+      <style>{`.awardlens-timeline-tip.visible{opacity:1;}`}</style>
+    </div>
+  );
+}
+
+function truncate(s: string, n: number): string {
+  if (s.length <= n) return s;
+  return s.slice(0, n - 1).trimEnd() + '…';
+}
+
+function tooltipHtml(n: PillNode): string {
+  const esc = (s: string) =>
+    s.replace(/[<>&]/g, (c) => (c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;'));
+  const r = n.award;
+  const vendor = String(r.vendor_name ?? '—');
+  const days = Number(r.days_to_contract_end);
+  const daysLabel = Number.isFinite(days)
+    ? days < 0 ? `${Math.abs(days)}d ago` : `${days}d left`
+    : '—';
+  return `
+    <div class="flex items-center gap-1.5 text-[9.5px] font-bold uppercase tracking-[0.16em]" style="color:${n.color}">
+      <span style="display:inline-block;width:6px;height:6px;border-radius:9999px;background:${n.color}"></span>
+      ${esc(n.group)}
+    </div>
+    <div class="mt-1 text-[13.5px] font-bold leading-tight tracking-tight text-brand-cream">${esc(n.name)}</div>
+    <div class="mt-2.5 space-y-1.5 border-t border-white/5 pt-2.5">
+      <div class="flex items-baseline justify-between gap-4 leading-snug">
+        <span class="text-[10.5px] uppercase tracking-[0.10em] text-muted-soft">Vendor</span>
+        <span class="text-[12.5px] font-semibold text-brand-cream">${esc(vendor)}</span>
+      </div>
+      <div class="flex items-baseline justify-between gap-4 leading-snug">
+        <span class="text-[10.5px] uppercase tracking-[0.10em] text-muted-soft">Period</span>
+        <span class="font-mono text-[12px] text-brand-cream">${fmtDate(n.start.toISOString().slice(0, 10))} → ${fmtDate(n.end.toISOString().slice(0, 10))}</span>
+      </div>
+      <div class="flex items-baseline justify-between gap-4 leading-snug">
+        <span class="text-[10.5px] uppercase tracking-[0.10em] text-muted-soft">Value</span>
+        <span class="font-mono text-[12.5px] font-semibold text-brand-cream">${fmtMoney(n.value)}</span>
+      </div>
+      <div class="flex items-baseline justify-between gap-4 leading-snug">
+        <span class="text-[10.5px] uppercase tracking-[0.10em] text-muted-soft">Ends</span>
+        <span class="text-[12.5px] font-semibold text-brand-cream">${daysLabel}</span>
+      </div>
+    </div>
+    <div class="mt-2.5 flex items-center gap-1 text-[10px] font-semibold tracking-[0.08em] text-brand-sage">
+      <span>Click for full detail</span>
+      <span aria-hidden="true">→</span>
+    </div>
+  `;
+}
