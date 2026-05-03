@@ -1,0 +1,456 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" agent="AwardLens architecture" version="24.0.0">
+  <!--
+    AwardLens architecture — two-diagram drawio file.
+      Page 1: Runtime Architecture     (how a request flows end-to-end)
+      Page 2: Models Pipeline          (how M1 / M2 LoRA adapters are
+                                        trained, registered, and served)
+
+    Open with diagrams.net (https://app.diagrams.net) or the
+    "Draw.io Integration" VS Code extension.
+  -->
+
+  <diagram id="runtime" name="Runtime Architecture">
+    <mxGraphModel dx="2000" dy="1300" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="1200" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- ───────────────── Title ───────────────── -->
+        <mxCell id="title" value="AwardLens — Runtime Architecture" style="text;html=1;align=center;verticalAlign=middle;fontSize=22;fontStyle=1;fontColor=#1F2933;" vertex="1" parent="1">
+          <mxGeometry x="40" y="30" width="1620" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="subtitle" value="Capture Intelligence · awards-dashboard.pages.dev · api-worker.algocrat.workers.dev" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;fontColor=#5C6B73;" vertex="1" parent="1">
+          <mxGeometry x="40" y="68" width="1620" height="20" as="geometry"/>
+        </mxCell>
+
+        <!-- ───────────────── Row 1: Users + External ───────────────── -->
+        <mxCell id="grpUsers" value="USERS" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9AA8B2;dashed=1;verticalAlign=top;fontSize=10;fontColor=#5C6B73;fontStyle=1;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="110" width="320" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="userBrowser" value="User Browser&#10;React / Vite SPA&#10;Edge / Chrome / Safari" style="shape=umlActor;html=1;verticalLabelPosition=bottom;labelBackgroundColor=none;verticalAlign=top;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="100" y="140" width="40" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="adminBrowser" value="Admin Browser&#10;same SPA, role=admin" style="shape=umlActor;html=1;verticalLabelPosition=bottom;labelBackgroundColor=none;verticalAlign=top;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="270" y="140" width="40" height="60" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="grpExternal" value="EXTERNAL SERVICES" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9AA8B2;dashed=1;verticalAlign=top;fontSize=10;fontColor=#5C6B73;fontStyle=1;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="1240" y="110" width="420" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="googleOauth" value="Google OAuth 2.0" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1260" y="140" width="120" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="anthropic" value="Anthropic API&#10;claude-sonnet-4-5" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#F8CECC;strokeColor=#B85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1400" y="140" width="120" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="huggingface" value="Hugging Face&#10;LoRA registry" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1540" y="140" width="120" height="70" as="geometry"/>
+        </mxCell>
+
+        <!-- ───────────────── Row 2: Cloudflare Edge ───────────────── -->
+        <mxCell id="grpEdge" value="CLOUDFLARE EDGE" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFF8F0;strokeColor=#D79B00;verticalAlign=top;fontSize=10;fontColor=#7A4F00;fontStyle=1;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="270" width="1600" height="200" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="cfPages" value="Cloudflare Pages&#10;React SPA bundle&#10;awards-dashboard.pages.dev" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="100" y="310" width="200" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="pagesFn" value="Pages Functions Middleware&#10;_middleware.ts proxy&#10;/auth/* · /api/* · /ai/*" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="100" y="395" width="200" height="60" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="cfWorker" value="Cloudflare Worker — Hono&#10;api-worker.algocrat.workers.dev" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;fontSize=12;fontStyle=1;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="350" y="310" width="900" height="140" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="modAuth" value="Auth&#10;Google OAuth&#10;sessions in KV&#10;role: user · admin" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FCEFD9;strokeColor=#D79B00;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="370" y="350" width="170" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="modData" value="Data API&#10;/explore · /awards/:id&#10;/agencies-with-counts&#10;scope-aware (view/agency)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FCEFD9;strokeColor=#D79B00;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="560" y="350" width="200" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="modAi" value="AI Router&#10;POST /ai/v2/ask&#10;intent classifier&#10;M1 / M2 / M3 / similar" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FCEFD9;strokeColor=#D79B00;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="780" y="350" width="200" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="modReport" value="Feedback&#10;/ai/report-inaccuracy&#10;ai_inaccuracy_report&#10;audit_id linkage" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FCEFD9;strokeColor=#D79B00;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1000" y="350" width="200" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- ───────────────── Row 3: AI Tier ───────────────── -->
+        <mxCell id="grpAi" value="AI TIER" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F4ECF9;strokeColor=#9673A6;verticalAlign=top;fontSize=10;fontColor=#603A8A;fontStyle=1;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="500" width="1600" height="170" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="m1" value="M1 — text-to-SQL&#10;Modal Serverless · A10G&#10;Llama 3.1 8B + awards-sql-lora&#10;25s timeout · scale-to-zero" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1D5E7;strokeColor=#9673A6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="80" y="540" width="240" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="m2" value="M2 — summarizer&#10;Modal Serverless · A10G&#10;Llama 3.1 8B + awards-summarize-lora&#10;factual answer over result rows" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1D5E7;strokeColor=#9673A6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="340" y="540" width="240" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="m3" value="M3 — generalist&#10;Anthropic claude-sonnet-4-5&#10;public knowledge + focused-award context&#10;no internal data" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F8CECC;strokeColor=#B85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="600" y="540" width="240" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="embed" value="Embeddings&#10;Workers AI · @cf/baai/bge-base-en-v1.5&#10;query &amp; index vectors&#10;768-dim" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="860" y="540" width="240" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="fallback" value="Fallback&#10;Workers AI · llama-3.1-8b-instruct&#10;activates when Modal cold-starts&#10;or Anthropic is unreachable" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1120" y="540" width="240" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="vec" value="Vectorize&#10;awardlens-awards&#10;~50K rows · cosine&#10;ANN over BGE embeddings" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#D5E8D4;strokeColor=#82B366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1380" y="540" width="240" height="100" as="geometry"/>
+        </mxCell>
+
+        <!-- ───────────────── Row 4: Data Tier ───────────────── -->
+        <mxCell id="grpData" value="DATA TIER" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#EAF4EA;strokeColor=#82B366;verticalAlign=top;fontSize=10;fontColor=#3E6C3F;fontStyle=1;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="700" width="1600" height="160" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="d1" value="D1 · awards-warehouse&#10;award · vendor · organization · naics_code · psc_code · solicitation · sam_exclusion · ai_audit · ai_inaccuracy_report · app_user · …" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#D5E8D4;strokeColor=#82B366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="80" y="740" width="700" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="kv" value="KV · META&#10;OAuth state · session tokens&#10;hot config (rate limits, etc.)" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#D5E8D4;strokeColor=#82B366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="820" y="740" width="280" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="r2" value="(reserved)&#10;R2 · object storage&#10;for SOW PDF cache" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#EFEFEF;strokeColor=#9AA8B2;dashed=1;fontSize=11;fontColor=#7A8088;" vertex="1" parent="1">
+          <mxGeometry x="1140" y="740" width="240" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="auditLink" value="ai_audit ⇄ ai_inaccuracy_report&#10;every model call audited;&#10;user reports linked by audit_id" style="text;html=1;align=center;fontSize=10;fontStyle=2;fontColor=#5C6B73;" vertex="1" parent="1">
+          <mxGeometry x="1400" y="745" width="220" height="50" as="geometry"/>
+        </mxCell>
+
+        <!-- ───────────────── Row 5: Ingestion ───────────────── -->
+        <mxCell id="grpIngest" value="INGESTION" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#EAF1FB;strokeColor=#6C8EBF;verticalAlign=top;fontSize=10;fontColor=#34588F;fontStyle=1;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="890" width="1600" height="160" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="oracleVm" value="Oracle Always-Free VM&#10;sidecar · Ubuntu 22.04 · A1.Flex 1 vCPU / 6 GB&#10;cron · ingest-pipeline · Node 20" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="100" y="930" width="300" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="usaspending" value="USAspending.gov&#10;daily contract awards" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="450" y="930" width="180" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="samgov" value="SAM.gov&#10;vendor / exclusion data" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="660" y="930" width="180" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="grantsgov" value="Grants.gov&#10;opportunity feed" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="870" y="930" width="180" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="ingestEndpoint" value="POST /import/awards&#10;INGEST_TOKEN auth&#10;upserts award + vendor + org" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FCEFD9;strokeColor=#D79B00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="930" width="240" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="reindexEndpoint" value="POST /ai/reindex-awards&#10;rebuild Vectorize index&#10;periodic (e.g., weekly)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FCEFD9;strokeColor=#D79B00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1380" y="930" width="240" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- ───────────────── Edges (top-down request flow) ───────────────── -->
+        <mxCell id="e1" style="endArrow=classic;html=1;rounded=0;strokeColor=#5C6B73;" edge="1" parent="1" source="userBrowser" target="cfPages">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="120" y="280"/><mxPoint x="200" y="280"/></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e2" style="endArrow=classic;html=1;rounded=0;strokeColor=#5C6B73;" edge="1" parent="1" source="adminBrowser" target="cfPages">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="290" y="280"/><mxPoint x="200" y="280"/></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e3" value="HTML / static assets" style="endArrow=none;html=1;rounded=0;strokeColor=#5C6B73;startArrow=none;dashed=0;" edge="1" parent="1" source="cfPages" target="pagesFn">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e4" value="proxy" style="endArrow=classic;html=1;rounded=0;strokeColor=#5C6B73;" edge="1" parent="1" source="pagesFn" target="cfWorker">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Worker → AI tier -->
+        <mxCell id="e5" value="" style="endArrow=classic;html=1;rounded=0;strokeColor=#9673A6;" edge="1" parent="1" source="modAi" target="m1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e6" value="" style="endArrow=classic;html=1;rounded=0;strokeColor=#9673A6;" edge="1" parent="1" source="modAi" target="m2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e7" value="" style="endArrow=classic;html=1;rounded=0;strokeColor=#B85450;" edge="1" parent="1" source="modAi" target="m3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e8" value="embed" style="endArrow=classic;html=1;rounded=0;strokeColor=#D6B656;" edge="1" parent="1" source="modAi" target="embed">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e9" value="ANN query" style="endArrow=classic;html=1;rounded=0;strokeColor=#82B366;" edge="1" parent="1" source="embed" target="vec">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e10" value="cold-start fallback" style="endArrow=classic;html=1;rounded=0;strokeColor=#D6B656;dashed=1;" edge="1" parent="1" source="m1" target="fallback">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="200" y="680"/><mxPoint x="1240" y="680"/></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e10b" style="endArrow=classic;html=1;rounded=0;strokeColor=#D6B656;dashed=1;" edge="1" parent="1" source="m3" target="fallback">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- AI ↔ Data -->
+        <mxCell id="e11" value="SQL exec" style="endArrow=classic;html=1;rounded=0;strokeColor=#82B366;" edge="1" parent="1" source="modData" target="d1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e12" value="audit · sessions" style="endArrow=classic;html=1;rounded=0;strokeColor=#82B366;" edge="1" parent="1" source="modAuth" target="kv">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="455" y="450"/><mxPoint x="455" y="720"/><mxPoint x="960" y="720"/></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e13" value="report rows" style="endArrow=classic;html=1;rounded=0;strokeColor=#82B366;" edge="1" parent="1" source="modReport" target="d1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="1100" y="450"/><mxPoint x="1100" y="720"/><mxPoint x="500" y="720"/></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e14" value="fetch top-K rows" style="endArrow=classic;html=1;rounded=0;strokeColor=#82B366;" edge="1" parent="1" source="vec" target="d1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="1500" y="675"/><mxPoint x="700" y="675"/></Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- External edges -->
+        <mxCell id="e15" value="OAuth" style="endArrow=classic;html=1;rounded=0;strokeColor=#D6B656;dashed=1;" edge="1" parent="1" source="modAuth" target="googleOauth">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="455" y="350"/><mxPoint x="455" y="240"/><mxPoint x="1320" y="240"/></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e16" value="HTTPS" style="endArrow=classic;html=1;rounded=0;strokeColor=#B85450;" edge="1" parent="1" source="m3" target="anthropic">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="720" y="540"/><mxPoint x="720" y="240"/><mxPoint x="1460" y="240"/></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e17" value="adapters baked at image build" style="endArrow=classic;html=1;rounded=0;strokeColor=#D79B00;dashed=1;" edge="1" parent="1" source="huggingface" target="m1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="1600" y="240"/><mxPoint x="1600" y="490"/><mxPoint x="200" y="490"/></Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Ingest edges -->
+        <mxCell id="e18" value="HTTPS pull · daily" style="endArrow=classic;html=1;rounded=0;strokeColor=#6C8EBF;" edge="1" parent="1" source="oracleVm" target="usaspending">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e19" style="endArrow=classic;html=1;rounded=0;strokeColor=#6C8EBF;" edge="1" parent="1" source="oracleVm" target="samgov">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e20" style="endArrow=classic;html=1;rounded=0;strokeColor=#6C8EBF;" edge="1" parent="1" source="oracleVm" target="grantsgov">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e21" value="upsert" style="endArrow=classic;html=1;rounded=0;strokeColor=#6C8EBF;" edge="1" parent="1" source="oracleVm" target="ingestEndpoint">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="220" y="1060"/><mxPoint x="1220" y="1060"/></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e22" style="endArrow=classic;html=1;rounded=0;strokeColor=#6C8EBF;" edge="1" parent="1" source="ingestEndpoint" target="d1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e23" value="trigger" style="endArrow=classic;html=1;rounded=0;strokeColor=#6C8EBF;dashed=1;" edge="1" parent="1" source="oracleVm" target="reindexEndpoint">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="220" y="1080"/><mxPoint x="1500" y="1080"/></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e24" style="endArrow=classic;html=1;rounded=0;strokeColor=#82B366;" edge="1" parent="1" source="reindexEndpoint" target="vec">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ───────────────── Legend ───────────────── -->
+        <mxCell id="legend" value="LEGEND" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9AA8B2;dashed=1;verticalAlign=top;fontSize=10;fontColor=#5C6B73;fontStyle=1;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="1080" width="1600" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="lg1" value="Cloudflare (Pages / Worker / Functions)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="80" y="1110" width="240" height="30" as="geometry"/>
+        </mxCell>
+        <mxCell id="lg2" value="Cloudflare data (D1 / KV / Vectorize)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="340" y="1110" width="240" height="30" as="geometry"/>
+        </mxCell>
+        <mxCell id="lg3" value="Modal Serverless (M1 / M2)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1D5E7;strokeColor=#9673A6;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="600" y="1110" width="200" height="30" as="geometry"/>
+        </mxCell>
+        <mxCell id="lg4" value="Workers AI (embeddings / fallback)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="820" y="1110" width="240" height="30" as="geometry"/>
+        </mxCell>
+        <mxCell id="lg5" value="Anthropic (M3)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F8CECC;strokeColor=#B85450;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="1110" width="140" height="30" as="geometry"/>
+        </mxCell>
+        <mxCell id="lg6" value="Oracle / public sources" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1240" y="1110" width="180" height="30" as="geometry"/>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="models" name="Models Pipeline">
+    <mxGraphModel dx="2000" dy="1100" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- Title -->
+        <mxCell id="mtitle" value="award-lens-models — LoRA Training &amp; Deployment Pipeline" style="text;html=1;align=center;verticalAlign=middle;fontSize=22;fontStyle=1;fontColor=#1F2933;" vertex="1" parent="1">
+          <mxGeometry x="40" y="30" width="1620" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="msub" value="Capture Intelligence · github.com/capture-intelligence/award-lens-models" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;fontColor=#5C6B73;" vertex="1" parent="1">
+          <mxGeometry x="40" y="68" width="1620" height="20" as="geometry"/>
+        </mxCell>
+
+        <!-- ───────────── Row 1: Data prep ───────────── -->
+        <mxCell id="dpGrp" value="1 · TRAINING DATA PREPARATION" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#EAF1FB;strokeColor=#6C8EBF;verticalAlign=top;fontSize=11;fontColor=#34588F;fontStyle=1;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="120" width="1600" height="200" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="dpSeed" value="Seed Q-SQL pairs&#10;hand-written prompts&#10;against compact schema" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="100" y="170" width="220" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="dpSchema" value="build_compact_schema.py&#10;extracts D1 schema → token-efficient&#10;system prompt for M1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="350" y="170" width="240" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="dpClaude" value="02_paraphrase_claude.py&#10;02c_generate_novel_claude.py&#10;Anthropic Sonnet rewrites&#10;and invents new questions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F8CECC;strokeColor=#B85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="620" y="170" width="280" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="dpQwen" value="03_generate_qwen.py&#10;diverse phrasings via&#10;Qwen / Workers AI" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="930" y="170" width="240" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="dpCombine" value="04_combine.py&#10;01_split_eval.py&#10;jsonl train / eval split" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1200" y="170" width="240" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="dpDataset" value="finetuned_v2.jsonl (M1)&#10;m2_training.jsonl (M2)" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#D5E8D4;strokeColor=#82B366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1480" y="170" width="160" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- ───────────── Row 2: Training ───────────── -->
+        <mxCell id="trGrp" value="2 · LoRA FINE-TUNING" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F4ECF9;strokeColor=#9673A6;verticalAlign=top;fontSize=11;fontColor=#603A8A;fontStyle=1;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="350" width="1600" height="190" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="trBase" value="Base model&#10;meta-llama/Llama-3.1-8B-Instruct&#10;weights frozen during LoRA" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="100" y="400" width="280" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="trRunpod" value="RunPod · A100 80GB&#10;runpod_train.py&#10;HuggingFace TRL + PEFT (LoRA)&#10;~2-3 hr / adapter" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1D5E7;strokeColor=#9673A6;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="430" y="390" width="320" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="trLora1" value="awards-sql-lora&#10;rank=16 · α=32&#10;targets q_proj,k_proj,v_proj,o_proj&#10;text → SQL specialist" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1D5E7;strokeColor=#9673A6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="800" y="390" width="240" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="trLora2" value="awards-summarize-lora&#10;rank=16 · α=32&#10;result-row → narrative summary" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1D5E7;strokeColor=#9673A6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="390" width="240" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="trEval" value="07_eval_finetuned.py&#10;held-out set · exact-match SQL,&#10;rougeL summaries · regression report" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1360" y="390" width="280" height="100" as="geometry"/>
+        </mxCell>
+
+        <!-- ───────────── Row 3: Registry ───────────── -->
+        <mxCell id="rgGrp" value="3 · ADAPTER REGISTRY" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFF8F0;strokeColor=#D79B00;verticalAlign=top;fontSize=11;fontColor=#7A4F00;fontStyle=1;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="570" width="1600" height="170" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="rgUpload" value="upload via huggingface_hub&#10;adapter weights (LoRA only,&#10;~50 MB / adapter — no base weights)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FCEFD9;strokeColor=#D79B00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="100" y="620" width="280" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="rgHf1" value="algocrat/awards-sql-lora&#10;public · versioned by commit sha" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="450" y="620" width="280" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="rgHf2" value="algocrat/awards-summarize-lora&#10;public · versioned by commit sha" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="780" y="620" width="280" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="rgWai" value="(deferred) Workers AI registry&#10;09_upload_workers_ai.md notes&#10;blocked on adapter format" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EFEFEF;strokeColor=#9AA8B2;dashed=1;fontSize=11;fontColor=#7A8088;" vertex="1" parent="1">
+          <mxGeometry x="1110" y="620" width="280" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="rgFw" value="(retired) Fireworks AI&#10;08_upload_to_fireworks.py&#10;migrated to Modal" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EFEFEF;strokeColor=#9AA8B2;dashed=1;fontSize=11;fontColor=#7A8088;" vertex="1" parent="1">
+          <mxGeometry x="1410" y="620" width="220" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- ───────────── Row 4: Serving ───────────── -->
+        <mxCell id="svGrp" value="4 · PRODUCTION SERVING" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F4ECF9;strokeColor=#9673A6;verticalAlign=top;fontSize=11;fontColor=#603A8A;fontStyle=1;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="770" width="1600" height="180" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="svImage" value="modal-worker/build_image.py&#10;bakes base + both adapters into&#10;a Modal Image — no cold-start downloads" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1D5E7;strokeColor=#9673A6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="100" y="820" width="320" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="svModal" value="Modal Serverless&#10;awards-slm-v2&#10;A10G GPU · scale-to-zero · scaledown_window=300s&#10;adapter switch via JSON: { adapter: 'm1' | 'm2' }" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1D5E7;strokeColor=#9673A6;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="470" y="810" width="380" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="svEndpoint" value="https://algocrat--awards-slm-v2-model-infer.modal.run&#10;auth: api_key in JSON body&#10;~10 s cold-start · ~1-3 s warm" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1D5E7;strokeColor=#9673A6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="900" y="820" width="380" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="svConsumer" value="award-lens Worker&#10;m1_sql.ts · m2_local.ts&#10;25 s timeout · Workers AI fallback" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1330" y="820" width="300" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- ───────────── Edges ───────────── -->
+        <mxCell id="me1" style="endArrow=classic;html=1;rounded=0;strokeColor=#34588F;" edge="1" parent="1" source="dpSeed" target="dpClaude">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="me2" style="endArrow=classic;html=1;rounded=0;strokeColor=#34588F;" edge="1" parent="1" source="dpSchema" target="dpClaude">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="me3" style="endArrow=classic;html=1;rounded=0;strokeColor=#34588F;" edge="1" parent="1" source="dpClaude" target="dpQwen">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="me4" style="endArrow=classic;html=1;rounded=0;strokeColor=#34588F;" edge="1" parent="1" source="dpQwen" target="dpCombine">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="me5" style="endArrow=classic;html=1;rounded=0;strokeColor=#34588F;" edge="1" parent="1" source="dpCombine" target="dpDataset">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="me6" value="dataset" style="endArrow=classic;html=1;rounded=0;strokeColor=#603A8A;" edge="1" parent="1" source="dpDataset" target="trRunpod">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="1560" y="290"/><mxPoint x="1560" y="320"/><mxPoint x="590" y="320"/><mxPoint x="590" y="390"/></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="me7" value="frozen weights" style="endArrow=classic;html=1;rounded=0;strokeColor=#603A8A;" edge="1" parent="1" source="trBase" target="trRunpod">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="me8" style="endArrow=classic;html=1;rounded=0;strokeColor=#603A8A;" edge="1" parent="1" source="trRunpod" target="trLora1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="me9" style="endArrow=classic;html=1;rounded=0;strokeColor=#603A8A;" edge="1" parent="1" source="trRunpod" target="trLora2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="me10" value="evaluate before publish" style="endArrow=classic;html=1;rounded=0;strokeColor=#34588F;dashed=1;" edge="1" parent="1" source="trLora1" target="trEval">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="me10b" style="endArrow=classic;html=1;rounded=0;strokeColor=#34588F;dashed=1;" edge="1" parent="1" source="trLora2" target="trEval">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="me11" style="endArrow=classic;html=1;rounded=0;strokeColor=#7A4F00;" edge="1" parent="1" source="trLora1" target="rgUpload">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="920" y="555"/><mxPoint x="240" y="555"/></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="me12" style="endArrow=classic;html=1;rounded=0;strokeColor=#7A4F00;" edge="1" parent="1" source="trLora2" target="rgUpload">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="1200" y="555"/><mxPoint x="240" y="555"/></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="me13" style="endArrow=classic;html=1;rounded=0;strokeColor=#7A4F00;" edge="1" parent="1" source="rgUpload" target="rgHf1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="me14" style="endArrow=classic;html=1;rounded=0;strokeColor=#7A4F00;" edge="1" parent="1" source="rgUpload" target="rgHf2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="me15" value="image build pulls adapters" style="endArrow=classic;html=1;rounded=0;strokeColor=#603A8A;" edge="1" parent="1" source="rgHf1" target="svImage">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="590" y="755"/><mxPoint x="260" y="755"/></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="me16" style="endArrow=classic;html=1;rounded=0;strokeColor=#603A8A;" edge="1" parent="1" source="rgHf2" target="svImage">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="920" y="755"/><mxPoint x="260" y="755"/></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="me17" style="endArrow=classic;html=1;rounded=0;strokeColor=#603A8A;" edge="1" parent="1" source="svImage" target="svModal">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="me18" style="endArrow=classic;html=1;rounded=0;strokeColor=#603A8A;" edge="1" parent="1" source="svModal" target="svEndpoint">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="me19" value="HTTPS POST" style="endArrow=classic;html=1;rounded=0;strokeColor=#7A4F00;" edge="1" parent="1" source="svConsumer" target="svEndpoint">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
