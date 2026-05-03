@@ -27,6 +27,7 @@ import { useSetSelectedAward } from '@/lib/ai-award-context';
 import { useCollapseSidebar } from '@/components/layout/AppShell';
 import { DataCoverageTree } from '@/components/viz/DataCoverageTree';
 import { buildSpendTree } from '@/components/viz/buildSpendTree';
+import { AwardBubbleTab } from '@/components/viz/AwardBubbleTab';
 
 // ─── Field display map (snake_case → friendly caption) ───────────────────────
 
@@ -328,6 +329,12 @@ export function AnalyticsPage() {
                 Summary <span className="ml-1 text-[10px] opacity-80">({fmtInt(filteredRows.length)})</span>
               </Tabs.Trigger>
               <Tabs.Trigger
+                value="bubble"
+                className="rounded-lg px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-muted-soft transition-colors hover:text-foreground data-[state=active]:bg-brand-vermilion data-[state=active]:text-white data-[state=active]:shadow-sm"
+              >
+                Bubble
+              </Tabs.Trigger>
+              <Tabs.Trigger
                 value="pivot"
                 className="rounded-lg px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-muted-soft transition-colors hover:text-foreground data-[state=active]:bg-brand-vermilion data-[state=active]:text-white data-[state=active]:shadow-sm"
               >
@@ -411,6 +418,16 @@ export function AnalyticsPage() {
               viewName={data.view_name}
               onSelect={setSelectedAward}
             />
+          </Tabs.Content>
+
+          {/* BUBBLE TAB */}
+          <Tabs.Content
+            value="bubble"
+            className="awardlens-tab-fill flex flex-col focus:outline-none data-[state=inactive]:hidden h-[calc(100dvh-168px)]"
+          >
+            <ErrorBoundary label="Bubble chart">
+              <AwardBubbleTab rows={filteredRows} viewName={data.view_name} />
+            </ErrorBoundary>
           </Tabs.Content>
         </Tabs.Root>
       )}
