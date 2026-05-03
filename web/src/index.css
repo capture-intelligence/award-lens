@@ -619,38 +619,38 @@
 
 /* X button injected onto chips that have been placed in pvtRows / pvtCols /
    pvtVals zones. PivotShell appends a <button class="pvtRemoveBtn"> at
-   runtime; CSS does the rest. */
-.awardlens-pivot .pvtRows .pvtAttr,
-.awardlens-pivot .pvtCols .pvtAttr,
-.awardlens-pivot .pvtVals .pvtAttr {
-  padding-right: 22px !important;
-}
+   runtime; the click handler removes the field from the axis. CSS keeps
+   it as a plain inline glyph — no border, no background, just an × that
+   tints vermilion on hover. */
 .awardlens-pivot .pvtRemoveBtn {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  width: 14px;
-  height: 14px;
-  border: 1px solid var(--al-border);
-  background: var(--al-panel-elevated);
-  color: var(--al-text-muted);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  transition: color 0.12s, background 0.12s, border-color 0.12s, transform 0.12s;
-  z-index: 1;
+  position: static !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: auto !important;
+  height: auto !important;
+  margin: 0 0 0 4px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--al-text-muted) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  transition: color 0.12s !important;
 }
 .awardlens-pivot .pvtRemoveBtn:hover {
-  color: #FBE9D0;
-  background: var(--al-vermilion, #E64833);
-  border-color: var(--al-vermilion, #E64833);
-  transform: scale(1.15);
+  color: var(--al-accent) !important;
+  background: transparent !important;
+  border: 0 !important;
+  transform: none !important;
+}
+.awardlens-pivot .pvtRemoveBtn:focus-visible {
+  outline: 1px solid var(--al-accent) !important;
+  outline-offset: 1px !important;
 }
 
 /* Filter trigger (the ▾ caret next to a chip) */
