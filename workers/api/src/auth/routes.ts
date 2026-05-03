@@ -63,8 +63,11 @@ async function upsertUserAndSignIn(
     return { ...existing, last_login_at: now };
   }
 
-  // Brand-new user. Bootstrap admin if it's the configured email.
-  const role: 'pending' | 'admin' = email === ADMIN_BOOTSTRAP_EMAIL ? 'admin' : 'pending';
+  // Brand-new user. Bootstrap admin if it's the configured email; everyone
+  // else lands as 'user' immediately — approval is implicit on sign-in,
+  // so the Pending page is no longer a gate. Admins can still demote /
+  // reject individual users from /admin/users if needed.
+  const role: 'user' | 'admin' = email === ADMIN_BOOTSTRAP_EMAIL ? 'admin' : 'user';
   const userId = newUserId();
 
   await c.env.DB.prepare(`
@@ -75,19 +78,23 @@ async function upsertUserAndSignIn(
   `).bind(
     userId, email, claims.name ?? null, claims.picture ?? null,
     provider, claims.sub, role,
-    role === 'admin' ? now : null, now, now, now,
+    now, now, now, now,
   ).run();
 
   await c.env.DB.prepare(`
     INSERT INTO app_user_audit (user_id, actor_id, action, to_role, notes, created_at)
     VALUES (?, NULL, 'created', ?, ?, ?)
-  `).bind(userId, role, role === 'admin' ? 'bootstrap admin' : 'self-registered', now).run();
+  `).bind(
+    userId, role,
+    role === 'admin' ? 'bootstrap admin' : 'self-registered (auto-approved)',
+    now,
+  ).run();
 
   await createSession(c, userId);
   return {
     user_id: userId, email, display_name: claims.name ?? null,
     avatar_url: claims.picture ?? null, provider, provider_sub: claims.sub,
-    role, approved_by: null, approved_at: role === 'admin' ? now : null,
+    role, approved_by: null, approved_at: now,
     rejected_at: null, last_login_at: now, created_at: now, updated_at: now,
   };
 }
