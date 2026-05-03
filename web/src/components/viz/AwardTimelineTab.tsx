@@ -193,8 +193,10 @@ export function AwardTimelineTab({ rows, viewName }: Props) {
             <span className="text-muted-soft">·</span>
             <span className="text-muted-soft">click a pill for full detail</span>
           </div>
-          <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-display text-[18px] leading-tight tracking-tight text-brand-cream">
-            <span className="font-extrabold">{viewName}</span>
+          <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 leading-tight">
+            <span className="font-serif text-[24px] font-medium italic tracking-tight text-brand-cream" style={{ fontVariationSettings: '"opsz" 144' }}>
+              {viewName}
+            </span>
             <span className="text-[13px] font-medium text-muted">
               <span className="font-mono tabular-nums text-brand-sage">{fmtInt(totals.eligible)}</span>
               <span className="ml-1 text-muted-soft">with PoP dates</span>
@@ -203,7 +205,7 @@ export function AwardTimelineTab({ rows, viewName }: Props) {
               <span className="ml-1 text-muted-soft">total</span>
             </span>
             {totals.eligible > topN && (
-              <span className="text-[11px] uppercase tracking-[0.14em] text-brand-vermilion-soft/80">
+              <span className="text-[11px] uppercase tracking-[0.16em] text-brand-vermilion-soft/80">
                 top {topN} by value
               </span>
             )}
@@ -362,18 +364,18 @@ function TimelineCanvas({
     const yAxisLayer = svg.append('g').attr('class', 'y-axis');
 
     // ── Vertical gridlines (year ticks, dashed, behind pills) ─────────────
+    // Dark teal at very low opacity reads as faint scaffolding on cream.
     const xTicks = xScale.ticks(Math.max(4, Math.floor((W - MARGIN.left - MARGIN.right) / 110)));
     gridLayer.selectAll('line')
       .data(xTicks)
       .join('line')
       .attr('x1', (d) => xScale(d)).attr('x2', (d) => xScale(d))
       .attr('y1', MARGIN.top).attr('y2', H - MARGIN.bottom)
-      .attr('stroke', '#90AEAD').attr('stroke-opacity', 0.10)
+      .attr('stroke', '#244855').attr('stroke-opacity', 0.10)
       .attr('stroke-dasharray', '3 4');
 
     // ── "Today" marker — narrow vermilion line + small label at the top.
-    // Sits behind the pills (so a pill that crosses today is undisturbed)
-    // but in front of the gridlines so the date is easy to find.
+    // Vermilion stays vermilion: high contrast on cream too.
     const today   = new Date();
     const todayX  = xScale(today);
     const inRange = todayX >= MARGIN.left && todayX <= W - MARGIN.right;
@@ -383,17 +385,19 @@ function TimelineCanvas({
         .attr('y1', MARGIN.top - 2).attr('y2', H - MARGIN.bottom)
         .attr('stroke', '#E64833')
         .attr('stroke-width', 1.25)
-        .attr('opacity', 0.7);
+        .attr('opacity', 0.85);
       todayLayer.append('text')
         .attr('x', todayX).attr('y', MARGIN.top - 6)
         .attr('text-anchor', 'middle')
+        .attr('font-family', 'Inter, system-ui, sans-serif')
         .attr('font-size', 9).attr('font-weight', 800)
-        .attr('letter-spacing', '0.18em')
-        .attr('fill', '#E64833').attr('fill-opacity', 0.92)
+        .attr('letter-spacing', '0.20em')
+        .attr('fill', '#E64833').attr('fill-opacity', 1)
         .text('TODAY');
     }
 
-    // Horizontal row separators — extremely subtle so they read as scaffolding
+    // Horizontal row separators — barely-there hairlines so the eye
+    // can track left to right without the lines competing for attention.
     yAxisLayer.selectAll('line.row-rule')
       .data(nodes)
       .join('line')
@@ -401,7 +405,7 @@ function TimelineCanvas({
       .attr('x1', MARGIN.left).attr('x2', W - MARGIN.right)
       .attr('y1', (n) => yScale(n.id)! + yScale.bandwidth() + (yScale.step() - yScale.bandwidth()) / 2)
       .attr('y2', (n) => yScale(n.id)! + yScale.bandwidth() + (yScale.step() - yScale.bandwidth()) / 2)
-      .attr('stroke', '#FBE9D0').attr('stroke-opacity', 0.025);
+      .attr('stroke', '#244855').attr('stroke-opacity', 0.06);
 
     // ── X axis (bottom, time format adapts to span) ───────────────────────
     const span = maxEnd.getTime() - minStart.getTime();
@@ -414,16 +418,17 @@ function TimelineCanvas({
     xAxisLayer
       .attr('transform', `translate(0, ${H - MARGIN.bottom})`)
       .call(xAxis as any);
-    xAxisLayer.select('.domain').attr('stroke', '#90AEAD').attr('stroke-opacity', 0.18);
+    xAxisLayer.select('.domain').attr('stroke', '#244855').attr('stroke-opacity', 0.20);
     xAxisLayer.selectAll('text')
-      .attr('fill', '#90AEAD').attr('fill-opacity', 0.75)
+      .attr('fill', '#244855').attr('fill-opacity', 0.78)
+      .attr('font-family', 'Inter, system-ui, sans-serif')
       .attr('font-size', 10.5).attr('font-weight', 600)
-      .attr('letter-spacing', '0.06em');
+      .attr('letter-spacing', '0.08em');
 
     // ── Y axis (left): truncated award descriptions ───────────────────────
     // text-anchor='start' anchors at the left inset so the text grows
-    // rightward and never overflows past the SVG edge. Smaller font +
-    // tighter tracking lets us fit more characters before truncation.
+    // rightward and never overflows past the SVG edge. Inter at 9.5 reads
+    // as crisp ink on cream; deep teal pulls the eye without shouting.
     yAxisLayer.selectAll('text.row-label')
       .data(nodes)
       .join('text')
@@ -432,10 +437,11 @@ function TimelineCanvas({
       .attr('y', (n) => yScale(n.id)! + bandwidth / 2)
       .attr('dominant-baseline', 'middle')
       .attr('text-anchor', 'start')
+      .attr('font-family', 'Inter, system-ui, sans-serif')
       .attr('font-size', 9.5)
       .attr('font-weight', 600)
       .attr('letter-spacing', '0.01em')
-      .attr('fill', '#FBE9D0').attr('fill-opacity', 0.82)
+      .attr('fill', '#1a3540').attr('fill-opacity', 0.85)
       .text((n) => truncate(n.name, LABEL_MAX_CHARS));
 
     // ── Pills ─────────────────────────────────────────────────────────────
@@ -455,28 +461,28 @@ function TimelineCanvas({
       .attr('rx', (n) => heightScale(n.value) / 2)
       .attr('ry', (n) => heightScale(n.value) / 2)
       .attr('fill', (n) => n.color)
-      .attr('fill-opacity', 0.86)
+      .attr('fill-opacity', 0.92)
       .attr('stroke', (n) => n.color)
-      .attr('stroke-opacity', 0.5)
-      .attr('stroke-width', 1)
+      .attr('stroke-opacity', 0.7)
+      .attr('stroke-width', 1.1)
       .style('cursor', 'pointer');
 
     pills
-      .on('mouseover', function (_event, d) {
+      .on('mouseover', function (event, d) {
         d3.select(this).transition().duration(120).attr('fill-opacity', 1);
         if (!tip) return;
         tip.innerHTML = tooltipHtml(d);
-        placeTooltip(tip, (this as SVGRectElement).getBoundingClientRect());
+        const e = event as MouseEvent;
+        placeTooltipAtCursor(tip, e.clientX, e.clientY);
         tip.classList.add('visible');
       })
-      .on('mousemove', function () {
+      .on('mousemove', function (event) {
         if (!tip) return;
-        // Re-anchor on every move so the tooltip stays glued to the pill
-        // even if the cursor strays toward the pill's edge.
-        placeTooltip(tip, (this as SVGRectElement).getBoundingClientRect());
+        const e = event as MouseEvent;
+        placeTooltipAtCursor(tip, e.clientX, e.clientY);
       })
       .on('mouseout', function () {
-        d3.select(this).transition().duration(160).attr('fill-opacity', 0.86);
+        d3.select(this).transition().duration(160).attr('fill-opacity', 0.92);
         if (tip) tip.classList.remove('visible');
       })
       .on('click', (_event, d) => onClickRef.current(d));
@@ -484,7 +490,11 @@ function TimelineCanvas({
   }, [nodes, rect.width, rect.height]);
 
   return (
-    <div ref={containerRef} className="relative flex-1 min-h-0">
+    <div
+      ref={containerRef}
+      className="relative flex-1 min-h-0"
+      style={{ background: '#fffdf9' }}
+    >
       <svg ref={svgRef} className="block h-full w-full" />
       {/* Portal the tooltip to <body> — App-shell has framer-motion
           wrappers whose CSS transform creates a containing block, which
@@ -509,24 +519,24 @@ function truncate(s: string, n: number): string {
   return s.slice(0, n - 1).trimEnd() + '…';
 }
 
-// Anchor a tooltip element next to a node's bounding rect, preferring the
-// right side and falling back to the left if right would overflow. Final
-// position is clamped to a viewport-safe inset on every edge so the
-// tooltip is always 100% on-screen regardless of node position.
-function placeTooltip(tip: HTMLElement, anchor: DOMRect): void {
-  const GAP  = 10;
+// Place a tooltip near the cursor, clamped to a viewport-safe inset on
+// every edge. Cursor-anchored (not element-anchored) so wide elements
+// — like long Timeline pills that span most of the chart — don't push
+// the tooltip off-screen. Right of cursor by default, falls back to
+// left if it would overflow.
+function placeTooltipAtCursor(tip: HTMLElement, clientX: number, clientY: number): void {
+  const GAP  = 14;
   const EDGE = 8;
   const tipW = tip.offsetWidth;
   const tipH = tip.offsetHeight;
   const vw   = window.innerWidth;
   const vh   = window.innerHeight;
 
-  let x = anchor.right + GAP;
-  if (x + tipW > vw - EDGE) {
-    x = anchor.left - GAP - tipW;
-    if (x < EDGE) x = Math.max(EDGE, vw - tipW - EDGE);
-  }
-  let y = anchor.top + anchor.height / 2 - tipH / 2;
+  let x = clientX + GAP;
+  if (x + tipW > vw - EDGE) x = clientX - GAP - tipW;
+  if (x < EDGE) x = EDGE;
+
+  let y = clientY - tipH / 2;
   if (y < EDGE)             y = EDGE;
   if (y + tipH > vh - EDGE) y = vh - tipH - EDGE;
 

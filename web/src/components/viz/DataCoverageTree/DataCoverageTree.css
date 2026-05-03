@@ -2,10 +2,10 @@
   width: 100%;
   height: 100%;
   position: relative;
-  /* Cream canvas — same tone as the tooltip so the visual stays cohesive
-     and the dark teal nodes pop hard. No rounded corners; the parent
-     Card already handles that and the inner svg should sit flush. */
-  background: #FBE9D0;
+  /* Off-white editorial canvas — barely warm, lets the earthy node tones
+     read as inks on paper. The Card chrome around it stays dark teal so
+     the canvas reads as a framed print. */
+  background: #fffdf9;
   border-radius: 0;
   padding: 20px;
   overflow: visible;
@@ -27,7 +27,7 @@
   right: auto;
   bottom: auto;
   z-index: 1000;
-  background: #FBE9D0;
+  background: #fffdf9;
   border-radius: 12px;
   padding: 16px 20px;
   box-shadow:

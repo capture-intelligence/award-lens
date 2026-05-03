@@ -271,8 +271,10 @@ export function AwardBubbleTab({ rows, viewName }: Props) {
               click {mode === 'group' ? 'a group to drill in' : 'an award for full detail'}
             </span>
           </div>
-          <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-display text-[18px] leading-tight tracking-tight text-brand-cream">
-            <span className="font-extrabold">{viewName}</span>
+          <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 leading-tight">
+            <span className="font-serif text-[24px] font-medium italic tracking-tight text-brand-cream" style={{ fontVariationSettings: '"opsz" 144' }}>
+              {viewName}
+            </span>
             <span className="text-[13px] font-medium text-muted">
               <span className="font-mono tabular-nums text-brand-sage">{fmtInt(totals.count)}</span>
               <span className="ml-1 text-muted-soft">contracts</span>
@@ -281,7 +283,7 @@ export function AwardBubbleTab({ rows, viewName }: Props) {
               <span className="ml-1 text-muted-soft">total</span>
             </span>
             {mode === 'award' && totals.count > TOP_N_AWARDS && (
-              <span className="text-[11px] uppercase tracking-[0.14em] text-brand-vermilion-soft/80">
+              <span className="text-[11px] uppercase tracking-[0.16em] text-brand-vermilion-soft/80">
                 top {TOP_N_AWARDS}
               </span>
             )}
@@ -423,55 +425,49 @@ function BubbleCanvas({
       };
     });
 
-    // Soft warm glow — thinner stdDeviation than the demo for cleaner edges,
-    // and we composite the source on top so the bubble outline stays crisp.
-    const defs = svg.append('defs');
-    const flt = defs.append('filter').attr('id', 'awardlens-bubble-glow')
-      .attr('x', '-40%').attr('y', '-40%').attr('width', '180%').attr('height', '180%');
-    flt.append('feGaussianBlur').attr('stdDeviation', 2.4).attr('result', 'blur');
-    const merge = flt.append('feMerge');
-    merge.append('feMergeNode').attr('in', 'blur');
-    merge.append('feMergeNode').attr('in', 'SourceGraphic');
+    // No glow filter on the cream canvas — light-on-light bloom reads as
+    // mud. Bubbles carry their weight via fill + a slightly stronger
+    // stroke; the visual hierarchy comes from typography, not bloom.
 
-    // Group labels (cluster layout only — they sit above each cluster).
-    // Typography: a small color dot, then a thin lowercase eyebrow, then
-    // the group name in tracked uppercase. Reads like a section heading.
+    // Group labels (cluster layout only). On cream the eye finds dark
+    // teal headings far more easily than colored ones, so the label
+    // text is uniform brand-teal #244855 and the colored dot does the
+    // category signaling. Hairline accent below ties the dot + heading
+    // to the cluster underneath.
     const labelLayer = svg.append('g').attr('class', 'group-labels');
     if (layout === 'cluster' && distinctGroups.length > 1) {
       distinctGroups.forEach((g) => {
         const c = groupCenters[g.id];
         const top = c.y - cellH / 2 + 22;
-        // Color dot
         labelLayer.append('circle')
-          .attr('cx', c.x - 60).attr('cy', top - 3).attr('r', 3)
-          .attr('fill', g.color).attr('opacity', 0.95);
-        // Group label
+          .attr('cx', c.x - 70).attr('cy', top - 3).attr('r', 3.5)
+          .attr('fill', g.color).attr('opacity', 1);
         labelLayer.append('text')
-          .attr('x', c.x - 50).attr('y', top)
+          .attr('x', c.x - 60).attr('y', top)
           .attr('text-anchor', 'start')
+          .attr('font-family', 'Inter, system-ui, sans-serif')
           .attr('font-size', 10.5).attr('font-weight', 700)
-          .attr('letter-spacing', '0.18em')
-          .attr('fill', g.color).attr('fill-opacity', 0.95)
+          .attr('letter-spacing', '0.20em')
+          .attr('fill', '#244855')
           .text(g.label.toUpperCase());
-        // Hairline accent under the dot+label, in a warmer mid-tone
         labelLayer.append('line')
-          .attr('x1', c.x - 64).attr('x2', c.x + 64)
-          .attr('y1', top + 8).attr('y2', top + 8)
-          .attr('stroke', g.color).attr('stroke-width', 1).attr('opacity', 0.18);
+          .attr('x1', c.x - 74).attr('x2', c.x + 74)
+          .attr('y1', top + 9).attr('y2', top + 9)
+          .attr('stroke', g.color).attr('stroke-width', 1).attr('opacity', 0.35);
       });
     }
     if (layout === 'scatter') {
       labelLayer.append('text')
         .attr('x', W / 2).attr('y', H - 22)
         .attr('text-anchor', 'middle')
-        .attr('font-size', 10).attr('fill', '#90AEAD').attr('fill-opacity', 0.55)
-        .attr('font-weight', 600).attr('letter-spacing', '0.16em')
+        .attr('font-size', 10).attr('fill', '#244855').attr('fill-opacity', 0.55)
+        .attr('font-weight', 600).attr('letter-spacing', '0.18em')
         .text(`${groupByAxisLabel(groupBy).toUpperCase()}  ·  LEFT → RIGHT`);
       labelLayer.append('text')
         .attr('transform', `translate(22, ${H / 2}) rotate(-90)`)
         .attr('text-anchor', 'middle')
-        .attr('font-size', 10).attr('fill', '#90AEAD').attr('fill-opacity', 0.55)
-        .attr('font-weight', 600).attr('letter-spacing', '0.16em')
+        .attr('font-size', 10).attr('fill', '#244855').attr('fill-opacity', 0.55)
+        .attr('font-weight', 600).attr('letter-spacing', '0.18em')
         .text('CONTRACT VALUE  ·  LOG SCALE');
     }
 
@@ -481,35 +477,37 @@ function BubbleCanvas({
       .data(nodes, (d) => (d as BubbleNode).key)
       .join((enter) => {
         const g = enter.append('g').attr('class', 'bubble').style('cursor', 'pointer');
-        // Outer halo — soft, color-matched, sits behind the body.
+        // Outer halo — slightly stronger on cream than it was on the
+        // dark canvas so each bubble still reads as a "form" rather than
+        // a flat circle on paper.
         g.append('circle')
           .attr('class', 'halo')
           .attr('r', (d) => (d.r ?? 0) + 6)
           .attr('fill', (d) => d.color)
-          .attr('opacity', 0.08);
-        // Body — slightly lower fill opacity so the halo bleeds in,
-        // stroke darkened by mixing with the canvas to avoid the harsh
-        // identical-tone outline that "tech" bubble charts default to.
+          .attr('opacity', 0.14);
+        // Body — full saturation, crisper stroke (the cream backdrop
+        // washes out subtle outlines, so we lean into the line).
         g.append('circle')
           .attr('class', 'body')
           .attr('r', (d) => d.r ?? 0)
           .attr('fill', (d) => d.color)
-          .attr('fill-opacity', 0.82)
+          .attr('fill-opacity', 0.90)
           .attr('stroke', (d) => d.color)
-          .attr('stroke-width', 1.25)
-          .attr('stroke-opacity', 0.42)
-          .attr('filter', 'url(#awardlens-bubble-glow)');
-        // Label — brand-cream rather than white, slightly tighter tracking,
-        // hidden on tiny bubbles to keep the canvas uncluttered.
+          .attr('stroke-width', 1.5)
+          .attr('stroke-opacity', 0.65);
+        // Label — color picked per bubble so dark bubbles get cream
+        // text and pale bubbles get deep teal text. WCAG-style luminance
+        // pivot at 0.55 keeps both ends readable.
         g.append('text')
           .attr('text-anchor', 'middle')
           .attr('dominant-baseline', 'middle')
+          .attr('font-family', 'Inter, system-ui, sans-serif')
           .attr('font-weight', 700)
           .attr('letter-spacing', '0.01em')
-          .attr('fill', '#FBE9D0')
+          .attr('fill', (d) => labelInkFor(d.color))
           .attr('pointer-events', 'none')
           .attr('font-size', (d) => Math.max(8.5, Math.min((d.r ?? 0) * 0.30, 13)))
-          .attr('opacity', (d) => (d.r ?? 0) > 22 ? 0.95 : 0)
+          .attr('opacity', (d) => (d.r ?? 0) > 22 ? 0.96 : 0)
           .text((d) => labelFor(d, mode));
         return g;
       });
@@ -521,23 +519,23 @@ function BubbleCanvas({
     // viewport with an 8px safety margin.
     const tip = tooltipRef.current;
     sel
-      .on('mouseover', function (_event, d) {
+      .on('mouseover', function (event, d) {
         d3.select(this).select<SVGCircleElement>('circle.body')
-          .transition().duration(120).attr('r', (d.r ?? 0) * 1.08).attr('fill-opacity', 0.95);
+          .transition().duration(120).attr('r', (d.r ?? 0) * 1.08).attr('fill-opacity', 0.98);
         if (!tip) return;
         tip.innerHTML = tooltipHtml(d, mode, groupBy);
-        placeTooltip(tip, (this as SVGGElement).getBoundingClientRect());
+        const e = event as MouseEvent;
+        placeTooltipAtCursor(tip, e.clientX, e.clientY);
         tip.classList.add('visible');
       })
-      .on('mousemove', function () {
+      .on('mousemove', function (event) {
         if (!tip) return;
-        // Re-anchor while moving so the tooltip tracks small jitter
-        // without detaching from the bubble.
-        placeTooltip(tip, (this as SVGGElement).getBoundingClientRect());
+        const e = event as MouseEvent;
+        placeTooltipAtCursor(tip, e.clientX, e.clientY);
       })
       .on('mouseout', function (_event, d) {
         d3.select(this).select<SVGCircleElement>('circle.body')
-          .transition().duration(160).attr('r', d.r ?? 0).attr('fill-opacity', 0.78);
+          .transition().duration(160).attr('r', d.r ?? 0).attr('fill-opacity', 0.90);
         if (tip) tip.classList.remove('visible');
       })
       .on('click', (_event, d) => onClickRef.current(d));
@@ -582,7 +580,11 @@ function BubbleCanvas({
   }, [nodes, layout, rect.width, rect.height, mode, groupBy]);
 
   return (
-    <div ref={containerRef} className="relative flex-1 min-h-0">
+    <div
+      ref={containerRef}
+      className="relative flex-1 min-h-0"
+      style={{ background: '#fffdf9' }}
+    >
       <svg ref={svgRef} className="block h-full w-full" />
       {/* Portal the tooltip to <body> so position:fixed truly resolves to
           the viewport. App-shell wraps routes in framer-motion's <motion.div>,
@@ -608,29 +610,37 @@ function labelFor(d: BubbleNode, mode: Mode): string {
   return d.label;
 }
 
-// Anchor a tooltip element next to a node's bounding rect, preferring the
-// right side and falling back to the left if right would overflow. Final
-// position is clamped to a viewport-safe inset on every edge so the
-// tooltip is always 100% on-screen regardless of node position.
-function placeTooltip(tip: HTMLElement, anchor: DOMRect): void {
-  const GAP    = 10;
-  const EDGE   = 8;
-  const tipW   = tip.offsetWidth;
-  const tipH   = tip.offsetHeight;
-  const vw     = window.innerWidth;
-  const vh     = window.innerHeight;
+// Pick "ink" color for a label drawn on top of a colored fill. Uses a
+// simple sRGB luminance — anything brighter than 0.55 gets deep teal
+// text (so it reads as ink on a pale chip), anything darker gets cream.
+function labelInkFor(hex: string): string {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+  return lum > 0.55 ? '#1a3540' : '#fffdf9';
+}
 
-  // Horizontal: right of anchor, else left, else clamp to edge.
-  let x = anchor.right + GAP;
-  if (x + tipW > vw - EDGE) {
-    x = anchor.left - GAP - tipW;
-    if (x < EDGE) x = Math.max(EDGE, vw - tipW - EDGE);
-  }
+// Place a tooltip near the cursor, clamped to a viewport-safe inset on
+// every edge. Cursor-anchored (not element-anchored) so wide elements
+// — like long Timeline pills that span most of the chart — don't push
+// the tooltip off-screen. Right of cursor by default, falls back to
+// left if it would overflow.
+function placeTooltipAtCursor(tip: HTMLElement, clientX: number, clientY: number): void {
+  const GAP  = 14;
+  const EDGE = 8;
+  const tipW = tip.offsetWidth;
+  const tipH = tip.offsetHeight;
+  const vw   = window.innerWidth;
+  const vh   = window.innerHeight;
 
-  // Vertical: center on anchor, then clamp top + bottom.
-  let y = anchor.top + anchor.height / 2 - tipH / 2;
-  if (y < EDGE)               y = EDGE;
-  if (y + tipH > vh - EDGE)   y = vh - tipH - EDGE;
+  let x = clientX + GAP;
+  if (x + tipW > vw - EDGE) x = clientX - GAP - tipW;
+  if (x < EDGE) x = EDGE;
+
+  let y = clientY - tipH / 2;
+  if (y < EDGE)             y = EDGE;
+  if (y + tipH > vh - EDGE) y = vh - tipH - EDGE;
 
   tip.style.left = `${x}px`;
   tip.style.top  = `${y}px`;

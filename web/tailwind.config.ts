@@ -37,6 +37,7 @@ const config: Config = {
       fontFamily: {
         sans: ['Inter', 'SF Pro Display', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
         display: ['"Inter Display"', 'Inter', 'system-ui', 'sans-serif'],
+        serif: ['Fraunces', 'Georgia', 'Cambria', '"Times New Roman"', 'serif'],
         mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
       },
       fontSize: {
