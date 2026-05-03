@@ -34,7 +34,19 @@ RULES:
 - Never use date('now', '-N months') as a start bound for future expiry queries
 - For "similar to X": use WHERE description LIKE '%X%' OR description_long LIKE '%X%'
 - Always join vendor ON vendor.vendor_id = award.vendor_id to get vendor names
-- Always join organization ON organization.org_id = award.awarding_org_id to get agency names`;
+- Always join organization ON organization.org_id = award.awarding_org_id to get agency names
+
+QUESTION-SHAPE → QUERY-SHAPE:
+- "Does X have any Y" / "Are there any X" / "Is there X" — return a SELECT
+  with the actual rows (LIMIT 10), NOT COUNT/SUM. The user wants to see the
+  contracts, not just a count. Include award_piid, description, vendor_name,
+  current_value, pop_end_date so they can scan results.
+- "How many X" / "Count of X" / "Total number of X" — return COUNT(*) or
+  SUM(...) as an aggregate.
+- "List X" / "Show me X" / "Top N X" — return SELECT rows with ORDER BY and
+  LIMIT (default 50), not aggregates.
+- "Total value of X" / "Sum of X" — return SUM(current_value) (genuine
+  aggregate question).`;
 
 export const M1_MODEL_ID = 'algocrat/awards-sql-lora';
 

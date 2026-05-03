@@ -2,7 +2,7 @@ import * as React from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Slider from '@radix-ui/react-slider';
 import { ChevronsUpDown, CalendarRange, ChevronLeft, ChevronRight, X } from 'lucide-react';
-import { useAgency, epochDayToDate } from '@/lib/agency-context';
+import { useAgency, epochDayToDate, dateToEpochDay } from '@/lib/agency-context';
 import { cn } from '@/lib/utils';
 
 /**
@@ -64,6 +64,57 @@ export function DateFilter() {
             <span className="font-mono text-[11px] text-muted-soft">
               {epochDayToDate(display[0])} → {epochDayToDate(display[1])}
             </span>
+          </div>
+
+          {/* Typed / picker inputs — type a date or use the browser's
+              native picker. Bounded by the data extent on the outside
+              and by the *other* input on the inside so end < start is
+              impossible. Commits immediately (no need to release a
+              slider thumb). */}
+          <div className="mb-3 flex items-end gap-2">
+            <label className="flex flex-1 flex-col">
+              <span className="mb-1 text-[9.5px] font-bold uppercase tracking-[0.16em] text-muted-soft">From</span>
+              <input
+                type="date"
+                value={epochDayToDate(display[0])}
+                min={epochDayToDate(dateBounds.min)}
+                max={epochDayToDate(display[1])}
+                onChange={(e) => {
+                  const day = dateToEpochDay(e.target.value);
+                  if (day == null) return;
+                  const next: [number, number] = [day, display[1]];
+                  if (next[0] === dateBounds.min && next[1] === dateBounds.max) {
+                    setDateRange(null);
+                  } else {
+                    setDateRange(next);
+                  }
+                  setPending(null);
+                }}
+                className="rounded-md border border-border bg-brand-teal-deep/60 px-2 py-1.5 font-mono text-[11px] text-brand-cream focus:border-brand-vermilion focus:outline-none [color-scheme:dark]"
+              />
+            </label>
+            <span className="pb-2 text-muted-soft" aria-hidden>→</span>
+            <label className="flex flex-1 flex-col">
+              <span className="mb-1 text-[9.5px] font-bold uppercase tracking-[0.16em] text-muted-soft">To</span>
+              <input
+                type="date"
+                value={epochDayToDate(display[1])}
+                min={epochDayToDate(display[0])}
+                max={epochDayToDate(dateBounds.max)}
+                onChange={(e) => {
+                  const day = dateToEpochDay(e.target.value);
+                  if (day == null) return;
+                  const next: [number, number] = [display[0], day];
+                  if (next[0] === dateBounds.min && next[1] === dateBounds.max) {
+                    setDateRange(null);
+                  } else {
+                    setDateRange(next);
+                  }
+                  setPending(null);
+                }}
+                className="rounded-md border border-border bg-brand-teal-deep/60 px-2 py-1.5 font-mono text-[11px] text-brand-cream focus:border-brand-vermilion focus:outline-none [color-scheme:dark]"
+              />
+            </label>
           </div>
 
           {/* Chevrons flank the track to signal "this is a sliding range".
