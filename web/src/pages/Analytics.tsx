@@ -304,7 +304,7 @@ export function AnalyticsPage() {
         </Card>
       ) : (
         <Tabs.Root
-          defaultValue="tree"
+          defaultValue="bubble"
           onPointerDownCapture={collapseOnTabPointer}
           className="flex flex-1 min-h-0 flex-col gap-4"
         >
@@ -317,6 +317,12 @@ export function AnalyticsPage() {
               className="inline-flex w-fit items-center gap-1 rounded-xl border border-border bg-brand-teal-deep/40 p-1 backdrop-blur-md"
             >
               <Tabs.Trigger
+                value="bubble"
+                className="rounded-lg px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-muted-soft transition-colors hover:text-foreground data-[state=active]:bg-brand-vermilion data-[state=active]:text-white data-[state=active]:shadow-sm"
+              >
+                Clusters
+              </Tabs.Trigger>
+              <Tabs.Trigger
                 value="tree"
                 className="rounded-lg px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-muted-soft transition-colors hover:text-foreground data-[state=active]:bg-brand-vermilion data-[state=active]:text-white data-[state=active]:shadow-sm"
               >
@@ -327,12 +333,6 @@ export function AnalyticsPage() {
                 className="rounded-lg px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-muted-soft transition-colors hover:text-foreground data-[state=active]:bg-brand-vermilion data-[state=active]:text-white data-[state=active]:shadow-sm"
               >
                 Summary <span className="ml-1 text-[10px] opacity-80">({fmtInt(filteredRows.length)})</span>
-              </Tabs.Trigger>
-              <Tabs.Trigger
-                value="bubble"
-                className="rounded-lg px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-muted-soft transition-colors hover:text-foreground data-[state=active]:bg-brand-vermilion data-[state=active]:text-white data-[state=active]:shadow-sm"
-              >
-                Bubble
               </Tabs.Trigger>
               <Tabs.Trigger
                 value="pivot"

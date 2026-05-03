@@ -36,16 +36,24 @@ interface BubbleNode extends d3.SimulationNodeDatum {
 }
 
 // ─── Palettes ───────────────────────────────────────────────────────────────
+//
+// Earthy palette tuned to the brand colors (vermilion #E64833, terracotta
+// #874F41, sage #90AEAD, teal #244855, cream #FBE9D0). Three families:
+//   warm  — terracotta / ochre / clay  (heat, motion, attention)
+//   cool  — teal / slate / sage         (analytic, structural)
+//   muted — plum / taupe                (interpretive, neutral)
+// Every color has been checked against the teal-deep canvas background so
+// labels read cleanly without harsh saturation.
 
 const NATURE_COLORS: Record<string, string> = {
-  'Research / R&D':              '#a78bfa',
-  'Data / Surveillance Systems': '#06b6d4',
-  'IT / Software':               '#38bdf8',
-  'Communications / Outreach':   '#fb7185',
-  'Evaluation / Assessment':     '#f59e0b',
-  'Program Support / PMO':       '#2dd4bf',
-  'Goods / Equipment':           '#a3e635',
-  'Other / Mixed':               '#7a7876',
+  'Research / R&D':              '#9c7aa1', // dusty plum
+  'Data / Surveillance Systems': '#5d9099', // muted teal
+  'IT / Software':               '#5a7d8a', // slate blue
+  'Communications / Outreach':   '#d2674a', // warm terracotta
+  'Evaluation / Assessment':     '#c0954a', // ochre
+  'Program Support / PMO':       '#90AEAD', // brand sage
+  'Goods / Equipment':           '#a87a52', // clay
+  'Other / Mixed':               '#7d7167', // warm taupe
 };
 
 interface ExpiryBucket {
@@ -58,19 +66,28 @@ interface ExpiryBucket {
 }
 
 const EXPIRY_BUCKETS: ExpiryBucket[] = [
-  { id: 'expired',  label: 'Expired',     color: '#7a7876', order: 0, test: (d) => d != null && d < 0 },
-  { id: 'lt30',     label: '< 30 days',   color: '#fb7185', order: 1, test: (d) => d != null && d >= 0 && d < 30 },
-  { id: '30-90',    label: '30–90 days',  color: '#f59e0b', order: 2, test: (d) => d != null && d >= 30 && d < 90 },
-  { id: '90-180',   label: '90–180 days', color: '#a3e635', order: 3, test: (d) => d != null && d >= 90 && d < 180 },
-  { id: '180-365',  label: '180–365 d',   color: '#38bdf8', order: 4, test: (d) => d != null && d >= 180 && d < 365 },
-  { id: 'gt365',    label: '> 365 days',  color: '#a78bfa', order: 5, test: (d) => d != null && d >= 365 },
-  { id: 'unknown',  label: 'No end date', color: '#3f3e3c', order: 6, test: (d) => d == null },
+  { id: 'expired',  label: 'Expired',     color: '#5d5550', order: 0, test: (d) => d != null && d < 0 },
+  { id: 'lt30',     label: '< 30 days',   color: '#c4493a', order: 1, test: (d) => d != null && d >= 0 && d < 30 },
+  { id: '30-90',    label: '30–90 days',  color: '#d28457', order: 2, test: (d) => d != null && d >= 30 && d < 90 },
+  { id: '90-180',   label: '90–180 days', color: '#c0954a', order: 3, test: (d) => d != null && d >= 90 && d < 180 },
+  { id: '180-365',  label: '180–365 d',   color: '#9aa861', order: 4, test: (d) => d != null && d >= 180 && d < 365 },
+  { id: 'gt365',    label: '> 365 days',  color: '#7a9594', order: 5, test: (d) => d != null && d >= 365 },
+  { id: 'unknown',  label: 'No end date', color: '#564d45', order: 6, test: (d) => d == null },
 ];
 
 const VENDOR_PALETTE = [
-  '#2dd4bf', '#a78bfa', '#38bdf8', '#fb7185', '#a3e635',
-  '#f59e0b', '#06b6d4', '#ec4899', '#84cc16', '#fbbf24',
-  '#22d3ee', '#c084fc',
+  '#874F41', // brand terracotta
+  '#5d9099', // muted teal
+  '#90AEAD', // brand sage
+  '#c0954a', // ochre
+  '#9c7aa1', // dusty plum
+  '#5a7d8a', // slate blue
+  '#a87a52', // clay
+  '#d2674a', // warm terracotta
+  '#7a9594', // sage-deep
+  '#9aa861', // muted olive
+  '#7d7167', // warm taupe
+  '#a05a4d', // burnt sienna
 ];
 
 const TOP_N_AWARDS  = 100;
@@ -144,7 +161,7 @@ function buildGroupNodes(rows: Row[], groupBy: GroupBy): BubbleNode[] {
         groupId:    '__other_vendors__',
         groupLabel: `Other (${rest.length} vendors)`,
         value:      rest.reduce((s, n) => s + n.value, 0),
-        color:      '#3f3e3c',
+        color:      '#3a342f',
         count:      rest.reduce((s, n) => s + (n.count ?? 1), 0),
       });
     }
@@ -182,7 +199,7 @@ function buildAwardNodes(rows: Row[], groupBy: GroupBy, focusGroupId: string | n
       const rank = vendorRank.get(key.id) ?? -1;
       color = rank >= 0 && rank < TOP_N_VENDORS
         ? VENDOR_PALETTE[rank % VENDOR_PALETTE.length]
-        : '#3f3e3c';
+        : '#3a342f';
     }
     return {
       key:        String(r.award_id ?? desc),
@@ -238,31 +255,44 @@ export function AwardBubbleTab({ rows, viewName }: Props) {
 
   return (
     <Card className="flex flex-1 min-h-0 flex-col">
-      {/* Header */}
-      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-border bg-brand-teal-deep/40 px-5 py-3">
-        <div>
-          <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-brand-sage">
+      {/* Header — eyebrow + headline + topbar of controls. The eyebrow
+          carries the navigation chip, the headline is metric-forward. */}
+      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-border bg-brand-teal-deep/40 px-5 py-3.5">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-brand-sage">
             {focusGroup && (
               <button
                 type="button"
                 onClick={() => { setFocusGroup(null); setMode('group'); }}
-                className="inline-flex items-center gap-1 rounded-md border border-border bg-brand-teal-deep/60 px-2 py-0.5 text-foreground hover:bg-brand-teal-soft/30"
+                className="inline-flex items-center gap-1 rounded-md border border-border bg-brand-teal-deep/60 px-2 py-0.5 text-brand-cream transition-colors hover:bg-brand-teal-soft/30"
               >
                 <ArrowLeft className="h-3 w-3" /> Back
               </button>
             )}
-            Bubble chart
+            <span>Clusters</span>
             {focusGroup && (
-              <span className="rounded-md bg-brand-vermilion/15 px-2 py-0.5 text-brand-vermilion-soft">
+              <span className="rounded-full bg-brand-vermilion/12 px-2.5 py-0.5 text-brand-vermilion-soft">
                 {focusGroup.label}
               </span>
             )}
-            · click {mode === 'group' ? 'a group to drill in' : 'an award for full detail'}
+            <span className="text-muted-soft">·</span>
+            <span className="text-muted-soft">
+              click {mode === 'group' ? 'a group to drill in' : 'an award for full detail'}
+            </span>
           </div>
-          <div className="mt-0.5 text-xs text-muted">
-            {viewName} · {fmtInt(totals.count)} contracts · {fmtMoney(totals.total)} total
+          <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-display text-[18px] leading-tight tracking-tight text-brand-cream">
+            <span className="font-extrabold">{viewName}</span>
+            <span className="text-[13px] font-medium text-muted">
+              <span className="font-mono tabular-nums text-brand-sage">{fmtInt(totals.count)}</span>
+              <span className="ml-1 text-muted-soft">contracts</span>
+              <span className="mx-2 text-muted-soft/60">·</span>
+              <span className="font-mono tabular-nums text-brand-sage">{fmtMoney(totals.total)}</span>
+              <span className="ml-1 text-muted-soft">total</span>
+            </span>
             {mode === 'award' && totals.count > TOP_N_AWARDS && (
-              <span className="ml-2 text-amber-300">(showing top {TOP_N_AWARDS} by value)</span>
+              <span className="text-[11px] uppercase tracking-[0.14em] text-brand-vermilion-soft/80">
+                top {TOP_N_AWARDS}
+              </span>
             )}
           </div>
         </div>
@@ -324,20 +354,20 @@ function SegControl<T extends string>({
 }) {
   return (
     <div>
-      <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.10em] text-muted-soft">
+      <div className="mb-1 text-[9.5px] font-bold uppercase tracking-[0.16em] text-muted-soft">
         {label}
       </div>
-      <div className="inline-flex items-center rounded-lg border border-border bg-brand-teal-deep/60 p-0.5">
+      <div className="inline-flex items-center rounded-lg border border-border bg-brand-teal-deep/70 p-0.5 shadow-inner shadow-black/20">
         {options.map((o) => (
           <button
             key={o.value}
             type="button"
             onClick={() => onChange(o.value)}
             className={cn(
-              'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+              'rounded-md px-2.5 py-1 text-[11.5px] font-semibold transition-all',
               value === o.value
-                ? 'bg-brand-vermilion text-white'
-                : 'text-muted hover:text-foreground',
+                ? 'bg-brand-vermilion text-brand-cream shadow-sm shadow-brand-vermilion/25'
+                : 'text-muted-soft hover:text-brand-cream',
             )}
           >
             {o.label}
@@ -402,47 +432,56 @@ function BubbleCanvas({
       };
     });
 
-    // Glow filter for the bubbles
+    // Soft warm glow — thinner stdDeviation than the demo for cleaner edges,
+    // and we composite the source on top so the bubble outline stays crisp.
     const defs = svg.append('defs');
     const flt = defs.append('filter').attr('id', 'awardlens-bubble-glow')
       .attr('x', '-40%').attr('y', '-40%').attr('width', '180%').attr('height', '180%');
-    flt.append('feGaussianBlur').attr('stdDeviation', 4).attr('result', 'blur');
+    flt.append('feGaussianBlur').attr('stdDeviation', 2.4).attr('result', 'blur');
     const merge = flt.append('feMerge');
     merge.append('feMergeNode').attr('in', 'blur');
     merge.append('feMergeNode').attr('in', 'SourceGraphic');
 
-    // Group labels (cluster layout only — they sit above each cluster)
+    // Group labels (cluster layout only — they sit above each cluster).
+    // Typography: a small color dot, then a thin lowercase eyebrow, then
+    // the group name in tracked uppercase. Reads like a section heading.
     const labelLayer = svg.append('g').attr('class', 'group-labels');
     if (layout === 'cluster' && distinctGroups.length > 1) {
       distinctGroups.forEach((g) => {
         const c = groupCenters[g.id];
-        const top = c.y - cellH / 2 + 18;
+        const top = c.y - cellH / 2 + 22;
+        // Color dot
+        labelLayer.append('circle')
+          .attr('cx', c.x - 60).attr('cy', top - 3).attr('r', 3)
+          .attr('fill', g.color).attr('opacity', 0.95);
+        // Group label
         labelLayer.append('text')
-          .attr('x', c.x).attr('y', top)
-          .attr('text-anchor', 'middle')
-          .attr('font-size', 12).attr('font-weight', 700)
-          .attr('letter-spacing', '0.06em')
-          .attr('fill', g.color).attr('opacity', 0.85)
+          .attr('x', c.x - 50).attr('y', top)
+          .attr('text-anchor', 'start')
+          .attr('font-size', 10.5).attr('font-weight', 700)
+          .attr('letter-spacing', '0.18em')
+          .attr('fill', g.color).attr('fill-opacity', 0.95)
           .text(g.label.toUpperCase());
+        // Hairline accent under the dot+label, in a warmer mid-tone
         labelLayer.append('line')
-          .attr('x1', c.x - 36).attr('x2', c.x + 36)
-          .attr('y1', top + 6).attr('y2', top + 6)
-          .attr('stroke', g.color).attr('opacity', 0.3);
+          .attr('x1', c.x - 64).attr('x2', c.x + 64)
+          .attr('y1', top + 8).attr('y2', top + 8)
+          .attr('stroke', g.color).attr('stroke-width', 1).attr('opacity', 0.18);
       });
     }
     if (layout === 'scatter') {
       labelLayer.append('text')
         .attr('x', W / 2).attr('y', H - 22)
         .attr('text-anchor', 'middle')
-        .attr('font-size', 11).attr('fill', '#7a7876')
-        .attr('letter-spacing', '0.06em')
-        .text(`← ${groupByAxisLabel(groupBy)} (left → right) →`);
+        .attr('font-size', 10).attr('fill', '#90AEAD').attr('fill-opacity', 0.55)
+        .attr('font-weight', 600).attr('letter-spacing', '0.16em')
+        .text(`${groupByAxisLabel(groupBy).toUpperCase()}  ·  LEFT → RIGHT`);
       labelLayer.append('text')
-        .attr('transform', `translate(20, ${H / 2}) rotate(-90)`)
+        .attr('transform', `translate(22, ${H / 2}) rotate(-90)`)
         .attr('text-anchor', 'middle')
-        .attr('font-size', 11).attr('fill', '#7a7876')
-        .attr('letter-spacing', '0.06em')
-        .text('← Smaller value · Larger value →');
+        .attr('font-size', 10).attr('fill', '#90AEAD').attr('fill-opacity', 0.55)
+        .attr('font-weight', 600).attr('letter-spacing', '0.16em')
+        .text('CONTRACT VALUE  ·  LOG SCALE');
     }
 
     // Bubble layer
@@ -451,38 +490,43 @@ function BubbleCanvas({
       .data(nodes, (d) => (d as BubbleNode).key)
       .join((enter) => {
         const g = enter.append('g').attr('class', 'bubble').style('cursor', 'pointer');
-        // Outer halo
+        // Outer halo — soft, color-matched, sits behind the body.
         g.append('circle')
           .attr('class', 'halo')
-          .attr('r', (d) => (d.r ?? 0) + 5)
+          .attr('r', (d) => (d.r ?? 0) + 6)
           .attr('fill', (d) => d.color)
-          .attr('opacity', 0.06);
-        // Body
+          .attr('opacity', 0.08);
+        // Body — slightly lower fill opacity so the halo bleeds in,
+        // stroke darkened by mixing with the canvas to avoid the harsh
+        // identical-tone outline that "tech" bubble charts default to.
         g.append('circle')
           .attr('class', 'body')
           .attr('r', (d) => d.r ?? 0)
           .attr('fill', (d) => d.color)
-          .attr('fill-opacity', 0.78)
+          .attr('fill-opacity', 0.82)
           .attr('stroke', (d) => d.color)
-          .attr('stroke-width', 1.4)
-          .attr('stroke-opacity', 0.5)
+          .attr('stroke-width', 1.25)
+          .attr('stroke-opacity', 0.42)
           .attr('filter', 'url(#awardlens-bubble-glow)');
-        // Highlight
+        // Warm cream highlight — was pure white, now brand-cream tinted so
+        // the gloss feels candle-lit rather than fluorescent.
         g.append('circle')
           .attr('class', 'shine')
-          .attr('r',  (d) => (d.r ?? 0) * 0.45)
-          .attr('cx', (d) => -(d.r ?? 0) * 0.18)
-          .attr('cy', (d) => -(d.r ?? 0) * 0.22)
-          .attr('fill', 'white').attr('opacity', 0.08);
-        // Label
+          .attr('r',  (d) => (d.r ?? 0) * 0.48)
+          .attr('cx', (d) => -(d.r ?? 0) * 0.22)
+          .attr('cy', (d) => -(d.r ?? 0) * 0.26)
+          .attr('fill', '#FBE9D0').attr('opacity', 0.10);
+        // Label — brand-cream rather than white, slightly tighter tracking,
+        // hidden on tiny bubbles to keep the canvas uncluttered.
         g.append('text')
           .attr('text-anchor', 'middle')
           .attr('dominant-baseline', 'middle')
           .attr('font-weight', 700)
-          .attr('fill', 'white')
+          .attr('letter-spacing', '0.01em')
+          .attr('fill', '#FBE9D0')
           .attr('pointer-events', 'none')
-          .attr('font-size', (d) => Math.max(8, Math.min((d.r ?? 0) * 0.32, 13)))
-          .attr('opacity', (d) => (d.r ?? 0) > 18 ? 0.92 : 0)
+          .attr('font-size', (d) => Math.max(8.5, Math.min((d.r ?? 0) * 0.30, 13)))
+          .attr('opacity', (d) => (d.r ?? 0) > 22 ? 0.95 : 0)
           .text((d) => labelFor(d, mode));
         return g;
       });
@@ -575,17 +619,29 @@ function groupByAxisLabel(g: GroupBy): string {
 
 function tooltipHtml(d: BubbleNode, mode: Mode, groupBy: GroupBy): string {
   const esc = (s: string) => s.replace(/[<>&]/g, (c) => c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;');
+  const eyebrow = (color: string, text: string) => `
+    <div class="flex items-center gap-1.5 text-[9.5px] font-bold uppercase tracking-[0.16em]" style="color:${color}">
+      <span style="display:inline-block;width:6px;height:6px;border-radius:9999px;background:${color}"></span>
+      ${esc(text)}
+    </div>`;
+  const row = (label: string, value: string, mono = false) => `
+    <div class="flex items-baseline justify-between gap-4 leading-snug">
+      <span class="text-[10.5px] uppercase tracking-[0.10em] text-muted-soft">${label}</span>
+      <span class="${mono ? 'font-mono ' : ''}text-[12.5px] font-semibold text-brand-cream">${esc(value)}</span>
+    </div>`;
   if (mode === 'group') {
     return `
-      <div class="text-sm font-semibold text-foreground">${esc(d.label)}</div>
-      <div class="mt-0.5 text-[10px] uppercase tracking-[0.10em]" style="color:${d.color}">${esc(groupByAxisLabel(groupBy))}</div>
-      <div class="mt-2 flex justify-between gap-4 text-muted-soft">
-        <span>Total value</span><span class="font-mono text-foreground">${fmtMoney(d.value)}</span>
+      ${eyebrow(d.color, groupByAxisLabel(groupBy))}
+      <div class="mt-1 text-[14px] font-bold tracking-tight text-brand-cream">${esc(d.label)}</div>
+      <div class="mt-2.5 space-y-1.5 border-t border-white/5 pt-2.5">
+        ${row('Total value', fmtMoney(d.value), true)}
+        ${row('Contracts',   fmtInt(d.count ?? 0), true)}
       </div>
-      <div class="flex justify-between gap-4 text-muted-soft">
-        <span>Contracts</span><span class="font-mono text-foreground">${fmtInt(d.count ?? 0)}</span>
-      </div>
-      ${d.groupId === '__other_vendors__' ? '' : '<div class="mt-2 text-[10px] text-brand-sage">Click to drill in →</div>'}
+      ${d.groupId === '__other_vendors__' ? '' : `
+        <div class="mt-2.5 flex items-center gap-1 text-[10px] font-semibold tracking-[0.08em] text-brand-sage">
+          <span>Click to drill in</span>
+          <span aria-hidden="true">→</span>
+        </div>`}
     `;
   }
   const r = d.award ?? {};
@@ -594,17 +650,16 @@ function tooltipHtml(d: BubbleNode, mode: Mode, groupBy: GroupBy): string {
     ? days < 0 ? `${Math.abs(days)}d ago` : `${days}d left`
     : '—';
   return `
-    <div class="text-sm font-semibold text-foreground">${esc(d.label)}</div>
-    <div class="mt-0.5 text-[10px] uppercase tracking-[0.10em]" style="color:${d.color}">${esc(d.groupLabel)}</div>
-    <div class="mt-2 flex justify-between gap-4 text-muted-soft">
-      <span>Vendor</span><span class="text-foreground">${esc(String(r.vendor_name ?? '—'))}</span>
+    ${eyebrow(d.color, d.groupLabel)}
+    <div class="mt-1 text-[13.5px] font-bold leading-tight tracking-tight text-brand-cream">${esc(d.label)}</div>
+    <div class="mt-2.5 space-y-1.5 border-t border-white/5 pt-2.5">
+      ${row('Vendor', String(r.vendor_name ?? '—'))}
+      ${row('Value',  fmtMoney(d.value), true)}
+      ${row('Ends',   daysLabel)}
     </div>
-    <div class="flex justify-between gap-4 text-muted-soft">
-      <span>Value</span><span class="font-mono text-foreground">${fmtMoney(d.value)}</span>
+    <div class="mt-2.5 flex items-center gap-1 text-[10px] font-semibold tracking-[0.08em] text-brand-sage">
+      <span>Click for full detail</span>
+      <span aria-hidden="true">→</span>
     </div>
-    <div class="flex justify-between gap-4 text-muted-soft">
-      <span>Ends</span><span class="text-foreground">${daysLabel}</span>
-    </div>
-    <div class="mt-2 text-[10px] text-brand-sage">Click for full detail →</div>
   `;
 }
