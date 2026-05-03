@@ -185,28 +185,18 @@ export function AwardTimelineTab({ rows, viewName }: Props) {
 
   return (
     <Card className="flex flex-1 min-h-0 flex-col">
-      {/* Header */}
-      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-border bg-brand-teal-deep/40 px-5 py-3.5">
+      {/* Header — eyebrow + plain subtitle, matching the Spend Tree
+          pattern so typography stays uniform across every tab. */}
+      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-border bg-brand-teal-deep/40 px-5 py-3">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-brand-sage">
-            <span>Timeline</span>
-            <span className="text-muted-soft">·</span>
-            <span className="text-muted-soft">click a pill for full detail</span>
+          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand-sage">
+            Timeline · click a pill for full detail
           </div>
-          <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 leading-tight">
-            <span className="font-serif text-[22px] font-semibold tracking-tight text-brand-cream" style={{ fontVariationSettings: '"opsz" 144' }}>
-              {viewName}
-            </span>
-            <span className="text-[13px] font-medium text-muted">
-              <span className="font-mono tabular-nums text-brand-sage">{fmtInt(totals.eligible)}</span>
-              <span className="ml-1 text-muted-soft">with PoP dates</span>
-              <span className="mx-2 text-muted-soft/60">·</span>
-              <span className="font-mono tabular-nums text-brand-sage">{fmtMoney(totals.total)}</span>
-              <span className="ml-1 text-muted-soft">total</span>
-            </span>
+          <div className="mt-0.5 text-xs text-muted">
+            {viewName} · {fmtInt(totals.eligible)} with PoP dates · {fmtMoney(totals.total)} total
             {totals.eligible > topN && (
-              <span className="text-[11px] uppercase tracking-[0.16em] text-brand-vermilion-soft/80">
-                top {topN} by value
+              <span className="ml-2 text-amber-300">
+                (showing top {topN} by value)
               </span>
             )}
           </div>

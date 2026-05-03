@@ -412,7 +412,7 @@ export function AnalyticsPage() {
             value="summary"
             className="awardlens-tab-fill flex flex-col focus:outline-none data-[state=inactive]:hidden h-[calc(100dvh-168px)]"
           >
-            <AwardBrowser rows={filteredRows} onSelect={setSelectedAward} />
+            <AwardBrowser rows={filteredRows} onSelect={setSelectedAward} viewName={data.view_name} />
           </Tabs.Content>
 
           {/* TREE TAB */}
@@ -1053,10 +1053,11 @@ function compareRows(key: SortKey, a: Record<string, unknown>, b: Record<string,
 }
 
 function AwardBrowser({
-  rows, onSelect,
+  rows, onSelect, viewName,
 }: {
   rows: Record<string, unknown>[];
   onSelect: (a: Record<string, unknown>) => void;
+  viewName: string;
 }) {
   // Value, date, and nature-of-work filters all live in the topbar now
   // (agency-context); rows arriving here are already filtered. Only
@@ -1076,6 +1077,10 @@ function AwardBrowser({
   }, [rows, search, sortKey]);
 
   const sortLabel = BROWSER_SORT_OPTIONS.find((o) => o.value === sortKey)?.label ?? 'Sort';
+  const totalValue = React.useMemo(
+    () => filtered.reduce((s, r) => s + Number(r.current_value ?? 0), 0),
+    [filtered],
+  );
 
   return (
     <Card className="flex flex-1 min-h-0 flex-col">
@@ -1085,8 +1090,8 @@ function AwardBrowser({
             Browse · click any row for full detail
           </div>
           <div className="mt-0.5 text-xs text-muted">
-            {fmtInt(filtered.length)} of {fmtInt(rows.length)} awards
-            {search ? ' (search)' : ''}
+            {viewName} · {fmtInt(filtered.length)} of {fmtInt(rows.length)} contracts · {fmtMoney(totalValue)} total
+            {search ? <span className="ml-2 text-amber-300">(filtered by search)</span> : null}
           </div>
         </div>
 
