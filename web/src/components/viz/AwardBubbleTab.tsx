@@ -508,14 +508,6 @@ function BubbleCanvas({
           .attr('stroke-width', 1.25)
           .attr('stroke-opacity', 0.42)
           .attr('filter', 'url(#awardlens-bubble-glow)');
-        // Warm cream highlight — was pure white, now brand-cream tinted so
-        // the gloss feels candle-lit rather than fluorescent.
-        g.append('circle')
-          .attr('class', 'shine')
-          .attr('r',  (d) => (d.r ?? 0) * 0.48)
-          .attr('cx', (d) => -(d.r ?? 0) * 0.22)
-          .attr('cy', (d) => -(d.r ?? 0) * 0.26)
-          .attr('fill', '#FBE9D0').attr('opacity', 0.10);
         // Label — brand-cream rather than white, slightly tighter tracking,
         // hidden on tiny bubbles to keep the canvas uncluttered.
         g.append('text')
