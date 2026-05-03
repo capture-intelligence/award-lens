@@ -15,6 +15,7 @@
  */
 
 import * as React from 'react';
+import { createPortal } from 'react-dom';
 import * as d3 from 'd3';
 import { Card } from '@/components/ui/Card';
 import { useSetSelectedAward } from '@/lib/ai-award-context';
@@ -304,10 +305,9 @@ function SegControl<T extends string | number>({
 // ─── D3 canvas ──────────────────────────────────────────────────────────────
 
 const MARGIN = { top: 18, right: 32, bottom: 38, left: 210 };
-const LABEL_PAD_L = 8;     // left inset where Y labels begin
-const MIN_PILL_H = 10;
-const MAX_PILL_H = 40;
-const LABEL_MAX_CHARS = 32; // truncated from the right with ellipsis
+const LABEL_PAD_L = 8;       // left inset where Y labels begin
+const MIN_PILL_H = 3;        // floor so the smallest contract still renders
+const LABEL_MAX_CHARS = 32;  // truncated from the right with ellipsis
 
 function TimelineCanvas({
   nodes, onPillClick,
@@ -342,14 +342,16 @@ function TimelineCanvas({
       .paddingInner(0.28);
 
     const bandwidth = yScale.bandwidth();
-    const minVal = d3.min(nodes, (n) => n.value) ?? 0;
     const maxVal = d3.max(nodes, (n) => n.value) ?? 1;
-    // Clamp the upper bound so pills never exceed their row, and so the
-    // visual headroom stays consistent regardless of data extremes.
-    const heightCap = Math.max(MIN_PILL_H + 2, Math.min(MAX_PILL_H, bandwidth - 2));
+    // Pill height is *exactly* proportional to current_value: domain starts
+    // at 0 so a $0 contract resolves to MIN_PILL_H and the largest hits
+    // (bandwidth - 2). At dense row counts the pills are thin; at top-20
+    // they fill nearly the whole row.  No artificial 40px cap — the user
+    // wants size to track value across the entire viewport.
+    const maxPillH = Math.max(MIN_PILL_H + 2, bandwidth - 2);
     const heightScale = d3.scaleLinear()
-      .domain([minVal, Math.max(maxVal, minVal + 1)])
-      .range([MIN_PILL_H, heightCap])
+      .domain([0, Math.max(maxVal, 1)])
+      .range([MIN_PILL_H, maxPillH])
       .clamp(true);
 
     // ── Layers (back to front) ────────────────────────────────────────────
@@ -484,11 +486,19 @@ function TimelineCanvas({
   return (
     <div ref={containerRef} className="relative flex-1 min-h-0">
       <svg ref={svgRef} className="block h-full w-full" />
-      <div
-        ref={tooltipRef}
-        className="awardlens-timeline-tip pointer-events-none fixed z-50 max-w-[280px] rounded-lg border border-border bg-brand-teal-deep/95 px-3 py-2 text-xs text-foreground opacity-0 shadow-glass-lg backdrop-blur-md transition-opacity duration-100"
-        style={{ left: -9999, top: -9999 }}
-      />
+      {/* Portal the tooltip to <body> — App-shell has framer-motion
+          wrappers whose CSS transform creates a containing block, which
+          would otherwise hijack our position:fixed and clip the tooltip
+          inside the route panel. body has no transform, so 'fixed' here
+          truly resolves to the viewport. */}
+      {typeof document !== 'undefined' && createPortal(
+        <div
+          ref={tooltipRef}
+          className="awardlens-timeline-tip pointer-events-none fixed z-[100] max-w-[280px] rounded-lg border border-border bg-brand-teal-deep/95 px-3 py-2 text-xs text-foreground opacity-0 shadow-glass-lg backdrop-blur-md transition-opacity duration-100"
+          style={{ left: -9999, top: -9999 }}
+        />,
+        document.body,
+      )}
       <style>{`.awardlens-timeline-tip.visible{opacity:1;}`}</style>
     </div>
   );

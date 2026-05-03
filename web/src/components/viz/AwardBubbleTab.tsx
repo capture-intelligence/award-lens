@@ -8,6 +8,7 @@
  */
 
 import * as React from 'react';
+import { createPortal } from 'react-dom';
 import * as d3 from 'd3';
 import { Card } from '@/components/ui/Card';
 import { useSetSelectedAward } from '@/lib/ai-award-context';
@@ -583,11 +584,18 @@ function BubbleCanvas({
   return (
     <div ref={containerRef} className="relative flex-1 min-h-0">
       <svg ref={svgRef} className="block h-full w-full" />
-      <div
-        ref={tooltipRef}
-        className="awardlens-bubble-tip pointer-events-none fixed z-50 max-w-[260px] rounded-lg border border-border bg-brand-teal-deep/95 px-3 py-2 text-xs text-foreground opacity-0 shadow-glass-lg backdrop-blur-md transition-opacity duration-100"
-        style={{ left: -9999, top: -9999 }}
-      />
+      {/* Portal the tooltip to <body> so position:fixed truly resolves to
+          the viewport. App-shell wraps routes in framer-motion's <motion.div>,
+          whose CSS transform creates a containing block that would
+          otherwise clip a fixed-positioned descendant. */}
+      {typeof document !== 'undefined' && createPortal(
+        <div
+          ref={tooltipRef}
+          className="awardlens-bubble-tip pointer-events-none fixed z-[100] max-w-[260px] rounded-lg border border-border bg-brand-teal-deep/95 px-3 py-2 text-xs text-foreground opacity-0 shadow-glass-lg backdrop-blur-md transition-opacity duration-100"
+          style={{ left: -9999, top: -9999 }}
+        />,
+        document.body,
+      )}
       <style>{`.awardlens-bubble-tip.visible{opacity:1;}`}</style>
     </div>
   );

@@ -16,7 +16,7 @@ import type { NatureBucket } from './nature-of-work';
 export const NATURE_COLORS: Record<NatureBucket, string> = {
   'Research / R&D':              '#7B5B6B', // deep plum
   'Data / Surveillance Systems': '#7A8B4D', // moss / olive
-  'IT / Software':               '#4D6E81', // slate blue
+  'IT / Software':               '#2F4A78', // deep saturated indigo-blue
   'Communications / Outreach':   '#B5503D', // rust
   'Evaluation / Assessment':     '#C5973A', // mustard ochre
   'Program Support / PMO':       '#90AEAD', // brand sage
