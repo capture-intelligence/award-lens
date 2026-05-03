@@ -38,3 +38,16 @@ NUL
 
 # One-off operational SQL scripts (used to apply ad-hoc D1 fixes via wrangler)
 .tmp-*.sql
+
+# SLM training pipeline — data files (datasets, models, embeddings) live
+# outside git for size reasons; transferred via the handoff zip instead.
+slm/data/
+slm/out/
+slm/.venv/
+slm/ssh/
+
+# Handoff artifact — too large for git
+awards-slm-handoff.zip
+
+# IDE
+.idea/

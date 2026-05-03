@@ -1,0 +1,21 @@
+# Core ML stack
+torch>=2.4.0
+transformers==4.46.0
+peft==0.13.2
+trl==0.12.0
+accelerate==1.1.1
+bitsandbytes>=0.45.0
+datasets==3.1.0
+huggingface_hub
+
+# API clients
+anthropic
+runpod
+
+# Inference / serving (optional, for local FastAPI fallback)
+fastapi
+uvicorn
+pydantic
+
+# Utilities
+sqlalchemy
