@@ -408,9 +408,20 @@ function TimelineCanvas({
       .attr('stroke', '#244855').attr('stroke-opacity', 0.06);
 
     // ── X axis (bottom, time format adapts to span) ───────────────────────
-    const span = maxEnd.getTime() - minStart.getTime();
+    // D3 picks "nice" tick intervals — quarterly for multi-year spans,
+    // monthly for spans under ~3 years. The formatter has to match: when
+    // ticks land on quarter boundaries (Jan/Apr/Jul/Oct), labelling them
+    // "2024 2024 2024 2024" loses information, so we render them as
+    // "Q1 '24 / Q2 '24 / Q3 '24 / Q4 '24" instead.
+    const span    = maxEnd.getTime() - minStart.getTime();
     const oneYear = 365 * 24 * 3600 * 1000;
-    const fmt = span > 3 * oneYear ? d3.timeFormat('%Y') : d3.timeFormat("%b '%y");
+    const fmt: (d: Date) => string = span > 3 * oneYear
+      ? (d) => {
+          const q  = Math.floor(d.getMonth() / 3) + 1;
+          const yy = String(d.getFullYear()).slice(2);
+          return `Q${q} '${yy}`;
+        }
+      : d3.timeFormat("%b '%y");
     const xAxis = d3.axisBottom(xScale)
       .ticks(xTicks.length)
       .tickFormat((d) => fmt(d as Date))
