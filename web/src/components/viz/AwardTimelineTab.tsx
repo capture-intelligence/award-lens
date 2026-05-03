@@ -409,17 +409,16 @@ function TimelineCanvas({
 
     // ── X axis (bottom, time format adapts to span) ───────────────────────
     // D3 picks "nice" tick intervals — quarterly for multi-year spans,
-    // monthly for spans under ~3 years. The formatter has to match: when
-    // ticks land on quarter boundaries (Jan/Apr/Jul/Oct), labelling them
-    // "2024 2024 2024 2024" loses information, so we render them as
-    // "Q1 '24 / Q2 '24 / Q3 '24 / Q4 '24" instead.
+    // monthly for spans under ~3 years. For the quarterly case we anchor
+    // the full year only on Q1 ticks; Q2/Q3/Q4 stay bare. The pattern
+    // reads as a calendar — year resets where the eye expects to find
+    // it, and the axis stays readable at high tick density.
     const span    = maxEnd.getTime() - minStart.getTime();
     const oneYear = 365 * 24 * 3600 * 1000;
     const fmt: (d: Date) => string = span > 3 * oneYear
       ? (d) => {
-          const q  = Math.floor(d.getMonth() / 3) + 1;
-          const yy = String(d.getFullYear()).slice(2);
-          return `Q${q} '${yy}`;
+          const q = Math.floor(d.getMonth() / 3) + 1;
+          return q === 1 ? `Q1 ${d.getFullYear()}` : `Q${q}`;
         }
       : d3.timeFormat("%b '%y");
     const xAxis = d3.axisBottom(xScale)
@@ -454,6 +453,31 @@ function TimelineCanvas({
       .attr('letter-spacing', '0.01em')
       .attr('fill', '#1a3540').attr('fill-opacity', 0.85)
       .text((n) => truncate(n.name, LABEL_MAX_CHARS));
+
+    // ── Inline $ value right before the start of each pill ───────────────
+    // text-anchor='end' so the value's right edge sits 4px before the
+    // pill. Skipped for pills that start within 56px of the chart's
+    // left margin — there isn't room for the value without crashing
+    // into the row label, and the user can read those values from the
+    // tooltip on hover.
+    yAxisLayer.selectAll('text.row-value')
+      .data(nodes)
+      .join('text')
+      .attr('class', 'row-value')
+      .attr('x', (n) => xScale(n.start) - 4)
+      .attr('y', (n) => yScale(n.id)! + bandwidth / 2)
+      .attr('dominant-baseline', 'middle')
+      .attr('text-anchor', 'end')
+      .attr('font-family', '"JetBrains Mono", ui-monospace, monospace')
+      .attr('font-size', 9.5)
+      .attr('font-weight', 600)
+      .attr('font-variant-numeric', 'tabular-nums')
+      .attr('fill', '#874F41')          // brand-terracotta — accent for data
+      .attr('fill-opacity', 0.92)
+      .attr('display', (n) =>
+        xScale(n.start) - MARGIN.left < 56 ? 'none' : null,
+      )
+      .text((n) => fmtMoney(n.value));
 
     // ── Pills ─────────────────────────────────────────────────────────────
     const tip = tooltipRef.current;
