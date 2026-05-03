@@ -40,7 +40,7 @@ sudo apt-get update && sudo apt-get install -y git curl
 ssh-keygen -t ed25519 -f ~/.ssh/github-awards -N "" -C "awardlens-sidecar-2"
 cat ~/.ssh/github-awards.pub
 # → Copy this output. In your laptop browser, add it as a deploy key:
-#   gh repo deploy-key add ~/.ssh/github-awards.pub --repo Algocrat/past-awards-dashboard
+#   gh repo deploy-key add ~/.ssh/github-awards.pub --repo capture-intelligence/award-lens
 # (or via the web UI: Settings → Deploy keys → Add)
 
 cat >> ~/.ssh/config <<'EOF'
@@ -51,7 +51,7 @@ Host github.com
 EOF
 chmod 600 ~/.ssh/config
 
-git clone git@github.com:Algocrat/past-awards-dashboard.git /tmp/awards
+git clone git@github.com:capture-intelligence/award-lens.git /tmp/awards
 sudo mkdir -p /opt
 sudo mv /tmp/awards /opt/awards-pipeline
 

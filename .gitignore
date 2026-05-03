@@ -47,6 +47,7 @@ slm/.venv/
 slm/ssh/
 
 # Handoff artifact — too large for git
+award-lens-models.zip
 awards-slm-handoff.zip
 
 # IDE

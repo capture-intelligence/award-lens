@@ -62,7 +62,7 @@ Copy the output — this is your `INGEST_TOKEN`. Then register it with the Worke
 
 ```powershell
 # PowerShell (paste your token when prompted, or pipe it)
-cd C:/Users/Tejas/past-awards-dashboard/workers/api
+cd C:/Users/Tejas/award-lens/workers/api
 $token = "<paste-your-64-hex-char-token-here>"
 $token | npx wrangler secret put INGEST_TOKEN
 npx wrangler deploy
@@ -129,7 +129,7 @@ On your laptop (where `gh` CLI is logged in):
 
 ```powershell
 echo "<the public-key line>" > /tmp/key.pub
-gh repo deploy-key add /tmp/key.pub --repo Algocrat/past-awards-dashboard --title "oracle-sidecar-vm"
+gh repo deploy-key add /tmp/key.pub --repo capture-intelligence/award-lens --title "oracle-sidecar-vm"
 rm /tmp/key.pub
 ```
 
@@ -150,7 +150,7 @@ chmod 600 ~/.ssh/config
 ### 3c. Clone + run the installer
 
 ```bash
-git clone git@github.com:Algocrat/past-awards-dashboard.git /tmp/awards
+git clone git@github.com:capture-intelligence/award-lens.git /tmp/awards
 sudo mkdir -p /opt && sudo mv /tmp/awards /opt/awards-pipeline
 bash /opt/awards-pipeline/sidecar-oracle/install.sh
 ```

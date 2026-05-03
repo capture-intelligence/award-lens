@@ -7,7 +7,7 @@
 
 param(
     [string]$VmName    = "awards-sidecar",
-    [string]$SshKeyPub = "C:\Users\Tejas\past-awards-dashboard\keys\oracle\ssh-key-2026-04-23.key.pub",
+    [string]$SshKeyPub = "C:\Users\Tejas\award-lens\keys\oracle\ssh-key-2026-04-23.key.pub",
     [int]   $MaxArmAttempts = 6,
     [int]   $RetryDelaySec  = 90
 )
