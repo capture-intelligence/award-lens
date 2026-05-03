@@ -1154,9 +1154,12 @@ function AwardBrowser({
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto">
+      <div
+        className="flex-1 min-h-0 overflow-y-auto"
+        style={{ background: '#fffdf9' }}
+      >
         {filtered.length === 0 ? (
-          <div className="px-6 py-12 text-center text-sm text-muted-soft italic">
+          <div className="px-6 py-12 text-center text-sm italic" style={{ color: 'rgba(26, 53, 64, 0.55)' }}>
             No matches.
           </div>
         ) : (
@@ -1207,16 +1210,25 @@ const AwardRow = React.memo(function AwardRow({
         type="button"
         whileHover={{ x: 2 }}
         onClick={() => onSelect(row)}
-        className="group flex w-full items-start gap-4 border-b border-border/60 px-5 py-3 text-left transition-colors hover:bg-brand-teal-soft/15"
+        className="group flex w-full items-start gap-4 px-5 py-3 text-left transition-colors"
+        style={{ borderBottom: '1px solid rgba(36, 72, 85, 0.10)' }}
+        onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(36, 72, 85, 0.04)')}
+        onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
       >
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate font-medium text-foreground group-hover:text-brand-vermilion-soft">
+            <span
+              className="truncate font-semibold transition-colors group-hover:text-brand-vermilion-deep"
+              style={{ color: '#1a3540' }}
+            >
               {String(row.description ?? '(no description)')}
             </span>
             {excluded && <Badge variant="danger">Excluded vendor</Badge>}
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-soft">
+          <div
+            className="mt-1 flex flex-wrap items-center gap-2 text-[11px]"
+            style={{ color: 'rgba(36, 72, 85, 0.62)' }}
+          >
             <span className="font-mono">{String(row.award_piid ?? '—')}</span>
             <span>·</span>
             <span>{String(row.vendor_name ?? '—')}</span>
@@ -1225,7 +1237,14 @@ const AwardRow = React.memo(function AwardRow({
             {nature && (
               <>
                 <span>·</span>
-                <span className="rounded-md border border-brand-sage/40 bg-brand-sage/10 px-1.5 py-0.5 font-medium text-brand-sage">
+                <span
+                  className="rounded-md px-1.5 py-0.5 font-medium"
+                  style={{
+                    border: '1px solid rgba(93, 138, 135, 0.5)',
+                    background: 'rgba(93, 138, 135, 0.10)',
+                    color: '#3f6e6b',
+                  }}
+                >
                   {nature}
                 </span>
               </>
@@ -1240,16 +1259,25 @@ const AwardRow = React.memo(function AwardRow({
         </div>
 
         <div className="flex shrink-0 flex-col items-end gap-1.5">
-          <span className="font-mono text-sm text-brand-vermilion-soft">
+          <span
+            className="font-mono text-sm font-semibold"
+            style={{ color: '#874F41' }}
+          >
             {fmtMoney(value)}
           </span>
-          <div className="flex items-center gap-1.5 text-[10px] text-muted">
+          <div
+            className="flex items-center gap-1.5 text-[10px]"
+            style={{ color: 'rgba(36, 72, 85, 0.55)' }}
+          >
             <span>{fmtDate(String(row.pop_end_date ?? ''))}</span>
             {dayChip}
           </div>
         </div>
 
-        <Eye className="mt-1 h-4 w-4 shrink-0 text-muted-soft transition-colors group-hover:text-brand-sage" />
+        <Eye
+          className="mt-1 h-4 w-4 shrink-0 transition-colors group-hover:text-brand-vermilion-deep"
+          style={{ color: 'rgba(36, 72, 85, 0.40)' }}
+        />
       </motion.button>
     </li>
   );

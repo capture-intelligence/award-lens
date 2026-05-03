@@ -44,33 +44,35 @@
  * ════════════════════════════════════════════════════════════════════════ */
 
 .awardlens-pivot {
-  /* ── palette tokens (shared by both react-pivottable + leftover WDR) ── */
-  --al-bg:               #0f262e;
-  --al-bg-elevated:      #173039;
-  --al-bg-row:           #1a3a45;
-  --al-bg-row-alt:       #173039;
-  --al-bg-row-hover:     #265c6e;
-  --al-panel:            #244855;
-  --al-panel-elevated:   #2e5a6a;
-  --al-text:             #FBE9D0;
-  --al-text-soft:        rgba(251, 233, 208, 0.78);
-  --al-text-muted:       rgba(251, 233, 208, 0.55);
-  --al-text-faint:       rgba(251, 233, 208, 0.35);
-  --al-border:           rgba(144, 174, 173, 0.22);
-  --al-border-strong:    rgba(144, 174, 173, 0.45);
+  /* ── palette tokens — cream canvas variant to match Clusters /
+        Timeline / Summary. Dark teal text on cream paper, with
+        terracotta as the accent for active / selected state. */
+  --al-bg:               #fffdf9;
+  --al-bg-elevated:      #f7f1e6;
+  --al-bg-row:           #fffdf9;
+  --al-bg-row-alt:       #faf4ea;
+  --al-bg-row-hover:     #efe6d4;
+  --al-panel:            #f3ecde;
+  --al-panel-elevated:   #ebe2d1;
+  --al-text:             #1a3540;
+  --al-text-soft:        rgba(26, 53, 64, 0.82);
+  --al-text-muted:       rgba(26, 53, 64, 0.60);
+  --al-text-faint:       rgba(26, 53, 64, 0.38);
+  --al-border:           rgba(36, 72, 85, 0.16);
+  --al-border-strong:    rgba(36, 72, 85, 0.32);
   --al-accent:           #E64833;
-  --al-accent-soft:      #ed6e5d;
-  --al-accent-deep:      #c93b27;
-  --al-accent-bg:        rgba(230, 72, 51, 0.12);
-  --al-accent-bg-strong: rgba(230, 72, 51, 0.22);
-  --al-sage:             #90AEAD;
+  --al-accent-soft:      #c93b27;
+  --al-accent-deep:      #874F41;
+  --al-accent-bg:        rgba(230, 72, 51, 0.10);
+  --al-accent-bg-strong: rgba(230, 72, 51, 0.18);
+  --al-sage:             #5d8a87;
 
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif !important;
   border-radius: 16px;
   overflow: hidden;
   background: var(--al-bg);
   border: 1px solid var(--al-border);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.30);
+  box-shadow: 0 8px 30px rgba(36, 72, 85, 0.10);
 }
 
 /* When wrapped in `.awardlens-pivot--scroll`, allow the pivot UI table to
@@ -92,7 +94,7 @@
   background: rgba(230, 72, 51, 0.55) !important;
 }
 .awardlens-pivot.awardlens-pivot--scroll::-webkit-scrollbar-track {
-  background: rgba(13, 31, 37, 0.55) !important;
+  background: rgba(36, 72, 85, 0.05) !important;
 }
 /* Also let the renderer cell scroll its inner table when the columns alone
    are too wide (rare but possible). */
@@ -122,7 +124,7 @@
 
 /* ── Toolbar ─────────────────────────────────────────────────────── */
 .awardlens-pivot .wdr-toolbar-ui {
-  background: linear-gradient(180deg, var(--al-panel) 0%, #1f3f4a 100%) !important;
+  background: linear-gradient(180deg, var(--al-panel) 0%, var(--al-panel-elevated) 100%) !important;
   border-bottom: 1px solid var(--al-border) !important;
   padding: 8px 12px !important;
   min-height: 48px !important;
@@ -204,7 +206,7 @@
 .awardlens-pivot .wdr-cell.wdr-column-spacer,
 .awardlens-pivot .wdr-cell.wdr-empty-cell,
 .awardlens-pivot .wdr-cell.wdr-corner {
-  background: linear-gradient(180deg, var(--al-panel) 0%, #1d3b46 100%) !important;
+  background: linear-gradient(180deg, var(--al-panel) 0%, var(--al-panel-elevated) 100%) !important;
   color: var(--al-text-soft) !important;
   font-weight: 700 !important;
   text-transform: uppercase !important;
@@ -259,10 +261,10 @@
 .awardlens-pivot .wdr-cell.wdr-grand-total-row,
 .awardlens-pivot .wdr-cell.wdr-grand-total-column {
   background: linear-gradient(180deg, rgba(230, 72, 51, 0.26), rgba(230, 72, 51, 0.12)) !important;
-  color: #FBE9D0 !important;
+  color: #1a3540 !important;
   font-weight: 800 !important;
   border-color: rgba(230, 72, 51, 0.45) !important;
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.20);
+  text-shadow: none;
 }
 
 /* Selected */
@@ -308,7 +310,7 @@
 .awardlens-pivot .wdr-fields-view .wdr-filters,
 .awardlens-pivot .wdr-fields-view .wdr-axis,
 .awardlens-pivot .wdr-fields-list-view .wdr-axis {
-  background: rgba(13, 31, 37, 0.45) !important;
+  background: rgba(36, 72, 85, 0.05) !important;
   border: 1px dashed var(--al-border-strong) !important;
   border-radius: 10px !important;
   margin: 6px !important;
@@ -385,7 +387,7 @@
 .awardlens-pivot button.wdr-ui-element[data-key="ok"],
 .awardlens-pivot button[data-action="apply"] {
   background: linear-gradient(135deg, var(--al-accent) 0%, var(--al-accent-deep) 100%) !important;
-  color: #FBE9D0 !important;
+  color: #1a3540 !important;
   border: 1px solid rgba(230, 72, 51, 0.55) !important;
   font-weight: 700 !important;
   box-shadow: 0 0 18px rgba(230, 72, 51, 0.30) !important;
@@ -445,7 +447,7 @@
 
 .awardlens-pivot .wdr-popup .wdr-popup-header,
 .awardlens-pivot .wdr-modal .wdr-modal-header {
-  background: linear-gradient(180deg, var(--al-panel) 0%, #1f3e49 100%) !important;
+  background: linear-gradient(180deg, var(--al-panel) 0%, var(--al-panel-elevated) 100%) !important;
   color: var(--al-text) !important;
   border-bottom: 1px solid var(--al-border) !important;
   padding: 12px 18px !important;
@@ -506,7 +508,7 @@
 /* ── Spinner ─────────────────────────────────────────────────────── */
 .awardlens-pivot .wdr-spinner,
 .awardlens-pivot .wdr-loading {
-  background: rgba(13, 31, 37, 0.85) !important;
+  background: rgba(255, 253, 249, 0.95) !important;
 }
 .awardlens-pivot .wdr-spinner-circle,
 .awardlens-pivot .wdr-loading-spinner {
@@ -517,7 +519,7 @@
 /* ── Scrollbars (scoped) ─────────────────────────────────────────── */
 .awardlens-pivot ::-webkit-scrollbar { width: 10px !important; height: 10px !important; }
 .awardlens-pivot ::-webkit-scrollbar-track {
-  background: rgba(13, 31, 37, 0.5) !important;
+  background: rgba(36, 72, 85, 0.05) !important;
 }
 .awardlens-pivot ::-webkit-scrollbar-thumb {
   background: rgba(144, 174, 173, 0.30) !important;
@@ -578,7 +580,7 @@
 }
 
 .awardlens-pivot .pvtUnused {
-  background: rgba(13, 31, 37, 0.55) !important;
+  background: rgba(36, 72, 85, 0.05) !important;
   border-style: dashed !important;
   border-color: var(--al-border-strong) !important;
 }
@@ -587,7 +589,7 @@
    X button (added at runtime by PivotShell for chips that have been placed
    into a row/col/value zone). */
 .awardlens-pivot .pvtAttr {
-  background: linear-gradient(180deg, var(--al-panel) 0%, #1f3e49 100%) !important;
+  background: linear-gradient(180deg, var(--al-panel) 0%, var(--al-panel-elevated) 100%) !important;
   color: var(--al-text) !important;
   border: 1px solid var(--al-border) !important;
   border-radius: 8px !important;
@@ -668,7 +670,7 @@
   background: var(--al-bg-elevated) !important;
   border: 1px solid var(--al-border-strong) !important;
   border-radius: 12px !important;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.65) !important;
+  box-shadow: 0 24px 80px rgba(36, 72, 85, 0.16) !important;
   color: var(--al-text) !important;
   padding: 14px !important;
   min-width: 320px !important;
@@ -734,7 +736,7 @@
 }
 .awardlens-pivot .pvtCheckContainer p,
 .awardlens-pivot .pvtCheckContainer p.selected {
-  background: rgba(13, 31, 37, 0.40) !important;
+  background: rgba(36, 72, 85, 0.05) !important;
   color: var(--al-text) !important;
   padding: 5px 10px !important;
   border-radius: 6px !important;
@@ -862,7 +864,7 @@
 .awardlens-pivot table.pvtTable th.pvtColLabel,
 .awardlens-pivot table.pvtTable th.pvtRowLabel,
 .awardlens-pivot table.pvtTable th.pvtAttrLabel {
-  background: linear-gradient(180deg, var(--al-panel) 0%, #1f3e49 100%) !important;
+  background: linear-gradient(180deg, var(--al-panel) 0%, var(--al-panel-elevated) 100%) !important;
   color: var(--al-text-soft) !important;
   font-weight: 700 !important;
   letter-spacing: 0.06em !important;
@@ -918,10 +920,10 @@
 .awardlens-pivot table.pvtTable td.pvtGrandTotal,
 .awardlens-pivot table.pvtTable th.pvtGrandTotal {
   background: linear-gradient(180deg, rgba(230, 72, 51, 0.28), rgba(230, 72, 51, 0.14)) !important;
-  color: #FBE9D0 !important;
+  color: #1a3540 !important;
   font-weight: 800 !important;
   border-color: rgba(230, 72, 51, 0.50) !important;
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.20) !important;
+  text-shadow: none !important;
 }
 
 /* Heatmap renderer accent (when user picks Heatmap) */

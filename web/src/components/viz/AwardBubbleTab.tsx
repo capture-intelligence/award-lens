@@ -272,7 +272,7 @@ export function AwardBubbleTab({ rows, viewName }: Props) {
             </span>
           </div>
           <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 leading-tight">
-            <span className="font-serif text-[24px] font-medium italic tracking-tight text-brand-cream" style={{ fontVariationSettings: '"opsz" 144' }}>
+            <span className="font-serif text-[22px] font-semibold tracking-tight text-brand-cream" style={{ fontVariationSettings: '"opsz" 144' }}>
               {viewName}
             </span>
             <span className="text-[13px] font-medium text-muted">
