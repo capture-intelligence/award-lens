@@ -12,6 +12,7 @@ import * as d3 from 'd3';
 import { Card } from '@/components/ui/Card';
 import { useSetSelectedAward } from '@/lib/ai-award-context';
 import { natureOfWork, NATURE_BUCKETS } from '@/lib/nature-of-work';
+import { NATURE_COLORS, NATURE_FALLBACK } from '@/lib/nature-palette';
 import { useResizeObserver } from './useResizeObserver';
 import { fmtMoney, fmtInt, cn } from '@/lib/utils';
 import { ArrowLeft } from 'lucide-react';
@@ -37,24 +38,9 @@ interface BubbleNode extends d3.SimulationNodeDatum {
 
 // ─── Palettes ───────────────────────────────────────────────────────────────
 //
-// Earthy palette tuned to the brand colors (vermilion #E64833, terracotta
-// #874F41, sage #90AEAD, teal #244855, cream #FBE9D0). Three families:
-//   warm  — terracotta / ochre / clay  (heat, motion, attention)
-//   cool  — teal / slate / sage         (analytic, structural)
-//   muted — plum / taupe                (interpretive, neutral)
-// Every color has been checked against the teal-deep canvas background so
-// labels read cleanly without harsh saturation.
-
-const NATURE_COLORS: Record<string, string> = {
-  'Research / R&D':              '#9c7aa1', // dusty plum
-  'Data / Surveillance Systems': '#5d9099', // muted teal
-  'IT / Software':               '#5a7d8a', // slate blue
-  'Communications / Outreach':   '#d2674a', // warm terracotta
-  'Evaluation / Assessment':     '#c0954a', // ochre
-  'Program Support / PMO':       '#90AEAD', // brand sage
-  'Goods / Equipment':           '#a87a52', // clay
-  'Other / Mixed':               '#7d7167', // warm taupe
-};
+// Nature-of-work colors live in @/lib/nature-palette so every viz tab
+// (Clusters, Timeline, future) reads the same source. Local palettes
+// here cover the other two grouping axes — expiry and vendor.
 
 interface ExpiryBucket {
   id:    string;
@@ -110,7 +96,11 @@ function rowToGroupKey(r: Row, groupBy: GroupBy): { id: string; label: string; c
       naics_code:         (r.naics_code        ?? '') as string,
     });
     const order = NATURE_BUCKETS.indexOf(n as typeof NATURE_BUCKETS[number]);
-    return { id: n, label: n, color: NATURE_COLORS[n] ?? '#7a7876', order: order < 0 ? 99 : order };
+    return {
+      id: n, label: n,
+      color: (NATURE_COLORS as Record<string, string>)[n] ?? NATURE_FALLBACK,
+      order: order < 0 ? 99 : order,
+    };
   }
   if (groupBy === 'expiry') {
     const d = Number(r.days_to_contract_end);

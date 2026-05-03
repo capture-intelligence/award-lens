@@ -19,6 +19,7 @@ import * as d3 from 'd3';
 import { Card } from '@/components/ui/Card';
 import { useSetSelectedAward } from '@/lib/ai-award-context';
 import { natureOfWork } from '@/lib/nature-of-work';
+import { NATURE_COLORS, NATURE_FALLBACK } from '@/lib/nature-palette';
 import { useResizeObserver } from './useResizeObserver';
 import { fmtMoney, fmtInt, fmtDate, cn } from '@/lib/utils';
 
@@ -40,18 +41,10 @@ interface PillNode {
   color: string;
 }
 
-// ─── Earthy palette (matches Clusters tab) ──────────────────────────────────
-
-const NATURE_COLORS: Record<string, string> = {
-  'Research / R&D':              '#9c7aa1',
-  'Data / Surveillance Systems': '#5d9099',
-  'IT / Software':               '#5a7d8a',
-  'Communications / Outreach':   '#d2674a',
-  'Evaluation / Assessment':     '#c0954a',
-  'Program Support / PMO':       '#90AEAD',
-  'Goods / Equipment':           '#a87a52',
-  'Other / Mixed':               '#7d7167',
-};
+// ─── Earthy palette ─────────────────────────────────────────────────────────
+// Nature-of-work colors come from the shared @/lib/nature-palette module
+// so Clusters and Timeline always speak the same visual language.
+// Vendor / agency coloring uses the rank-keyed rotation below.
 
 const PALETTE_BY_RANK = [
   '#874F41', '#5d9099', '#90AEAD', '#c0954a',
@@ -132,10 +125,10 @@ function buildNodes(
     const end   = parseDate(r.pop_end_date)!;
     const value = Number(r.current_value ?? 0);
     let group = '';
-    let color = '#7d7167';
+    let color = NATURE_FALLBACK;
     if (colorBy === 'nature') {
       group = natureFor(r);
-      color = NATURE_COLORS[group] ?? '#7d7167';
+      color = (NATURE_COLORS as Record<string, string>)[group] ?? NATURE_FALLBACK;
     } else {
       group = colorBy === 'vendor'
         ? String(r.vendor_name     ?? '(unknown)')
