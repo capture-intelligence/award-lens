@@ -30,10 +30,21 @@ const GENERAL_OVERRIDE = [
   /\b(what (is|are) (a |an |the )?(FAR|DFARS|IDIQ|CPFF|LPTA|BPA|GWAC|MATOC|SAT|MPT)\b)/i,
 ];
 
-// Similarity triggers — only active when context is present
+// Similarity triggers — only active when context is present.
+//
+// The third pattern catches typo-ridden phrasings like
+//   "find more contracts link this one"      ("link" for "like")
+//   "more awards lyke these"                  ("lyke" for "like")
+//   "any more contracts related-wise to this contract"
+// by anchoring on the demonstrative tail ("this one" / "this contract" /
+// "these"), which is the actual signal that the user is asking about the
+// focused award. The demonstrative is restricted to specific nouns
+// ({one,contract,award,deal,opportunity}) so temporal phrases like
+// "more contracts this year" don't false-positive.
 const SIMILAR_PATTERNS = [
   /\b(similar|like this|like these|related to this|more like|find me others|find similar)\b/i,
   /\b(same type|same category|comparable|alternatives to this)\b/i,
+  /\b(more|other|additional)\s+\w+(?:\s+\w+){0,3}\s+(this\s+(?:one|contract|award|deal|opportunity)|these|it)\b/i,
 ];
 
 // "What is this contract about" / "describe this award" / "summarize this"
