@@ -34,9 +34,9 @@ const SECTIONS: NavSection[] = [
   {
     title: 'Operate',
     items: [
-      { to: '#/quality',  label: 'Data Quality', icon: Activity },
-      { to: '#/schedule', label: 'Schedule',     icon: CalendarRange },
-      { to: '#/runs',     label: 'Runs',         icon: History },
+      { to: '#/quality',  label: 'Data Quality', icon: Activity,      adminOnly: true },
+      { to: '#/schedule', label: 'Schedule',     icon: CalendarRange, adminOnly: true },
+      { to: '#/runs',     label: 'Runs',         icon: History,       adminOnly: true },
     ],
   },
   {

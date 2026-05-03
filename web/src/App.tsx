@@ -98,9 +98,11 @@ function RouteView({ route }: { route: string }) {
   // explore everything in one consolidated table.
   if (route === '/' || route === '')                  return <AnalyticsPage />;
   if (route === '/views')                             return <BrowseViewsPage />;
-  if (route === '/quality')                           return <QualityPage />;
-  if (route === '/schedule')                          return <SchedulePage />;
-  if (route === '/runs')                              return <RunsPage />;
+  // Operate-section pages are admin-only — non-admins fall through to 404
+  // if they hit the URL directly.
+  if (route === '/quality'  && isAdmin)               return <QualityPage />;
+  if (route === '/schedule' && isAdmin)               return <SchedulePage />;
+  if (route === '/runs'     && isAdmin)               return <RunsPage />;
   if (route === '/admin/users' && isAdmin)            return <AdminUsersPage />;
   if (route === '/admin/views' && isAdmin)            return <AdminViewsPage />;
   if (route === '/admin/access-requests' && isAdmin)  return <AdminAccessRequestsPage />;
