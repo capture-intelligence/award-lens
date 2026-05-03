@@ -120,11 +120,13 @@ async function findSimilarAwards(
 
   // When the user's agency picker is active we need to over-fetch from
   // Vectorize, because many of the global top-K may be outside the agency
-  // and will get filtered out in SQL. 100 candidates is enough headroom
-  // for any single agency (CDC has thousands of indexed awards).
+  // and will get filtered out in SQL. 99 candidates is the practical
+  // ceiling — Vectorize caps topK at 100 when metadata isn't requested,
+  // and at 50 when it is. We only read `id` off matches (no metadata,
+  // no values), so we stay in the higher-cap path.
   const hasAgencyScope = !!scope?.awarding_agency;
-  const candidateK     = hasAgencyScope ? 100 : topK;
-  const queryOpts: VectorizeQueryOptions = { topK: candidateK + 1, returnMetadata: 'all' };
+  const candidateK     = hasAgencyScope ? 99 : topK;
+  const queryOpts: VectorizeQueryOptions = { topK: candidateK + 1 };
 
   const matches = await vec.query(queryVec, queryOpts);
 
