@@ -463,13 +463,17 @@ app.get('/explore', async (c) => {
     });
   }
 
-  if (scope.kind === 'unscoped') {
-    // Admin browsing the warehouse — top-of-screen agency picker narrows
-    // the scope. The picker defaults to CDC client-side; pass nothing to
-    // get the full warehouse. Optional `center_code` further narrows to
-    // the awards whose lowest-priority funding account belongs to that
-    // center (matches the post-decorate center_code field exactly).
-    const awardingAgency = c.req.query('awarding_agency')?.trim();
+  if (scope.kind === 'unscoped' || scope.kind === 'agency') {
+    // Admin browsing the warehouse, OR a non-admin scoped to a single
+    // agency via the top-bar picker — same SQL either way. Admins may
+    // omit the picker and see the full warehouse; non-admins always have
+    // an agency name in `scope.awarding_agency`. Optional `center_code`
+    // further narrows to awards whose lowest-priority funding account
+    // belongs to that center (matches the post-decorate center_code
+    // field exactly).
+    const awardingAgency = scope.kind === 'agency'
+      ? scope.awarding_agency
+      : c.req.query('awarding_agency')?.trim();
     const centerCode = c.req.query('center_code')?.trim();
     const where: string[] = [];
     const params: unknown[] = [];

@@ -31,6 +31,7 @@ export type ScopeResult =
   | { kind: 'scoped'; view: ViewScope }      // legacy: M2M-tagged
   | { kind: 'filter'; filter: FilterScope }  // new: query-time expansion
   | { kind: 'unscoped' }                     // admin without scope param
+  | { kind: 'agency'; awarding_agency: string } // non-admin via top-bar picker
   | { kind: 'error'; response: Response };
 
 export async function resolveScope<B extends { DB: D1Database }>(
@@ -57,6 +58,15 @@ export async function resolveScope<B extends { DB: D1Database }>(
   }
 
   if (isAdmin) return { kind: 'unscoped' };
+
+  // Non-admin with the top-bar agency picker active: scope to that agency.
+  // This lets approved users browse Analytics without needing a curated
+  // view assigned. Data is public (USAspending), so the only access policy
+  // is "must be logged in and approved" — already enforced upstream.
+  const awardingAgency = c.req.query('awarding_agency')?.trim();
+  if (awardingAgency) {
+    return { kind: 'agency', awarding_agency: awardingAgency };
+  }
 
   return { kind: 'error', response: c.json({ error: 'view_id_or_filter_id_required' }, 400) };
 }
@@ -130,6 +140,12 @@ export function composeAwardQuery(opts: {
       where.push(softWhere);
       params.push(...softParams);
     }
+  } else if (opts.scope.kind === 'agency') {
+    // Non-admin top-bar picker scope. Same join shape as the filter
+    // branch's subtier-strict narrowing — keeps endpoints like
+    // /awards/:id consistent with /explore.
+    sql += ' INNER JOIN organization scope_o ON scope_o.org_id = va.awarding_org_id AND scope_o.canonical_name = ?';
+    params.push(opts.scope.awarding_agency);
   }
 
   if (opts.extraWhere) {
