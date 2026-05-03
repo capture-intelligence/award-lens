@@ -513,21 +513,26 @@ function BubbleCanvas({
         return g;
       });
 
-    // Hover
+    // Hover — tooltip is anchored next to the bubble itself (not the
+    // cursor) and clamped to stay 100% on-screen using its own measured
+    // size. placeTooltip() preferences the right side, falls back to
+    // the left if it would overflow, and clamps vertically inside the
+    // viewport with an 8px safety margin.
     const tip = tooltipRef.current;
     sel
       .on('mouseover', function (_event, d) {
         d3.select(this).select<SVGCircleElement>('circle.body')
           .transition().duration(120).attr('r', (d.r ?? 0) * 1.08).attr('fill-opacity', 0.95);
         if (!tip) return;
-        tip.classList.add('visible');
         tip.innerHTML = tooltipHtml(d, mode, groupBy);
+        placeTooltip(tip, (this as SVGGElement).getBoundingClientRect());
+        tip.classList.add('visible');
       })
-      .on('mousemove', function (event) {
+      .on('mousemove', function () {
         if (!tip) return;
-        const e = event as MouseEvent;
-        tip.style.left = `${Math.min(e.clientX + 14, window.innerWidth - 260)}px`;
-        tip.style.top  = `${Math.min(e.clientY - 8,  window.innerHeight - 140)}px`;
+        // Re-anchor while moving so the tooltip tracks small jitter
+        // without detaching from the bubble.
+        placeTooltip(tip, (this as SVGGElement).getBoundingClientRect());
       })
       .on('mouseout', function (_event, d) {
         d3.select(this).select<SVGCircleElement>('circle.body')
@@ -593,6 +598,34 @@ function labelFor(d: BubbleNode, mode: Mode): string {
     return d.count != null ? `${d.label} · ${d.count}` : d.label;
   }
   return d.label;
+}
+
+// Anchor a tooltip element next to a node's bounding rect, preferring the
+// right side and falling back to the left if right would overflow. Final
+// position is clamped to a viewport-safe inset on every edge so the
+// tooltip is always 100% on-screen regardless of node position.
+function placeTooltip(tip: HTMLElement, anchor: DOMRect): void {
+  const GAP    = 10;
+  const EDGE   = 8;
+  const tipW   = tip.offsetWidth;
+  const tipH   = tip.offsetHeight;
+  const vw     = window.innerWidth;
+  const vh     = window.innerHeight;
+
+  // Horizontal: right of anchor, else left, else clamp to edge.
+  let x = anchor.right + GAP;
+  if (x + tipW > vw - EDGE) {
+    x = anchor.left - GAP - tipW;
+    if (x < EDGE) x = Math.max(EDGE, vw - tipW - EDGE);
+  }
+
+  // Vertical: center on anchor, then clamp top + bottom.
+  let y = anchor.top + anchor.height / 2 - tipH / 2;
+  if (y < EDGE)               y = EDGE;
+  if (y + tipH > vh - EDGE)   y = vh - tipH - EDGE;
+
+  tip.style.left = `${x}px`;
+  tip.style.top  = `${y}px`;
 }
 
 function groupByAxisLabel(g: GroupBy): string {

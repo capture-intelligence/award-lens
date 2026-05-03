@@ -303,9 +303,11 @@ function SegControl<T extends string | number>({
 
 // ─── D3 canvas ──────────────────────────────────────────────────────────────
 
-const MARGIN = { top: 18, right: 32, bottom: 38, left: 230 };
+const MARGIN = { top: 18, right: 32, bottom: 38, left: 210 };
+const LABEL_PAD_L = 8;     // left inset where Y labels begin
 const MIN_PILL_H = 10;
 const MAX_PILL_H = 40;
+const LABEL_MAX_CHARS = 32; // truncated from the right with ellipsis
 
 function TimelineCanvas({
   nodes, onPillClick,
@@ -350,8 +352,9 @@ function TimelineCanvas({
       .range([MIN_PILL_H, heightCap])
       .clamp(true);
 
-    // ── Layers ────────────────────────────────────────────────────────────
+    // ── Layers (back to front) ────────────────────────────────────────────
     const gridLayer  = svg.append('g').attr('class', 'grid');
+    const todayLayer = svg.append('g').attr('class', 'today');
     const pillLayer  = svg.append('g').attr('class', 'pills');
     const xAxisLayer = svg.append('g').attr('class', 'x-axis');
     const yAxisLayer = svg.append('g').attr('class', 'y-axis');
@@ -365,6 +368,28 @@ function TimelineCanvas({
       .attr('y1', MARGIN.top).attr('y2', H - MARGIN.bottom)
       .attr('stroke', '#90AEAD').attr('stroke-opacity', 0.10)
       .attr('stroke-dasharray', '3 4');
+
+    // ── "Today" marker — narrow vermilion line + small label at the top.
+    // Sits behind the pills (so a pill that crosses today is undisturbed)
+    // but in front of the gridlines so the date is easy to find.
+    const today   = new Date();
+    const todayX  = xScale(today);
+    const inRange = todayX >= MARGIN.left && todayX <= W - MARGIN.right;
+    if (inRange) {
+      todayLayer.append('line')
+        .attr('x1', todayX).attr('x2', todayX)
+        .attr('y1', MARGIN.top - 2).attr('y2', H - MARGIN.bottom)
+        .attr('stroke', '#E64833')
+        .attr('stroke-width', 1.25)
+        .attr('opacity', 0.7);
+      todayLayer.append('text')
+        .attr('x', todayX).attr('y', MARGIN.top - 6)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 9).attr('font-weight', 800)
+        .attr('letter-spacing', '0.18em')
+        .attr('fill', '#E64833').attr('fill-opacity', 0.92)
+        .text('TODAY');
+    }
 
     // Horizontal row separators — extremely subtle so they read as scaffolding
     yAxisLayer.selectAll('line.row-rule')
@@ -394,18 +419,22 @@ function TimelineCanvas({
       .attr('letter-spacing', '0.06em');
 
     // ── Y axis (left): truncated award descriptions ───────────────────────
+    // text-anchor='start' anchors at the left inset so the text grows
+    // rightward and never overflows past the SVG edge. Smaller font +
+    // tighter tracking lets us fit more characters before truncation.
     yAxisLayer.selectAll('text.row-label')
       .data(nodes)
       .join('text')
       .attr('class', 'row-label')
-      .attr('x', MARGIN.left - 12)
+      .attr('x', LABEL_PAD_L)
       .attr('y', (n) => yScale(n.id)! + bandwidth / 2)
       .attr('dominant-baseline', 'middle')
-      .attr('text-anchor', 'end')
-      .attr('font-size', 11)
+      .attr('text-anchor', 'start')
+      .attr('font-size', 9.5)
       .attr('font-weight', 600)
-      .attr('fill', '#FBE9D0').attr('fill-opacity', 0.78)
-      .text((n) => truncate(n.name, 32));
+      .attr('letter-spacing', '0.01em')
+      .attr('fill', '#FBE9D0').attr('fill-opacity', 0.82)
+      .text((n) => truncate(n.name, LABEL_MAX_CHARS));
 
     // ── Pills ─────────────────────────────────────────────────────────────
     const tip = tooltipRef.current;
@@ -434,14 +463,15 @@ function TimelineCanvas({
       .on('mouseover', function (_event, d) {
         d3.select(this).transition().duration(120).attr('fill-opacity', 1);
         if (!tip) return;
-        tip.classList.add('visible');
         tip.innerHTML = tooltipHtml(d);
+        placeTooltip(tip, (this as SVGRectElement).getBoundingClientRect());
+        tip.classList.add('visible');
       })
-      .on('mousemove', function (event) {
+      .on('mousemove', function () {
         if (!tip) return;
-        const e = event as MouseEvent;
-        tip.style.left = `${Math.min(e.clientX + 14, window.innerWidth - 280)}px`;
-        tip.style.top  = `${Math.min(e.clientY - 8,  window.innerHeight - 160)}px`;
+        // Re-anchor on every move so the tooltip stays glued to the pill
+        // even if the cursor strays toward the pill's edge.
+        placeTooltip(tip, (this as SVGRectElement).getBoundingClientRect());
       })
       .on('mouseout', function () {
         d3.select(this).transition().duration(160).attr('fill-opacity', 0.86);
@@ -467,6 +497,31 @@ function TimelineCanvas({
 function truncate(s: string, n: number): string {
   if (s.length <= n) return s;
   return s.slice(0, n - 1).trimEnd() + '…';
+}
+
+// Anchor a tooltip element next to a node's bounding rect, preferring the
+// right side and falling back to the left if right would overflow. Final
+// position is clamped to a viewport-safe inset on every edge so the
+// tooltip is always 100% on-screen regardless of node position.
+function placeTooltip(tip: HTMLElement, anchor: DOMRect): void {
+  const GAP  = 10;
+  const EDGE = 8;
+  const tipW = tip.offsetWidth;
+  const tipH = tip.offsetHeight;
+  const vw   = window.innerWidth;
+  const vh   = window.innerHeight;
+
+  let x = anchor.right + GAP;
+  if (x + tipW > vw - EDGE) {
+    x = anchor.left - GAP - tipW;
+    if (x < EDGE) x = Math.max(EDGE, vw - tipW - EDGE);
+  }
+  let y = anchor.top + anchor.height / 2 - tipH / 2;
+  if (y < EDGE)             y = EDGE;
+  if (y + tipH > vh - EDGE) y = vh - tipH - EDGE;
+
+  tip.style.left = `${x}px`;
+  tip.style.top  = `${y}px`;
 }
 
 function tooltipHtml(n: PillNode): string {
