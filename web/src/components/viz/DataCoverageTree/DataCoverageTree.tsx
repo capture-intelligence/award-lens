@@ -29,6 +29,17 @@ function lighten(color: string, shades: number): string {
   return c.formatHex();
 }
 
+/** Blend a hex/rgb colour toward black. Companion to lighten(); used to
+ *  signal "collapsed" state (more density behind a + indicator). */
+function darken(color: string, shades: number): string {
+  const c = d3.rgb(color);
+  const t = Math.min(1, Math.max(0, shades) * 0.10);
+  c.r = c.r * (1 - t);
+  c.g = c.g * (1 - t);
+  c.b = c.b * (1 - t);
+  return c.formatHex();
+}
+
 export default function DataCoverageTree({
   data,
   width,
@@ -293,11 +304,21 @@ export default function DataCoverageTree({
 
         // Body — same colour as the link overlay, same stroke width,
         // so the visual reads as a single continuous line of color
-        // that resolves at the node's outline.
+        // that resolves at the node's outline. The fill picks up a
+        // state hint:
+        //   collapsed (will show +)  → DARKER  (suggests "density
+        //                                       hidden behind me")
+        //   expanded  (will show −)  → LIGHTER (suggests "I've
+        //                                       already opened up")
+        //   leaf                     → intrinsic colour, untouched
+        const stateFill =
+          d._children ? darken(fillColor, 2) :
+          d.children  ? lighten(fillColor, 2) :
+          fillColor;
         nodeGroup
           .append('circle')
           .attr('r', nodeRadius)
-          .attr('fill', fillColor)
+          .attr('fill', stateFill)
           .attr('stroke', strokeForData(d.data))
           .attr('stroke-width', linkOverlayWidth)
           .style('cursor', cursor)
