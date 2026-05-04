@@ -215,6 +215,13 @@ export async function handleAskV2(
     query?:   string;
     context?: AwardContext;
     scope?:   ChatScope;
+    /** Last N user/assistant pairs (frontend sends 3). Summary text
+     *  only — never raw row data. Worker uses this for two things:
+     *  (1) entity resolution over the conversation window, so
+     *  follow-ups like "show me the details" inherit the entities
+     *  resolved in the prior turn; (2) M1/M3 conversation context so
+     *  pronouns and bare references resolve. */
+    history?: Array<{ role: 'user' | 'assistant'; text: string }>;
   } | null;
 
   const question = String(body?.query ?? '').trim();
@@ -224,6 +231,15 @@ export async function handleAskV2(
 
   const ctx             = body?.context ?? null;
   const scope           = body?.scope   ?? null;
+  const history         = body?.history ?? [];
+  // Combine the current question + recent user turns into one corpus
+  // for entity resolution. "Show me the details" inherits "RTI" from
+  // the prior turn; "what about Lantana?" finds Lantana in the current
+  // turn but keeps NCHHSTP from earlier.
+  const entityCorpus = [
+    question,
+    ...history.filter((t) => t.role === 'user').map((t) => t.text),
+  ].join(' \n ');
   const db              = c.env.DB;
   const ai              = c.env.AI;
   const vec             = c.env.VEC;
@@ -266,7 +282,7 @@ export async function handleAskV2(
       // Entity resolution — pull canonical names for any acronyms or
       // capitalized fragments the user typed (RTI, BAH, NCHHSTP, …).
       // Cheap D1 lookup against the precomputed entity_alias table.
-      const entities = await resolveEntities(db, question).catch(() => []);
+      const entities = await resolveEntities(db, entityCorpus).catch(() => []);
 
       // Try the deterministic template first. When the question
       // matches a well-defined shape (count/list + entities + optional
@@ -358,7 +374,7 @@ export async function handleAskV2(
     // every NCHHSTP contract instead of just RTI's). Skipped for the
     // template path (filters are already correct by construction).
     if (sqlSource === 'm1') {
-      const enforced = await resolveEntities(db, question)
+      const enforced = await resolveEntities(db, entityCorpus)
         .catch(() => [] as Awaited<ReturnType<typeof resolveEntities>>);
       if (enforced.length > 0) {
         const { sql: nextSql, injected } = enforceResolvedEntities(sql, enforced);
@@ -444,7 +460,7 @@ export async function handleAskV2(
 
   // ── general path: M3 (Anthropic, falls back to Workers AI) ────────────────
   try {
-    const m3 = await callM3(question, anthropicKey, ctx);
+    const m3 = await callM3(question, anthropicKey, ctx, history);
     auditIds.push(await recordAudit(db, {
       userId, questionHash: qHash, intent, model: 'M3', modelId: M3_MODEL_ID,
       promptTokens: m3.promptTokens, outputTokens: m3.outputTokens,
@@ -454,20 +470,31 @@ export async function handleAskV2(
   } catch (m3Err) {
     try {
       const t0 = Date.now();
-      // Mirror the M3 context behavior on the fallback so questions like
-      // "what is this contract about" still get an award-aware answer
-      // when Anthropic is down or rate-limited.
-      const fbUserMsg = ctx
-        ? [
+      // Mirror the M3 context + history behavior on the fallback so
+      // follow-up questions still resolve correctly when Anthropic is
+      // down or rate-limited.
+      const fbBlocks: string[] = [];
+      if (ctx) {
+        fbBlocks.push(
+          [
             'FOCUSED AWARD:',
             ctx.description     ? `Description: ${ctx.description}`         : '',
             ctx.naics_code      ? `NAICS code: ${ctx.naics_code}`           : '',
             ctx.psc_code        ? `PSC code: ${ctx.psc_code}`               : '',
             ctx.psc_description ? `PSC description: ${ctx.psc_description}` : '',
-            '',
-            `Question: ${question}`,
-          ].filter(Boolean).join('\n')
-        : question;
+          ].filter(Boolean).join('\n'),
+        );
+      }
+      if (history.length > 0) {
+        fbBlocks.push(
+          [
+            'CONVERSATION HISTORY (oldest first):',
+            ...history.map((t) => `${t.role === 'user' ? 'User' : 'You'}: ${t.text}`),
+          ].join('\n'),
+        );
+      }
+      fbBlocks.push(`Question: ${question}`);
+      const fbUserMsg = fbBlocks.join('\n\n');
       const fbResp = await ai.run('@cf/meta/llama-3.1-8b-instruct', {
         messages: [
           { role: 'system', content: 'You are a helpful assistant for federal procurement questions. When a FOCUSED AWARD block is present, the metadata is from public USAspending.gov records — discuss it freely. Be concise and cite regulation numbers when relevant.' },

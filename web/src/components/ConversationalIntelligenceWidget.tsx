@@ -89,6 +89,26 @@ export function ConversationalIntelligenceWidget() {
     setDraft('');
     setBusy(true);
 
+    // Build a lightweight conversation history — last 3 user/assistant
+    // pairs, summary text only (never raw row data). Lets the worker
+    // resolve "show me the details" / "what about Lantana?" follow-ups
+    // by pulling entities out of the window of recent questions and
+    // gives M1/M3 the conversational context for their generation.
+    const HISTORY_TURNS = 3;
+    const historyTurns: Array<{ role: 'user' | 'assistant'; text: string }> = [];
+    for (let i = messages.length - 1; i >= 0 && historyTurns.length < HISTORY_TURNS * 2; i--) {
+      const m = messages[i];
+      if (m.role === 'user') {
+        historyTurns.unshift({ role: 'user', text: m.text });
+      } else if (m.role === 'assistant' && m.status === 'ok') {
+        const r = m.response;
+        const text = r.intent === 'general'
+          ? (r.answer ?? '').slice(0, 280)
+          : (r.summary ?? `[${r.intent}: ${r.count ?? r.rows?.length ?? 0} result(s)]`).slice(0, 280);
+        historyTurns.unshift({ role: 'assistant', text });
+      }
+    }
+
     try {
       const res = await api.post<AskResponse>('/ai/v2/ask', {
         query,
@@ -96,6 +116,7 @@ export function ConversationalIntelligenceWidget() {
         // Send the active agency scope so similar_awards search stays
         // within the same agency the user is browsing.
         ...(scopeSnapshot ? { scope:   scopeSnapshot } : {}),
+        ...(historyTurns.length > 0 ? { history: historyTurns } : {}),
       });
       setMessages((m) =>
         m.map((msg) =>

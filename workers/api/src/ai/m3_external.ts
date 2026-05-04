@@ -169,16 +169,31 @@ export async function polishSqlWithClaude(
   return result;
 }
 
+function formatHistory(
+  history?: ReadonlyArray<{ role: 'user' | 'assistant'; text: string }>,
+): string {
+  if (!history || history.length === 0) return '';
+  const lines = ['CONVERSATION HISTORY (oldest first):'];
+  for (const t of history) {
+    lines.push(`${t.role === 'user' ? 'User' : 'You'}: ${t.text}`);
+  }
+  return lines.join('\n');
+}
+
 export async function callM3(
   question: string,
   apiKey: string,
   awardContext?: AwardContext | null,
+  history?: ReadonlyArray<{ role: 'user' | 'assistant'; text: string }>,
 ): Promise<M3Result> {
   const t0 = Date.now();
 
-  const userMsg = awardContext
-    ? `${formatContext(awardContext)}\n\nQuestion: ${question}`
-    : question;
+  const blocks: string[] = [];
+  if (awardContext) blocks.push(formatContext(awardContext));
+  const histBlock = formatHistory(history);
+  if (histBlock) blocks.push(histBlock);
+  blocks.push(`Question: ${question}`);
+  const userMsg = blocks.join('\n\n');
 
   const resp = await fetch(ANTHROPIC_ENDPOINT, {
     method: 'POST',

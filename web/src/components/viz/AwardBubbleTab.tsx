@@ -474,16 +474,19 @@ function BubbleCanvas({
           .attr('r', (d) => (d.r ?? 0) + 6)
           .attr('fill', (d) => d.color)
           .attr('opacity', 0.14);
-        // Body — full saturation, crisper stroke (the cream backdrop
-        // washes out subtle outlines, so we lean into the line).
+        // Body — solid fill on the cream canvas, no translucency. Lower
+        // opacity caused mid-tone bubbles to lose contrast with their
+        // own labels because the cream leaked through and lightened
+        // the effective color. Stroke darker than fill (mix toward
+        // teal-deep) for a deliberate "printed plate" edge.
         g.append('circle')
           .attr('class', 'body')
           .attr('r', (d) => d.r ?? 0)
           .attr('fill', (d) => d.color)
-          .attr('fill-opacity', 0.90)
+          .attr('fill-opacity', 1)
           .attr('stroke', (d) => d.color)
-          .attr('stroke-width', 1.5)
-          .attr('stroke-opacity', 0.65);
+          .attr('stroke-width', 1.25)
+          .attr('stroke-opacity', 0.85);
         // Label — color picked per bubble so dark bubbles get cream
         // text and pale bubbles get deep teal text. WCAG-style luminance
         // pivot at 0.55 keeps both ends readable.
@@ -599,15 +602,42 @@ function labelFor(d: BubbleNode, mode: Mode): string {
   return d.label;
 }
 
-// Pick "ink" color for a label drawn on top of a colored fill. Uses a
-// simple sRGB luminance — anything brighter than 0.55 gets deep teal
-// text (so it reads as ink on a pale chip), anything darker gets cream.
+// Pick "ink" color for a label drawn on top of a colored fill — actual
+// WCAG contrast comparison against the two candidates (deep teal /
+// cream), pick whichever wins. The simpler "luminance pivot at 0.55"
+// version misjudged mid-tone earthy colors (stone, umber, moss) where
+// the perceived contrast against cream is poor even though the bubble
+// looks "dark enough"; the WCAG ratio captures that correctly.
+const TEAL_LUM  = relativeLuminance('#1a3540');
+const CREAM_LUM = relativeLuminance('#fffdf9');
+
+function relativeLuminance(hex: string): number {
+  const rgb = [
+    parseInt(hex.slice(1, 3), 16) / 255,
+    parseInt(hex.slice(3, 5), 16) / 255,
+    parseInt(hex.slice(5, 7), 16) / 255,
+  ];
+  const lin = rgb.map((c) =>
+    c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4),
+  );
+  return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
+}
+
+function contrastRatio(a: number, b: number): number {
+  const lighter = Math.max(a, b);
+  const darker  = Math.min(a, b);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
 function labelInkFor(hex: string): string {
-  const r = parseInt(hex.slice(1, 3), 16) / 255;
-  const g = parseInt(hex.slice(3, 5), 16) / 255;
-  const b = parseInt(hex.slice(5, 7), 16) / 255;
-  const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-  return lum > 0.55 ? '#1a3540' : '#fffdf9';
+  const lum = relativeLuminance(hex);
+  const tealContrast  = contrastRatio(lum, TEAL_LUM);
+  const creamContrast = contrastRatio(lum, CREAM_LUM);
+  // Tie-breaker bias toward dark text — at borderline contrast our
+  // earthy mid-tones read better with deep teal "ink" than with cream
+  // "paper" because of how the cream canvas leaks through translucent
+  // edges. ×1.05 nudges decisions toward dark teal at parity.
+  return tealContrast * 1.05 >= creamContrast ? '#1a3540' : '#fffdf9';
 }
 
 // Place a tooltip near the cursor, clamped to a viewport-safe inset on
