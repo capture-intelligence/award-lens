@@ -128,6 +128,7 @@ function Body({ award }: { award: Record<string, unknown> }) {
       items: [
         { label: 'Agency',     value: award.awarding_agency },
         { label: 'Department', value: award.awarding_department },
+        { label: 'Center',     value: centerLabel(award) },
       ],
     },
     {
@@ -284,6 +285,14 @@ function formatItem(item: Section['items'][number]): string {
 function locString(a: Record<string, unknown>): string | null {
   const parts = [a.vendor_city, a.vendor_state, a.vendor_country].filter(Boolean) as string[];
   return parts.length > 0 ? parts.join(', ') : null;
+}
+
+function centerLabel(a: Record<string, unknown>): string | null {
+  const name = String(a.center_name ?? '').trim();
+  const code = String(a.center_code ?? '').trim();
+  if (!name && !code) return null;
+  if (name && code && code !== name) return `${name} (${code})`;
+  return name || code;
 }
 
 function daysLabel(d: unknown): string | null {
