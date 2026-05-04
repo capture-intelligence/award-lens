@@ -62,7 +62,33 @@ QUESTION-SHAPE → QUERY-SHAPE:
 - "List X" / "Show me X" / "Top N X" — return SELECT rows with ORDER BY and
   LIMIT (default 50), not aggregates.
 - "Total value of X" / "Sum of X" — return SUM(current_value) (genuine
-  aggregate question).`;
+  aggregate question).
+
+CDC CENTER FILTERS — center codes (NCHHSTP, NCEZID, NIOSH, NCBDDD, NCIRD,
+NCCDPHP, NCHS, NCEH, CSELS, ATSDR, …) are NOT organization rows. They live
+in the cdc_center mapping table joined via award_federal_account. To filter
+to a center, use:
+  AND a.award_id IN (
+    SELECT a2.award_id FROM award a2
+    JOIN  cdc_center_override cco ON cco.award_piid = a2.award_piid
+    WHERE cco.center_code = '<CODE>'
+    UNION
+    SELECT award_id FROM (
+      SELECT afa.award_id, cc.center_code,
+             ROW_NUMBER() OVER (PARTITION BY afa.award_id ORDER BY cc.priority ASC) AS rn
+      FROM award_federal_account afa
+      JOIN cdc_center cc ON cc.federal_account_code = afa.federal_account_code
+    ) WHERE rn = 1 AND center_code = '<CODE>'
+  )
+NEVER filter centers via organization.canonical_name LIKE — center codes
+do not appear there.
+
+ACTIVE CONTRACT semantics:
+- "Active" / "current" / "in-progress" → WHERE a.pop_end_date >= date('now')
+  AND (a.pop_start_date IS NULL OR a.pop_start_date <= date('now'))
+- NEVER use a.pop_end_date IS NULL for "active" — NULL means the date wasn't
+  recorded, not that the contract is active.
+- "Expired" → WHERE a.pop_end_date < date('now')`;
 
 export const M1_MODEL_ID = 'algocrat/awards-sql-lora';
 
@@ -96,13 +122,63 @@ export interface M1Result {
   durationMs: number;
 }
 
+/**
+ * Optional context M1 can use to ground its SQL:
+ *   - scope:    the user's top-bar agency / center picker (their default
+ *               filter unless they explicitly override in the question)
+ *   - entities: pre-resolved name → canonical lookups from entity_alias
+ *               (e.g. user typed "RTI" → canonical "RESEARCH TRIANGLE
+ *               INSTITUTE", vendor_id=…)
+ */
+export interface M1Context {
+  scope?:    { awarding_agency?: string; center_code?: string } | null;
+  entities?: Array<{
+    alias:          string;
+    entity_kind:    'vendor' | 'organization' | 'center';
+    canonical_id:   string | null;
+    canonical_name: string;
+  }> | null;
+}
+
+function buildUserMessage(question: string, ctx: M1Context | null | undefined): string {
+  if (!ctx) return question;
+  const lines: string[] = [];
+  if (ctx.scope?.awarding_agency || ctx.scope?.center_code) {
+    lines.push('USER SCOPE (the top-bar picker — apply unless the question explicitly contradicts it):');
+    if (ctx.scope.awarding_agency) {
+      lines.push(`  agency: organization.canonical_name LIKE '%${ctx.scope.awarding_agency.replace(/'/g, "''")}%'`);
+    }
+    if (ctx.scope.center_code) {
+      lines.push(`  center: ${ctx.scope.center_code}  (use the cdc_center join pattern from the system rules)`);
+    }
+    lines.push('');
+  }
+  if (ctx.entities && ctx.entities.length > 0) {
+    lines.push('RESOLVED ENTITIES (use these canonical values, not the user-typed alias):');
+    for (const e of ctx.entities) {
+      if (e.entity_kind === 'vendor') {
+        lines.push(`  "${e.alias}" → vendor: legal_name="${e.canonical_name}" (vendor_id='${e.canonical_id}'). Prefer  v.vendor_id = '${e.canonical_id}'  or  v.legal_name LIKE '%${e.canonical_name.replace(/'/g, "''").split(' ')[0]}%'`);
+      } else if (e.entity_kind === 'organization') {
+        lines.push(`  "${e.alias}" → organization: canonical_name="${e.canonical_name}" (org_id='${e.canonical_id}'). Prefer  o.org_id = '${e.canonical_id}'  or  o.canonical_name LIKE '%${e.canonical_name.replace(/'/g, "''").split(' ')[0]}%'`);
+      } else {
+        lines.push(`  "${e.alias}" → CDC center: code="${e.canonical_id}" (name="${e.canonical_name}"). Apply via the cdc_center join pattern in the system rules with center_code='${e.canonical_id}'.`);
+      }
+    }
+    lines.push('');
+  }
+  lines.push(`USER QUESTION: ${question}`);
+  return lines.join('\n');
+}
+
 export async function callM1(
   question: string,
   ai: Ai,
   modalApiKey?: string,
   modalEndpoint?: string,
+  context?: M1Context | null,
 ): Promise<M1Result> {
   const t0 = Date.now();
+  const userMessage = buildUserMessage(question, context);
   let raw: string;
 
   if (modalApiKey && modalEndpoint) {
@@ -120,7 +196,7 @@ export async function callM1(
             api_key: modalApiKey,
             messages: [
               { role: 'system', content: SYSTEM },
-              { role: 'user',   content: question },
+              { role: 'user',   content: userMessage },
             ],
             max_tokens: 400,
             temperature: 0.0,
@@ -139,7 +215,7 @@ export async function callM1(
       const resp = await ai.run('@cf/meta/llama-3.1-8b-instruct', {
         messages: [
           { role: 'system', content: SYSTEM },
-          { role: 'user',   content: question },
+          { role: 'user',   content: userMessage },
         ],
         max_tokens: 400,
       } as Parameters<typeof ai.run>[1]);
@@ -150,7 +226,7 @@ export async function callM1(
     const resp = await ai.run('@cf/meta/llama-3.1-8b-instruct', {
       messages: [
         { role: 'system', content: SYSTEM },
-        { role: 'user',   content: question },
+        { role: 'user',   content: userMessage },
       ],
       max_tokens: 400,
     } as Parameters<typeof ai.run>[1]);

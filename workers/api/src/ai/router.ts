@@ -18,6 +18,7 @@ import type { Intent, AskResponse, AwardContext } from './types.js';
 import { callM1, M1_MODEL_ID } from './m1_sql.js';
 import { callM2, M2_MODEL_ID } from './m2_local.js';
 import { callM3, M3_MODEL_ID, polishSqlWithClaude } from './m3_external.js';
+import { resolveEntities } from './aliases.js';
 import { recordAudit, hashQuestion } from './audit.js';
 
 const EMBED_MODEL = '@cf/baai/bge-base-en-v1.5';
@@ -247,7 +248,14 @@ export async function handleAskV2(
   if (intent === 'sql_query') {
     let sql: string;
     try {
-      const m1 = await callM1(question, ai, modalApiKey, modalEndpoint);
+      // Entity resolution — pull canonical names for any acronyms or
+      // capitalized fragments the user typed (RTI, BAH, NCHHSTP, …).
+      // Cheap D1 lookup against the precomputed entity_alias table.
+      const entities = await resolveEntities(db, question).catch(() => []);
+      const m1 = await callM1(question, ai, modalApiKey, modalEndpoint, {
+        scope,
+        entities,
+      });
       sql = m1.sql;
       auditIds.push(await recordAudit(db, {
         userId, questionHash: qHash, intent, model: 'M1', modelId: M1_MODEL_ID,

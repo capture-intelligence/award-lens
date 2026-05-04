@@ -27,6 +27,7 @@ import { resolveScope, composeAwardQuery } from './views/scope.js';
 import { handleAskV2 }  from './ai/router.js';
 import { handleReindex } from './ai/reindex.js';
 import { handleReportInaccuracy } from './ai/report.js';
+import { handleBuildAliases } from './ai/aliases.js';
 
 export interface Env extends AuthEnv {
   DB: D1Database;
@@ -221,6 +222,7 @@ Respond with JSON only. Include only the fields the query mentions. Format:
 app.post('/ai/v2/ask',           async (c) => handleAskV2(c));
 app.post('/ai/reindex-awards',   async (c) => handleReindex(c));
 app.post('/ai/report-inaccuracy', async (c) => handleReportInaccuracy(c));
+app.post('/ai/build-aliases',     async (c) => handleBuildAliases(c));
 
 // Pull the first JSON object out of a string that may have leading/trailing
 // prose. Returns null on parse failure.
