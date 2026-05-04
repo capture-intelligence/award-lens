@@ -113,7 +113,14 @@ Return ONLY a JSON array, one element per input row:
 
 Order doesn't matter. If a row has no useful abbreviation, return an empty aliases array — do not omit the row.`;
 
-/** Send one batch of names to Claude; return parsed alias list. */
+/** Send one batch of names to Claude; return parsed alias list.
+ *
+ * Claude occasionally wraps the array in an object like
+ * { results: [...] } / { aliases: [...] }, or prefixes with prose. We
+ * defensively unwrap and slice the first/last brackets so all reasonable
+ * shapes parse. Throws with a snippet of the raw text if even that fails,
+ * so the caller can capture the diagnostic.
+ */
 async function aliasBatch(
   apiKey: string,
   prompt: string,
@@ -137,10 +144,42 @@ async function aliasBatch(
   }
   const data = await resp.json() as { content: { type: string; text: string }[] };
   const text = data.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
-  // Strip markdown fences if Claude added them.
+
+  // Strip markdown fences first.
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const json   = (fenced ? fenced[1] : text).trim();
-  return JSON.parse(json) as Array<{ id: string; aliases: string[] }>;
+  let candidate = (fenced ? fenced[1] : text).trim();
+
+  // If Claude prefixed prose ("Here are the aliases:") then a JSON
+  // array, slice from the first `[` to the matching last `]`.
+  if (!candidate.startsWith('[') && !candidate.startsWith('{')) {
+    const firstBracket = candidate.indexOf('[');
+    const lastBracket  = candidate.lastIndexOf(']');
+    if (firstBracket >= 0 && lastBracket > firstBracket) {
+      candidate = candidate.slice(firstBracket, lastBracket + 1);
+    }
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(candidate);
+  } catch {
+    throw new Error(`unparseable JSON: ${text.slice(0, 240)}`);
+  }
+
+  // Accept either a bare array OR an object whose first array-valued
+  // property is the result list (Claude sometimes wraps as
+  // { results: [...] }, { aliases: [...] }, or { entities: [...] }).
+  if (Array.isArray(parsed)) {
+    return parsed as Array<{ id: string; aliases: string[] }>;
+  }
+  if (parsed && typeof parsed === 'object') {
+    for (const v of Object.values(parsed as Record<string, unknown>)) {
+      if (Array.isArray(v)) {
+        return v as Array<{ id: string; aliases: string[] }>;
+      }
+    }
+  }
+  throw new Error(`expected JSON array, got: ${text.slice(0, 240)}`);
 }
 
 function chunk<T>(xs: T[], size: number): T[][] {
@@ -190,10 +229,10 @@ export async function handleBuildAliases(
   if (!apiKey) return c.json({ error: 'anthropic_api_key_missing' }, 503);
 
   const db = c.env.DB;
-  const summary: Record<string, { entities: number; aliases_inserted: number }> = {
-    vendor: { entities: 0, aliases_inserted: 0 },
-    organization: { entities: 0, aliases_inserted: 0 },
-    center: { entities: 0, aliases_inserted: 0 },
+  const summary: Record<string, { entities: number; aliases_inserted: number; errors: string[] }> = {
+    vendor:       { entities: 0, aliases_inserted: 0, errors: [] },
+    organization: { entities: 0, aliases_inserted: 0, errors: [] },
+    center:       { entities: 0, aliases_inserted: 0, errors: [] },
   };
 
   // Limit vendors to the most-active (by award count) so we don't pay
@@ -224,7 +263,7 @@ export async function handleBuildAliases(
       }));
       summary.vendor.aliases_inserted += await persistAliases(db, 'vendor', persistRows);
     } catch (err) {
-      console.error('alias batch (vendor) failed:', err);
+      summary.vendor.errors.push(String(err).slice(0, 240));
     }
   }
 
@@ -261,7 +300,7 @@ export async function handleBuildAliases(
       }));
       summary.organization.aliases_inserted += await persistAliases(db, 'organization', persistRows);
     } catch (err) {
-      console.error('alias batch (organization) failed:', err);
+      summary.organization.errors.push(String(err).slice(0, 240));
     }
   }
 
@@ -295,7 +334,7 @@ export async function handleBuildAliases(
       }));
       summary.center.aliases_inserted += await persistAliases(db, 'center', persistRows);
     } catch (err) {
-      console.error('alias batch (center) failed:', err);
+      summary.center.errors.push(String(err).slice(0, 240));
     }
   }
 
