@@ -21,6 +21,7 @@ import { callM3, M3_MODEL_ID, polishSqlWithClaude, polishSqlWithWorkersAI } from
 import { resolveEntities } from './aliases.js';
 import { splitCountAndRows } from './sql_split.js';
 import { enforceResolvedEntities } from './entity_inject.js';
+import { buildDeterministicSql } from './sql_template.js';
 import { recordAudit, hashQuestion } from './audit.js';
 
 const EMBED_MODEL = '@cf/baai/bge-base-en-v1.5';
@@ -246,34 +247,56 @@ export async function handleAskV2(
     return c.json({ intent, cols, rows, summary, audit_ids: auditIds } satisfies AskResponse);
   }
 
-  // ── sql_query path: M1 → Claude polish → execute → M2 ───────────────────
+  // ── sql_query path: deterministic template → M1 → polish → execute → M2 ─
   if (intent === 'sql_query') {
     let sql: string;
+    let sqlSource: 'template' | 'm1' = 'm1';
     try {
       // Entity resolution — pull canonical names for any acronyms or
       // capitalized fragments the user typed (RTI, BAH, NCHHSTP, …).
       // Cheap D1 lookup against the precomputed entity_alias table.
       const entities = await resolveEntities(db, question).catch(() => []);
-      const m1 = await callM1(question, ai, modalApiKey, modalEndpoint, {
-        scope,
-        entities,
-      });
-      sql = m1.sql;
-      auditIds.push(await recordAudit(db, {
-        userId, questionHash: qHash, intent, model: 'M1', modelId: M1_MODEL_ID,
-        promptTokens: m1.promptTokens, outputTokens: m1.outputTokens,
-        durationMs: m1.durationMs, status: 'success', dataClass: 'INTERNAL',
-      }));
+
+      // Try the deterministic template first. When the question
+      // matches a well-defined shape (count/list + entities + optional
+      // active/expired qualifier), we generate the SQL ourselves —
+      // bypassing M1, polish, and entity injection. Eliminates whole
+      // classes of LoRA-flake bugs (broken cdc_center JOINs, references
+      // to columns that don't exist, dropped vendor filters).
+      const tmpl = buildDeterministicSql(question, entities, scope);
+      if (tmpl) {
+        sql = tmpl.sql;
+        sqlSource = 'template';
+        auditIds.push(await recordAudit(db, {
+          userId, questionHash: qHash, intent, model: 'M1', modelId: M1_MODEL_ID,
+          status: 'success',
+          errorMessage: tmpl.reason.slice(0, 500),
+          dataClass: 'INTERNAL',
+        }));
+      } else {
+        const m1 = await callM1(question, ai, modalApiKey, modalEndpoint, {
+          scope,
+          entities,
+        });
+        sql = m1.sql;
+        auditIds.push(await recordAudit(db, {
+          userId, questionHash: qHash, intent, model: 'M1', modelId: M1_MODEL_ID,
+          promptTokens: m1.promptTokens, outputTokens: m1.outputTokens,
+          durationMs: m1.durationMs, status: 'success', dataClass: 'INTERNAL',
+        }));
+      }
 
       // SQL polish — catches the wildcard / name-equality mistakes the
       // M1 LoRA still slips on. Tries Claude first, then falls back to
       // Workers AI Llama if Claude is rate-limited / 5xx / unreachable.
       // Original M1 SQL is preserved if BOTH fail. ~0.6-1.5s warm.
+      // Skipped entirely when sqlSource === 'template' — that path is
+      // already deterministic and doesn't need cleanup.
       let polished: { sql: string; changed: boolean; promptTokens: number; outputTokens: number; durationMs: number } | null = null;
       let polishProvider: 'claude' | 'workers-ai' | null = null;
       let polishErrSummary = '';
 
-      if (anthropicKey) {
+      if (sqlSource === 'm1' && anthropicKey) {
         try {
           polished = await polishSqlWithClaude(sql, question, anthropicKey);
           polishProvider = 'claude';
@@ -282,7 +305,7 @@ export async function handleAskV2(
         }
       }
 
-      if (!polished) {
+      if (sqlSource === 'm1' && !polished) {
         try {
           polished = await polishSqlWithWorkersAI(sql, question, ai);
           polishProvider = 'workers-ai';
@@ -321,23 +344,22 @@ export async function handleAskV2(
     // Deterministic entity-filter enforcement. M1 (and the polish pass)
     // sometimes drop the resolved vendor filter — the result is a count
     // that ignores the vendor entirely (e.g. "RTI in NCHHSTP" returning
-    // every NCHHSTP contract instead of just RTI's). For each resolved
-    // entity, if its corresponding filter clause isn't already in the
-    // SQL, we splice it in before LIMIT/ORDER BY/GROUP BY. Audit row
-    // records which filters were force-injected so misbehavior is
-    // observable.
-    const enforced = await resolveEntities(db, question)
-      .catch(() => [] as Awaited<ReturnType<typeof resolveEntities>>);
-    if (enforced.length > 0) {
-      const { sql: nextSql, injected } = enforceResolvedEntities(sql, enforced);
-      if (injected.length > 0) {
-        sql = nextSql;
-        auditIds.push(await recordAudit(db, {
-          userId, questionHash: qHash, intent, model: 'M1', modelId: M1_MODEL_ID,
-          status: 'success',
-          errorMessage: `entity-inject: ${injected.map((i) => `${i.kind}:${i.alias}→${i.canonical}`).join(', ')}`.slice(0, 500),
-          dataClass: 'INTERNAL',
-        }));
+    // every NCHHSTP contract instead of just RTI's). Skipped for the
+    // template path (filters are already correct by construction).
+    if (sqlSource === 'm1') {
+      const enforced = await resolveEntities(db, question)
+        .catch(() => [] as Awaited<ReturnType<typeof resolveEntities>>);
+      if (enforced.length > 0) {
+        const { sql: nextSql, injected } = enforceResolvedEntities(sql, enforced);
+        if (injected.length > 0) {
+          sql = nextSql;
+          auditIds.push(await recordAudit(db, {
+            userId, questionHash: qHash, intent, model: 'M1', modelId: M1_MODEL_ID,
+            status: 'success',
+            errorMessage: `entity-inject: ${injected.map((i) => `${i.kind}:${i.alias}→${i.canonical}`).join(', ')}`.slice(0, 500),
+            dataClass: 'INTERNAL',
+          }));
+        }
       }
     }
 
