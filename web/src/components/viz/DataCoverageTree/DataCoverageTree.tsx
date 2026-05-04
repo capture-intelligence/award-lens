@@ -305,15 +305,14 @@ export default function DataCoverageTree({
         // Body — same colour as the link overlay, same stroke width,
         // so the visual reads as a single continuous line of color
         // that resolves at the node's outline. The fill picks up a
-        // state hint:
-        //   collapsed (will show +)  → DARKER  (suggests "density
-        //                                       hidden behind me")
-        //   expanded  (will show −)  → LIGHTER (suggests "I've
-        //                                       already opened up")
+        // state hint at 40% mix (more aggressive than the original
+        // 20%, which was too subtle on dark base colors like teal):
+        //   collapsed (will show +)  → DARKER  (density hidden behind)
+        //   expanded  (will show −)  → LIGHTER (already opened up)
         //   leaf                     → intrinsic colour, untouched
         const stateFill =
-          d._children ? darken(fillColor, 2) :
-          d.children  ? lighten(fillColor, 2) :
+          d._children ? darken(fillColor, 4) :
+          d.children  ? lighten(fillColor, 4) :
           fillColor;
         nodeGroup
           .append('circle')
