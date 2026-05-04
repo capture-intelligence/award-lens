@@ -771,10 +771,21 @@ function PivotShell({
     if (!container) return;
 
     function fieldNameOf(chip: Element): string {
-      // The chip's text content includes a "▾" triangle and possibly a
-      // "(N)" filter-active indicator. Strip both for a clean field name.
+      // The chip's text content can include a "▾" filter-trigger
+      // glyph, the "×" remove button glyph (which we appended via
+      // <button class="pvtRemoveBtn">×</button>), and a "(N)"
+      // filter-active count. Strip all three so we end up with the
+      // exact field name react-pivottable knows about — otherwise the
+      // axis-list filter below wouldn't match and the state update
+      // would be a no-op (chip stays put).
+      const btn = chip.querySelector('.pvtRemoveBtn');
       let raw = chip.textContent ?? '';
-      raw = raw.replace(/▾/g, '').replace(/\s*\(\d+\)\s*$/, '').trim();
+      if (btn) raw = raw.replace(btn.textContent ?? '', '');
+      raw = raw
+        .replace(/▾/g, '')
+        .replace(/[×✕✖]/g, '')
+        .replace(/\s*\(\d+\)\s*$/, '')
+        .trim();
       return raw;
     }
 

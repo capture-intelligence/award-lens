@@ -260,6 +260,43 @@ export default function DataCoverageTree({
           d3.select(this).select('circle').transition().duration(cfg.hoverDuration).attr('r', nodeRadius);
         });
 
+      // State visuals (body fill + + / − indicator) are computed in one
+      // helper that runs on BOTH enter and update. d3's .each on enter
+      // only fires when a node first joins the DOM; without re-running
+      // this on update, clicking a collapsed node would toggle
+      // d._children / d.children but the visual would stay stuck.
+      function applyNodeState(group: any, d: any, r: number): void {
+        const stateFill    = d._children ? '#1a3540' : '#f5efe5';
+        const indicatorInk = d._children ? '#f5efe5' : '#1a3540';
+        group.select('circle.body').attr('fill', stateFill);
+
+        // Drop any prior indicator and redraw based on current state.
+        group.select('.node-indicator').remove();
+        if (!(d._children || d.children)) return;
+        const indicatorHalf   = Math.round(r * 0.42);
+        const indicatorStroke = Math.max(1.5, r * 0.18);
+        const indicatorGroup  = group
+          .append('g')
+          .attr('class', 'node-indicator')
+          .style('pointer-events', 'none');
+        indicatorGroup
+          .append('line')
+          .attr('x1', -indicatorHalf).attr('x2', indicatorHalf)
+          .attr('y1', 0).attr('y2', 0)
+          .attr('stroke', indicatorInk)
+          .attr('stroke-width', indicatorStroke)
+          .attr('stroke-linecap', 'round');
+        if (d._children) {
+          indicatorGroup
+            .append('line')
+            .attr('x1', 0).attr('x2', 0)
+            .attr('y1', -indicatorHalf).attr('y2', indicatorHalf)
+            .attr('stroke', indicatorInk)
+            .attr('stroke-width', indicatorStroke)
+            .attr('stroke-linecap', 'round');
+        }
+      }
+
       // Node circles
       nodeEnter.each(function (d: any) {
         const nodeGroup = d3.select(this);
@@ -283,59 +320,21 @@ export default function DataCoverageTree({
           .attr('opacity', cfg.linkBaseOpacity)
           .style('pointer-events', 'none');
 
-        // Body fill — fixed state colors so a fully-expanded node looks
-        // identical regardless of its category (sage / terracotta /
-        // teal). The category hue still lives in the halo + stroke;
-        // only the inner disc switches between two flat tones.
-        //   collapsed (shows +) → deep teal #1a3540
-        //   expanded  (shows −) → warm off-white #f5efe5
-        //   leaf       (none)   → same warm off-white as expanded
-        const stateFill =
-          d._children ? '#1a3540' :  // collapsed → dark
-                        '#f5efe5';   // expanded OR leaf → very light
-
-        // Indicator ink is the inverse of stateFill so the +/− lines
-        // always have full WCAG contrast against the disc behind them.
-        const indicatorInk = d._children ? '#f5efe5' : '#1a3540';
+        // Body — class 'body' so applyNodeState() can find it on the
+        // update pass. Fill / cursor / filter set here; state-dependent
+        // bits (fill colour + indicator) are applied via the helper
+        // below so they refresh every time d._children/d.children
+        // toggles.
         nodeGroup
           .append('circle')
+          .attr('class', 'body')
           .attr('r', nodeRadius)
-          .attr('fill', stateFill)
           .attr('stroke', strokeForData(d.data))
           .attr('stroke-width', linkOverlayWidth)
           .style('cursor', cursor)
           .style('filter', 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2))');
 
-        if (d._children || d.children) {
-          // Geometric +/− via <line> elements — perfectly centered
-          // by construction, regardless of font metrics, browser, or
-          // glyph design. Always draw the horizontal stroke; add the
-          // vertical stroke only when the node is collapsed (showing +
-          // to indicate "click to expand"). Round line caps so the
-          // strokes terminate cleanly inside the node.
-          const indicatorHalf   = Math.round(nodeRadius * 0.42);
-          const indicatorStroke = Math.max(1.5, nodeRadius * 0.18);
-          const indicatorGroup  = nodeGroup
-            .append('g')
-            .attr('class', 'node-indicator')
-            .style('pointer-events', 'none');
-          indicatorGroup
-            .append('line')
-            .attr('x1', -indicatorHalf).attr('x2', indicatorHalf)
-            .attr('y1', 0).attr('y2', 0)
-            .attr('stroke', indicatorInk)
-            .attr('stroke-width', indicatorStroke)
-            .attr('stroke-linecap', 'round');
-          if (d._children) {
-            indicatorGroup
-              .append('line')
-              .attr('x1', 0).attr('x2', 0)
-              .attr('y1', -indicatorHalf).attr('y2', indicatorHalf)
-              .attr('stroke', indicatorInk)
-              .attr('stroke-width', indicatorStroke)
-              .attr('stroke-linecap', 'round');
-          }
-        }
+        applyNodeState(nodeGroup, d, nodeRadius);
       });
 
       // Node labels with word-wrap
@@ -398,7 +397,13 @@ export default function DataCoverageTree({
         .duration(duration)
         .attr('transform', (d: any) => `translate(${d.x},${d.y})`);
 
-      nodeUpdate.select('.node-indicator').text((d: any) => (d._children ? '+' : '−'));
+      // Re-apply body fill + redraw indicator on every render — this is
+      // what makes a node visually flip between dark (collapsed) and
+      // light (expanded) when the user clicks. Without it, the enter-
+      // time fill stuck regardless of subsequent state changes.
+      nodeUpdate.each(function (d: any) {
+        applyNodeState(d3.select(this), d, nodeRadius);
+      });
 
       node
         .exit()
