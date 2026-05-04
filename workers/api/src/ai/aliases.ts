@@ -188,6 +188,73 @@ function chunk<T>(xs: T[], size: number): T[][] {
   return out;
 }
 
+// ─── Deterministic aliasing (no LLM) ────────────────────────────────────────
+//
+// Mechanical rules that catch the most common abbreviations users type:
+//   1. Strip legal suffixes (", INC", ", LLC", "CORPORATION", …)
+//   2. Initial-letter acronym for 2–6 word names ("RESEARCH TRIANGLE
+//      INSTITUTE" → "RTI", "BOOZ ALLEN HAMILTON" → "BAH")
+//   3. First significant word for multi-word names ("LANTANA CONSULTING
+//      GROUP" → "LANTANA")
+// Doesn't need Anthropic; runs free, deterministic, fast. Used always —
+// Claude is only run on top to fill cases regex can't reach.
+
+const SUFFIX_RX = /,?\s+(L\.L\.C\.?|LLC|L\.P\.|LP|LLP|INC\.?|INCORPORATED|CORPORATION|CORP\.?|CO\.?|COMPANY|HOLDINGS|GROUP|SERVICES|SOLUTIONS|TECHNOLOGIES|TECHNOLOGY|SYSTEMS|ENTERPRISES|PARTNERS|ASSOCIATES|LIMITED|LTD\.?|N\.A\.|PLC)\.?$/gi;
+
+const SHORT_STOPWORDS = new Set([
+  'INC','LLC','LP','LLP','CO','CORP','GROUP','SERVICES','SOLUTIONS','TECH',
+  'TECHNOLOGIES','SYSTEMS','THE','OF','AND','FOR','IN','ON','AT',
+]);
+
+function deterministicVendorAliases(name: string): string[] {
+  const out = new Set<string>();
+  const trimmed = name.trim();
+  if (!trimmed) return [];
+
+  // 1. Strip suffixes — repeatedly so multi-suffix names ("FOO LLC, INC")
+  //    get fully reduced. Each intermediate form is also a candidate.
+  let stripped = trimmed;
+  for (let i = 0; i < 4; i++) {
+    const next = stripped.replace(SUFFIX_RX, '').trim().replace(/[,\s]+$/, '');
+    if (next === stripped || !next) break;
+    if (next.length >= 3) out.add(next);
+    stripped = next;
+  }
+
+  const words = stripped.split(/\s+/).filter(Boolean);
+
+  // 2. Initial-letter acronym for 2-6 word names. Skip stopwords like "OF".
+  if (words.length >= 2 && words.length <= 6) {
+    const meaningful = words.filter((w) => !SHORT_STOPWORDS.has(w.toUpperCase()));
+    if (meaningful.length >= 2 && meaningful.length <= 5) {
+      const acronym = meaningful
+        .map((w) => (/^[A-Za-z]/.test(w) ? w[0]! : ''))
+        .join('')
+        .toUpperCase();
+      if (acronym.length >= 2 && acronym.length <= 6) out.add(acronym);
+    }
+  }
+
+  // 3. First significant word ≥ 4 chars (good for distinctive names like
+  //    "LANTANA …", "LOCKHEED …"; skipped for generic-first-word names like
+  //    "GENERAL DYNAMICS" where the second word is the distinctive one).
+  if (words.length >= 2 && words[0].length >= 4 &&
+      !SHORT_STOPWORDS.has(words[0].toUpperCase())) {
+    out.add(words[0]);
+  }
+
+  // 4. First two significant words (catches "Booz Allen", "Lockheed Martin")
+  if (words.length >= 3 && words[0].length >= 3 && words[1].length >= 3) {
+    const phrase = `${words[0]} ${words[1]}`;
+    if (phrase.length >= 6 && phrase.length <= 30) out.add(phrase);
+  }
+
+  // De-dup against canonical (case-insensitive) and reject any aliases
+  // identical to the source name.
+  const canonical = trimmed.toLowerCase();
+  return Array.from(out).filter((a) => a.toLowerCase() !== canonical);
+}
+
 /** Insert a batch of aliases. Uses INSERT OR IGNORE against the unique index. */
 async function persistAliases(
   db: D1Database,
@@ -251,7 +318,23 @@ export async function handleBuildAliases(
     LIMIT  ?
   `).bind(vendorMax).all<VendorRow>();
   summary.vendor.entities = vendors.results.length;
+
+  // (1) Always seed with deterministic rules — no LLM dependency. Catches
+  //     RTI, BAH, etc. via the initial-letter acronym rule + suffix
+  //     stripping. Runs even when Anthropic is rate-limited.
+  const vendorSeeded = vendors.results.map((v) => ({
+    canonical_id:   v.vendor_id,
+    canonical_name: v.legal_name,
+    aliases:        deterministicVendorAliases(v.legal_name),
+  }));
+  summary.vendor.aliases_inserted += await persistAliases(db, 'vendor', vendorSeeded);
+
+  // (2) Try Claude on top, but stop the whole pass at the first
+  //     "API usage limits" 400 — no point burning latency on every
+  //     batch if the cap is hit.
+  let claudeUsable = true;
   for (const batch of chunk(vendors.results, 30)) {
+    if (!claudeUsable) break;
     const prompt = batch.map((v) => `${v.vendor_id}: ${v.legal_name}`).join('\n');
     try {
       const out = await aliasBatch(apiKey, prompt);
@@ -263,7 +346,12 @@ export async function handleBuildAliases(
       }));
       summary.vendor.aliases_inserted += await persistAliases(db, 'vendor', persistRows);
     } catch (err) {
-      summary.vendor.errors.push(String(err).slice(0, 240));
+      const msg = String(err);
+      summary.vendor.errors.push(msg.slice(0, 240));
+      if (/usage limits|rate.?limit|quota/i.test(msg)) {
+        summary.vendor.errors.push('Anthropic rate-limited — skipping remaining vendor batches; deterministic aliases already inserted.');
+        claudeUsable = false;
+      }
     }
   }
 
@@ -288,7 +376,9 @@ export async function handleBuildAliases(
     }
   }
   summary.organization.aliases_inserted += await persistAliases(db, 'organization', seededOrg);
+  let orgClaudeUsable = true;
   for (const batch of chunk(orgs.results, 40)) {
+    if (!orgClaudeUsable) break;
     const prompt = batch.map((o) => `${o.org_id}: ${o.canonical_name}`).join('\n');
     try {
       const out = await aliasBatch(apiKey, prompt);
@@ -300,7 +390,9 @@ export async function handleBuildAliases(
       }));
       summary.organization.aliases_inserted += await persistAliases(db, 'organization', persistRows);
     } catch (err) {
-      summary.organization.errors.push(String(err).slice(0, 240));
+      const msg = String(err);
+      summary.organization.errors.push(msg.slice(0, 240));
+      if (/usage limits|rate.?limit|quota/i.test(msg)) orgClaudeUsable = false;
     }
   }
 
@@ -322,7 +414,9 @@ export async function handleBuildAliases(
   }));
   summary.center.aliases_inserted += await persistAliases(db, 'center', seededCenters);
   // Claude pass for additional aliases.
+  let centerClaudeUsable = true;
   for (const batch of chunk(centers.results, 50)) {
+    if (!centerClaudeUsable) break;
     const prompt = batch.map((c) => `${c.center_code}: ${c.center_name}`).join('\n');
     try {
       const out = await aliasBatch(apiKey, prompt);
@@ -334,7 +428,9 @@ export async function handleBuildAliases(
       }));
       summary.center.aliases_inserted += await persistAliases(db, 'center', persistRows);
     } catch (err) {
-      summary.center.errors.push(String(err).slice(0, 240));
+      const msg = String(err);
+      summary.center.errors.push(msg.slice(0, 240));
+      if (/usage limits|rate.?limit|quota/i.test(msg)) centerClaudeUsable = false;
     }
   }
 
