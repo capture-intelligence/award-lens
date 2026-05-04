@@ -32,6 +32,17 @@ const GENERAL_OVERRIDE = [
   /\b(FAR|DFARS|GSAM|FPDS|SAM\.gov|acquisition regulation)\b/i,
   /\b(simplified acquisition threshold|micro.?purchase threshold|source selection criterion|past performance factor)\b/i,
   /\b(what (is|are) (a |an |the )?(FAR|DFARS|IDIQ|CPFF|LPTA|BPA|GWAC|MATOC|SAT|MPT)\b)/i,
+  // Analytical / explanatory phrasings — "why does X", "why is X",
+  // "how come X", "explain why X". These ask for reasoning that needs
+  // data context the warehouse doesn't always have (e.g. agency budget
+  // appropriations, which AwardLens doesn't store), and M1 reliably
+  // generates broken SQL when it tries. Route to M3 + the FOCUSED
+  // AWARD context block so the model can answer "this isn't in the
+  // warehouse — here's what we do have" or interpret the data
+  // qualitatively. Triggers only when the question STARTS with one
+  // of these prefixes so quantitative phrasings ("how many", "how
+  // much") still go to SQL.
+  /^\s*(why\b|how\s+come\b|explain\b)/i,
 ];
 
 // Similarity triggers — only active when context is present.
