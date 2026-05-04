@@ -20,6 +20,7 @@ import { callM2, M2_MODEL_ID } from './m2_local.js';
 import { callM3, M3_MODEL_ID, polishSqlWithClaude, polishSqlWithWorkersAI } from './m3_external.js';
 import { resolveEntities } from './aliases.js';
 import { splitCountAndRows } from './sql_split.js';
+import { enforceResolvedEntities } from './entity_inject.js';
 import { recordAudit, hashQuestion } from './audit.js';
 
 const EMBED_MODEL = '@cf/baai/bge-base-en-v1.5';
@@ -315,6 +316,29 @@ export async function handleAskV2(
         status: 'error', errorMessage: msg.slice(0, 500), dataClass: 'INTERNAL',
       }));
       return c.json({ intent, error: `SQL generation failed: ${msg}`, audit_ids: auditIds } satisfies AskResponse, 500);
+    }
+
+    // Deterministic entity-filter enforcement. M1 (and the polish pass)
+    // sometimes drop the resolved vendor filter — the result is a count
+    // that ignores the vendor entirely (e.g. "RTI in NCHHSTP" returning
+    // every NCHHSTP contract instead of just RTI's). For each resolved
+    // entity, if its corresponding filter clause isn't already in the
+    // SQL, we splice it in before LIMIT/ORDER BY/GROUP BY. Audit row
+    // records which filters were force-injected so misbehavior is
+    // observable.
+    const enforced = await resolveEntities(db, question)
+      .catch(() => [] as Awaited<ReturnType<typeof resolveEntities>>);
+    if (enforced.length > 0) {
+      const { sql: nextSql, injected } = enforceResolvedEntities(sql, enforced);
+      if (injected.length > 0) {
+        sql = nextSql;
+        auditIds.push(await recordAudit(db, {
+          userId, questionHash: qHash, intent, model: 'M1', modelId: M1_MODEL_ID,
+          status: 'success',
+          errorMessage: `entity-inject: ${injected.map((i) => `${i.kind}:${i.alias}→${i.canonical}`).join(', ')}`.slice(0, 500),
+          dataClass: 'INTERNAL',
+        }));
+      }
     }
 
     // Split M1's single SQL into a count query + a rows query off the
