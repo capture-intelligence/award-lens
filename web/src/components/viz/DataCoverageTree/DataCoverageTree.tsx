@@ -60,7 +60,9 @@ export default function DataCoverageTree({
 
     const nodeSpacingX = isMobile ? 160 : isTablet ? 200 : 250;
     const nodeSpacingY = isMobile ? 140 : isTablet ? 160 : 180;
-    const nodeRadius = isMobile ? 8 : isTablet ? 10 : 12;
+    // 25% larger than the previous values (8/10/12) so each node carries
+    // more visual weight and the lightened ring around it stays legible.
+    const nodeRadius = isMobile ? 10 : isTablet ? 13 : 15;
     const fontSize = isMobile ? 12 : isTablet ? 13 : 14;
     const categoryFontSize = isMobile ? 14 : isTablet ? 15 : 16;
 
@@ -144,7 +146,14 @@ export default function DataCoverageTree({
       // hue but we route them through the same helper so any future
       // category recolouring lightens links automatically.
       function linkStrokeFor(d: any): string {
-        const data = d.target.data;
+        return strokeForData(d.target.data);
+      }
+
+      // Same lookup but takes a hierarchy node directly — used to give
+      // each node's outer ring the exact colour and width as its
+      // incoming link overlay, so the visual reads as one continuous
+      // line of color terminating in a node.
+      function strokeForData(data: any): string {
         const av = data.availability;
         let base: string;
         if (av === 'both') base = colors.both;
@@ -272,8 +281,11 @@ export default function DataCoverageTree({
           .append('circle')
           .attr('r', nodeRadius)
           .attr('fill', fillColor)
-          .attr('stroke', cfg.nodeStrokeColor)
-          .attr('stroke-width', cfg.nodeStrokeWidth)
+          // Stroke matches the incoming link's overlay — same colour
+          // (intrinsic, lightened) and same width — so the link reads
+          // as a continuous line that resolves at the node's outline.
+          .attr('stroke', strokeForData(d.data))
+          .attr('stroke-width', linkOverlayWidth)
           .style('cursor', cursor)
           .style('filter', 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2))');
 
