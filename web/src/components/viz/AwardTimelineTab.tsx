@@ -444,29 +444,42 @@ function TimelineCanvas({
       .attr('fill', '#1a3540').attr('fill-opacity', 0.85)
       .text((n) => truncate(n.name, LABEL_MAX_CHARS));
 
-    // ── Inline $ value right before the start of each pill ───────────────
-    // text-anchor='end' so the value's right edge sits 4px before the
-    // pill. Skipped for pills that start within 56px of the chart's
-    // left margin — there isn't room for the value without crashing
-    // into the row label, and the user can read those values from the
-    // tooltip on hover.
-    yAxisLayer.selectAll('text.row-value')
+    // ── Inline $ value, placed wherever there's room ─────────────────────
+    // Preferred placement is just before the pill's start (text-anchor
+    // 'end' at xScale(start) - 4). For pills that start tight to the
+    // left margin (the row label crowds the spot), we fall back to the
+    // pill's end (text-anchor 'start' at xScale(end) + 4). If neither
+    // side has at least VALUE_GAP px of clear room, we hide the value
+    // — those numbers stay accessible via the hover tooltip.
+    const VALUE_GAP = 56;
+    yAxisLayer.selectAll<SVGTextElement, PillNode>('text.row-value')
       .data(nodes)
       .join('text')
       .attr('class', 'row-value')
-      .attr('x', (n) => xScale(n.start) - 4)
       .attr('y', (n) => yScale(n.id)! + bandwidth / 2)
       .attr('dominant-baseline', 'middle')
-      .attr('text-anchor', 'end')
       .attr('font-family', '"JetBrains Mono", ui-monospace, monospace')
       .attr('font-size', 9.5)
       .attr('font-weight', 600)
       .attr('font-variant-numeric', 'tabular-nums')
-      .attr('fill', '#874F41')          // brand-terracotta — accent for data
+      .attr('fill', '#874F41')
       .attr('fill-opacity', 0.92)
-      .attr('display', (n) =>
-        xScale(n.start) - MARGIN.left < 56 ? 'none' : null,
-      )
+      .each(function (n) {
+        const sel       = d3.select(this);
+        const leftRoom  = xScale(n.start) - MARGIN.left;
+        const rightRoom = (W - MARGIN.right) - xScale(n.end);
+        if (leftRoom >= VALUE_GAP) {
+          sel.attr('x', xScale(n.start) - 4)
+             .attr('text-anchor', 'end')
+             .attr('display', null);
+        } else if (rightRoom >= VALUE_GAP) {
+          sel.attr('x', xScale(n.end) + 4)
+             .attr('text-anchor', 'start')
+             .attr('display', null);
+        } else {
+          sel.attr('display', 'none');
+        }
+      })
       .text((n) => fmtMoney(n.value));
 
     // ── Pills ─────────────────────────────────────────────────────────────
