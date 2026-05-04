@@ -17,7 +17,7 @@ import type { AuthVars }    from '../auth/session.js';
 import type { Intent, AskResponse, AwardContext } from './types.js';
 import { callM1, M1_MODEL_ID } from './m1_sql.js';
 import { callM2, M2_MODEL_ID } from './m2_local.js';
-import { callM3, M3_MODEL_ID, polishSqlWithClaude } from './m3_external.js';
+import { callM3, M3_MODEL_ID, polishSqlWithClaude, polishSqlWithWorkersAI } from './m3_external.js';
 import { resolveEntities } from './aliases.js';
 import { recordAudit, hashQuestion } from './audit.js';
 
@@ -263,28 +263,49 @@ export async function handleAskV2(
         durationMs: m1.durationMs, status: 'success', dataClass: 'INTERNAL',
       }));
 
-      // Claude polish pass — catches the wildcard / name-equality mistakes
-      // the M1 LoRA still slips on. ~1s latency, falls back to original
-      // SQL if Claude errors or returns something that doesn't parse.
+      // SQL polish — catches the wildcard / name-equality mistakes the
+      // M1 LoRA still slips on. Tries Claude first, then falls back to
+      // Workers AI Llama if Claude is rate-limited / 5xx / unreachable.
+      // Original M1 SQL is preserved if BOTH fail. ~0.6-1.5s warm.
+      let polished: { sql: string; changed: boolean; promptTokens: number; outputTokens: number; durationMs: number } | null = null;
+      let polishProvider: 'claude' | 'workers-ai' | null = null;
+      let polishErrSummary = '';
+
       if (anthropicKey) {
         try {
-          const polished = await polishSqlWithClaude(sql, question, anthropicKey);
-          sql = polished.sql;
-          auditIds.push(await recordAudit(db, {
-            userId, questionHash: qHash, intent, model: 'M3', modelId: M3_MODEL_ID,
-            promptTokens: polished.promptTokens, outputTokens: polished.outputTokens,
-            durationMs: polished.durationMs, status: 'success',
-            dataClass: 'INTERNAL',
-            errorMessage: polished.changed ? 'sql-polish: rewritten' : 'sql-polish: unchanged',
-          }));
-        } catch (polishErr) {
-          // Non-fatal: keep the original M1 SQL and log the failure.
-          auditIds.push(await recordAudit(db, {
-            userId, questionHash: qHash, intent, model: 'M3', modelId: M3_MODEL_ID,
-            status: 'error', errorMessage: `sql-polish: ${String(polishErr).slice(0, 400)}`,
-            dataClass: 'INTERNAL',
-          }));
+          polished = await polishSqlWithClaude(sql, question, anthropicKey);
+          polishProvider = 'claude';
+        } catch (err) {
+          polishErrSummary = `claude: ${String(err).slice(0, 240)}`;
         }
+      }
+
+      if (!polished) {
+        try {
+          polished = await polishSqlWithWorkersAI(sql, question, ai);
+          polishProvider = 'workers-ai';
+        } catch (err) {
+          polishErrSummary += ` | workers-ai: ${String(err).slice(0, 240)}`;
+        }
+      }
+
+      if (polished && polishProvider) {
+        sql = polished.sql;
+        auditIds.push(await recordAudit(db, {
+          userId, questionHash: qHash, intent, model: 'M3',
+          modelId: polishProvider === 'claude' ? M3_MODEL_ID : '@cf/meta/llama-3.1-8b-instruct',
+          promptTokens: polished.promptTokens, outputTokens: polished.outputTokens,
+          durationMs: polished.durationMs, status: 'success',
+          dataClass: 'INTERNAL',
+          errorMessage: `sql-polish[${polishProvider}]: ${polished.changed ? 'rewritten' : 'unchanged'}${polishErrSummary ? ` (${polishErrSummary})` : ''}`,
+        }));
+      } else if (polishErrSummary) {
+        auditIds.push(await recordAudit(db, {
+          userId, questionHash: qHash, intent, model: 'M3', modelId: M3_MODEL_ID,
+          status: 'error',
+          errorMessage: `sql-polish: ${polishErrSummary}`.slice(0, 500),
+          dataClass: 'INTERNAL',
+        }));
       }
     } catch (err) {
       const msg = String(err);

@@ -71,6 +71,47 @@ Other fixes welcome but lower priority: redundant subqueries that re-look-up an 
 
 Return ONLY the corrected SQL ending with ;. No markdown fences, no explanation. If the SQL is already correct, return it unchanged.`;
 
+/** Shared cleanup: strip markdown fences, validate SELECT/WITH, return
+ *  either the polished SQL or the original on shape failure. */
+function finalizePolish(rawSql: string, originalSql: string, t0: number): PolishResult {
+  let polished = rawSql.trim();
+  const fenced = polished.match(/```(?:sql)?\s*([\s\S]*?)```/i);
+  if (fenced) polished = fenced[1].trim();
+  const head = polished.toUpperCase().trimStart();
+  const looksValid = head.startsWith('SELECT') || head.startsWith('WITH');
+  return {
+    sql:          looksValid ? polished : originalSql,
+    changed:      looksValid && polished.replace(/\s+/g, ' ').trim() !== originalSql.replace(/\s+/g, ' ').trim(),
+    promptTokens: 0,
+    outputTokens: 0,
+    durationMs:   Date.now() - t0,
+  };
+}
+
+/**
+ * Workers AI fallback for the polish pass. Same prompt as Claude; Llama
+ * 3.1 8B will catch the most obvious wildcard / aggregate mistakes even
+ * if the rewrite is less surgical. Used when Anthropic errors out (rate
+ * limit, 5xx, network failure).
+ */
+export async function polishSqlWithWorkersAI(
+  sql: string,
+  question: string,
+  ai: Ai,
+): Promise<PolishResult> {
+  const t0 = Date.now();
+  const userMsg = `User question: ${question}\n\nSQL to review:\n${sql}`;
+  const resp = await ai.run('@cf/meta/llama-3.1-8b-instruct', {
+    messages: [
+      { role: 'system', content: POLISH_SYSTEM },
+      { role: 'user',   content: userMsg },
+    ],
+    max_tokens: 600,
+  } as Parameters<typeof ai.run>[1]);
+  const raw = (resp as { response?: string }).response ?? '';
+  return finalizePolish(raw, sql, t0);
+}
+
 export async function polishSqlWithClaude(
   sql: string,
   question: string,
@@ -104,27 +145,16 @@ export async function polishSqlWithClaude(
     usage?: { input_tokens: number; output_tokens: number };
   };
 
-  // Strip markdown fences if Claude added them despite instructions.
-  let polished = data.content
+  const raw = data.content
     .filter((b) => b.type === 'text')
     .map((b) => b.text)
     .join('')
     .trim();
-  const fenced = polished.match(/```(?:sql)?\s*([\s\S]*?)```/i);
-  if (fenced) polished = fenced[1].trim();
 
-  // Safety: if the response doesn't look like a SELECT/WITH, fall back
-  // to the original SQL so we never execute garbage.
-  const head = polished.toUpperCase().trimStart();
-  const looksValid = head.startsWith('SELECT') || head.startsWith('WITH');
-
-  return {
-    sql:          looksValid ? polished : sql,
-    changed:      looksValid && polished.replace(/\s+/g, ' ').trim() !== sql.replace(/\s+/g, ' ').trim(),
-    promptTokens: data.usage?.input_tokens  ?? 0,
-    outputTokens: data.usage?.output_tokens ?? 0,
-    durationMs:   Date.now() - t0,
-  };
+  const result = finalizePolish(raw, sql, t0);
+  result.promptTokens = data.usage?.input_tokens  ?? 0;
+  result.outputTokens = data.usage?.output_tokens ?? 0;
+  return result;
 }
 
 export async function callM3(
