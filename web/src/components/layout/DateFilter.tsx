@@ -15,10 +15,10 @@ import { cn } from '@/lib/utils';
  * smooth even with thousands of rows.
  */
 export function DateFilter() {
-  const { dateBounds, dateRange, setDateRange, active } = useAgency();
+  const { dateBounds, dateRange, setDateRange, dateField, setDateField, active } = useAgency();
   const [pending, setPending] = React.useState<[number, number] | null>(null);
 
-  // Reset the pending value when bounds reset (new agency/center).
+  // Reset the pending value when bounds reset (new agency/center/field).
   React.useEffect(() => { setPending(null); }, [dateBounds?.min, dateBounds?.max]);
 
   if (!active) return null;
@@ -28,11 +28,12 @@ export function DateFilter() {
     return <div className="hidden h-10 w-44 animate-pulse rounded-lg border border-border bg-brand-teal-deep/40 md:block" />;
   }
 
+  const fieldLabel = dateField === 'start' ? 'start date' : 'end date';
   const isActive = dateRange != null;
   const display = pending ?? dateRange ?? [dateBounds.min, dateBounds.max];
   const label = isActive
     ? `${epochDayToDate(display[0])} → ${epochDayToDate(display[1])}`
-    : 'Any end date';
+    : `Any ${fieldLabel}`;
 
   return (
     <DropdownMenu.Root>
@@ -44,7 +45,7 @@ export function DateFilter() {
             'min-w-[12rem]',
             isActive && 'border-brand-vermilion/60',
           )}
-          aria-label="Filter by contract end date"
+          aria-label={`Filter by contract ${fieldLabel}`}
         >
           <CalendarRange className={cn('h-4 w-4', isActive ? 'text-brand-vermilion-soft' : 'text-brand-sage')} />
           <span className="flex-1 truncate text-left font-mono text-[11px]">{label}</span>
@@ -59,11 +60,46 @@ export function DateFilter() {
         >
           <div className="mb-2 flex items-baseline justify-between">
             <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand-sage">
-              Contract end date range
+              Contract {fieldLabel} range
             </span>
             <span className="font-mono text-[11px] text-muted-soft">
               {epochDayToDate(display[0])} → {epochDayToDate(display[1])}
             </span>
+          </div>
+
+          {/* Field toggle — segmented control choosing which contract date
+              column the range applies to. Switching clears the active range
+              so the new field's bounds aren't filtered by stale dates. */}
+          <div
+            role="radiogroup"
+            aria-label="Date column"
+            className="mb-3 inline-flex rounded-lg border border-border bg-brand-teal-deep/60 p-0.5 text-[11px] font-semibold"
+          >
+            {(['end', 'start'] as const).map((f) => {
+              const selected = dateField === f;
+              return (
+                <button
+                  key={f}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => {
+                    if (f === dateField) return;
+                    setDateField(f);
+                    setDateRange(null);
+                    setPending(null);
+                  }}
+                  className={cn(
+                    'rounded-md px-3 py-1 uppercase tracking-[0.10em] transition-colors',
+                    selected
+                      ? 'bg-brand-vermilion text-brand-cream shadow-sm'
+                      : 'text-muted hover:text-foreground',
+                  )}
+                >
+                  {f === 'end' ? 'End date' : 'Start date'}
+                </button>
+              );
+            })}
           </div>
 
           {/* Typed / picker inputs — type a date or use the browser's
@@ -141,7 +177,7 @@ export function DateFilter() {
                 }
                 setPending(null);
               }}
-              aria-label="Contract end date range"
+              aria-label={`Contract ${fieldLabel} range`}
             >
               {/* Track is taller (h-1.5) and dashed in the unfilled portions
                   so the "slidable line" reads at a glance even when the

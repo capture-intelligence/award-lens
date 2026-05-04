@@ -70,14 +70,17 @@ interface AgencyContextValue {
   setMaxValue: (v: string) => void;
 
   /**
-   * Top-of-screen date filter (pop_end_date range as epoch-day pair).
+   * Top-of-screen date filter (pop range as epoch-day pair).
    * null = no filter. dateBounds carries the data's natural extent so the
-   * slider knows where to anchor.
+   * slider knows where to anchor. dateField selects which column the
+   * filter applies to — pop_end_date (default) or pop_start_date.
    */
   dateRange: [number, number] | null;
   setDateRange: (r: [number, number] | null) => void;
   dateBounds: { min: number; max: number } | null;
   setDateBounds: (b: { min: number; max: number } | null) => void;
+  dateField: 'end' | 'start';
+  setDateField: (f: 'end' | 'start') => void;
 
   /**
    * Top-of-screen Nature-of-work filter — empty Set = "All".
@@ -230,6 +233,7 @@ export function AgencyProvider({ children }: { children: React.ReactNode }) {
   const [maxValue, setMaxValue] = React.useState('');
   const [dateRange, setDateRange]   = React.useState<[number, number] | null>(defaultDateRange());
   const [dateBounds, setDateBounds] = React.useState<{ min: number; max: number } | null>(null);
+  const [dateField, setDateField]   = React.useState<'end' | 'start'>('end');
   const [selectedNatures, setSelectedNatures] = React.useState<Set<string>>(new Set());
 
   // Re-apply defaults whenever the scope changes (different agency or
@@ -239,6 +243,7 @@ export function AgencyProvider({ children }: { children: React.ReactNode }) {
     setMaxValue('');
     setDateRange(defaultDateRange());
     setDateBounds(null);
+    setDateField('end');
     setSelectedNatures(new Set());
   }, [active, activeCenter]);
 
@@ -247,6 +252,7 @@ export function AgencyProvider({ children }: { children: React.ReactNode }) {
     centers, activeCenter, centersLoading, setActiveCenter,
     minValue, maxValue, setMinValue, setMaxValue,
     dateRange, setDateRange, dateBounds, setDateBounds,
+    dateField, setDateField,
     selectedNatures, setSelectedNatures,
   };
 

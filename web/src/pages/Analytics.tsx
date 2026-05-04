@@ -178,7 +178,7 @@ export function AnalyticsPage() {
   const {
     loading: agencyLoading,
     minValue, maxValue,
-    dateRange, setDateBounds,
+    dateRange, setDateBounds, dateField,
     selectedNatures,
   } = useAgency();
   const { user } = useAuth();
@@ -228,17 +228,18 @@ export function AnalyticsPage() {
   // the underlying rows change (not on every filter tick).
   React.useEffect(() => {
     if (!data?.results?.length) { setDateBounds(null); return; }
+    const col = dateField === 'start' ? 'pop_start_date' : 'pop_end_date';
     let min = Infinity;
     let max = -Infinity;
     for (const r of data.results) {
-      const d = dateToEpochDay(r.pop_end_date as string | undefined);
+      const d = dateToEpochDay(r[col] as string | undefined);
       if (d == null) continue;
       if (d < min) min = d;
       if (d > max) max = d;
     }
     if (Number.isFinite(min) && Number.isFinite(max)) setDateBounds({ min, max });
     else setDateBounds(null);
-  }, [data, setDateBounds]);
+  }, [data, setDateBounds, dateField]);
 
   // Apply the topbar value + date + nature filters client-side so all three
   // tabs see a consistent slice. /explore returns ≤5K rows for the
@@ -259,13 +260,14 @@ export function AnalyticsPage() {
         if (hasMax && value > (maxNum as number)) return false;
       }
       if (hasDate) {
-        const d = dateToEpochDay(r.pop_end_date as string | undefined);
+        const col = dateField === 'start' ? 'pop_start_date' : 'pop_end_date';
+        const d = dateToEpochDay(r[col] as string | undefined);
         if (d != null && (d < dateRange![0] || d > dateRange![1])) return false;
       }
       if (hasNature && !selectedNatures.has(natureOfWork(r as any))) return false;
       return true;
     });
-  }, [data, minValue, maxValue, dateRange, selectedNatures]);
+  }, [data, minValue, maxValue, dateRange, dateField, selectedNatures]);
 
   const pivotData = React.useMemo(
     () => transformForPivot(filteredRows),
