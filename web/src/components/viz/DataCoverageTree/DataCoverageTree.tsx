@@ -302,18 +302,24 @@ export default function DataCoverageTree({
           .attr('opacity', cfg.linkBaseOpacity)
           .style('pointer-events', 'none');
 
-        // Body — same colour as the link overlay, same stroke width,
-        // so the visual reads as a single continuous line of color
-        // that resolves at the node's outline. The fill picks up a
-        // state hint at 40% mix (more aggressive than the original
-        // 20%, which was too subtle on dark base colors like teal):
-        //   collapsed (will show +)  → DARKER  (density hidden behind)
-        //   expanded  (will show −)  → LIGHTER (already opened up)
-        //   leaf                     → intrinsic colour, untouched
+        // Body fill carries the state — three distinct levels:
+        //   collapsed (has hidden children, shows +) → DARK center
+        //     (deep mix toward black; reads as "press me, there's
+        //      something packed behind")
+        //   expanded  (children visible,    shows −) → VERY LIGHT
+        //     (deep mix toward white; reads as "already opened")
+        //   leaf      (no children at all,  no indicator) → LIGHT
+        //     (lighter than intrinsic but not as pale as expanded —
+        //      keeps the category tint readable)
         const stateFill =
-          d._children ? darken(fillColor, 4) :
-          d.children  ? lighten(fillColor, 4) :
-          fillColor;
+          d._children ? darken(fillColor, 6)  : // collapsed → dark
+          d.children  ? lighten(fillColor, 8) : // expanded  → very light
+                        lighten(fillColor, 5);  // leaf      → light
+
+        // Indicator ink flips with state: light fills get dark teal
+        // ink, dark fills get cream ink. Without the flip the +/−
+        // lines disappear into the body when the fill is too pale.
+        const indicatorInk = d._children ? '#FBE9D0' : '#1a3540';
         nodeGroup
           .append('circle')
           .attr('r', nodeRadius)
@@ -340,7 +346,7 @@ export default function DataCoverageTree({
             .append('line')
             .attr('x1', -indicatorHalf).attr('x2', indicatorHalf)
             .attr('y1', 0).attr('y2', 0)
-            .attr('stroke', cfg.indicatorColor)
+            .attr('stroke', indicatorInk)
             .attr('stroke-width', indicatorStroke)
             .attr('stroke-linecap', 'round');
           if (d._children) {
@@ -348,7 +354,7 @@ export default function DataCoverageTree({
               .append('line')
               .attr('x1', 0).attr('x2', 0)
               .attr('y1', -indicatorHalf).attr('y2', indicatorHalf)
-              .attr('stroke', cfg.indicatorColor)
+              .attr('stroke', indicatorInk)
               .attr('stroke-width', indicatorStroke)
               .attr('stroke-linecap', 'round');
           }
