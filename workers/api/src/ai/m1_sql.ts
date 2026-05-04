@@ -88,7 +88,21 @@ ACTIVE CONTRACT semantics:
   AND (a.pop_start_date IS NULL OR a.pop_start_date <= date('now'))
 - NEVER use a.pop_end_date IS NULL for "active" — NULL means the date wasn't
   recorded, not that the contract is active.
-- "Expired" → WHERE a.pop_end_date < date('now')`;
+- "Expired" → WHERE a.pop_end_date < date('now')
+
+DO NOT INVENT FILTERS. The WHERE clause must contain ONLY filters that
+correspond to nouns / qualifiers explicitly in the user's question.
+- Don't add current_value > 0 unless the user mentions value / spend / amount.
+- Don't add pop_start_date <= date('now') unless asked about "ongoing" /
+  "started" — "active" only requires pop_end_date >= date('now').
+- Don't add award_type / is_excluded / NAICS / PSC filters unless mentioned.
+
+CONSISTENCY ACROSS PHRASINGS. The same WHERE clause must be generated
+whether the user asks "how many X" (returns COUNT) or "show me all X"
+(returns rows). Both phrasings describe the same set; only the
+projection / LIMIT differ. If "How many active contracts does RTI have
+with NCHHSTP?" gets a 3-clause WHERE, then "Show me all active contracts
+RTI has with NCHHSTP" gets the SAME 3 clauses, plus LIMIT 50.`;
 
 export const M1_MODEL_ID = 'algocrat/awards-sql-lora';
 

@@ -17,6 +17,9 @@ type AskResponse = {
   sql?: string;
   cols?: string[];
   rows?: unknown[][];
+  /** Total matching rows (sql_query intent). The `rows` field is
+   *  capped at 50; `count` is the unbounded total off the same WHERE. */
+  count?: number;
   audit_ids: number[];
   error?: string;
 };
@@ -502,11 +505,28 @@ function AssistantBody({ response }: { response: AskResponse }) {
   }
 
   // sql_query or similar_awards
+  const showCount = response.intent === 'sql_query' && typeof response.count === 'number';
+  const visibleRows = response.rows?.length ?? 0;
   return (
     <div className="space-y-2">
       {response.summary && (
         <div className="whitespace-pre-wrap break-words leading-relaxed">
           {response.summary}
+        </div>
+      )}
+      {showCount && (
+        <div className="rounded-lg border border-border/70 bg-brand-teal-deep/40 px-3 py-2 text-xs leading-snug">
+          <span className="font-mono text-base font-bold tabular-nums text-brand-vermilion-soft">
+            {fmtIntCompact(response.count!)}
+          </span>
+          <span className="ml-2 text-muted-soft">
+            {response.count === 1 ? 'matching record' : 'matching records'}
+          </span>
+          {visibleRows > 0 && response.count! > visibleRows && (
+            <span className="ml-2 text-muted-soft">
+              · showing first {visibleRows}
+            </span>
+          )}
         </div>
       )}
       {(response.sql || (response.cols && response.rows)) && (
@@ -517,11 +537,15 @@ function AssistantBody({ response }: { response: AskResponse }) {
           label={response.intent === 'similar_awards' ? 'View results' : 'View SQL / data'}
         />
       )}
-      {!response.summary && !response.cols && (
+      {!response.summary && !response.cols && !showCount && (
         <div className="text-xs text-muted">(no data returned)</div>
       )}
     </div>
   );
+}
+
+function fmtIntCompact(n: number): string {
+  return n.toLocaleString('en-US');
 }
 
 function SqlDataDisclosure({

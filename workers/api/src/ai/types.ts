@@ -34,6 +34,11 @@ export interface AskResponse {
   sql?:     string;
   rows?:    unknown[][];
   cols?:    string[];
+  /** For sql_query: the total row count behind `rows` (which is
+   *  LIMIT-50'd). Decoupled from the projection so a single user
+   *  question always yields both an aggregate ("44 contracts") and a
+   *  visible sample ("here are the first 50") off one WHERE clause. */
+  count?:   number;
   summary?: string;
   answer?:  string;          // M3 general response
   error?:   string;

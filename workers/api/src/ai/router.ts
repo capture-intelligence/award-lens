@@ -19,6 +19,7 @@ import { callM1, M1_MODEL_ID } from './m1_sql.js';
 import { callM2, M2_MODEL_ID } from './m2_local.js';
 import { callM3, M3_MODEL_ID, polishSqlWithClaude, polishSqlWithWorkersAI } from './m3_external.js';
 import { resolveEntities } from './aliases.js';
+import { splitCountAndRows } from './sql_split.js';
 import { recordAudit, hashQuestion } from './audit.js';
 
 const EMBED_MODEL = '@cf/baai/bge-base-en-v1.5';
@@ -316,9 +317,35 @@ export async function handleAskV2(
       return c.json({ intent, error: `SQL generation failed: ${msg}`, audit_ids: auditIds } satisfies AskResponse, 500);
     }
 
+    // Split M1's single SQL into a count query + a rows query off the
+    // same WHERE clause. Eliminates the failure mode where "how many X"
+    // and "show me all X" generated divergent SQL — they now share one
+    // generated WHERE and we always return both halves.
+    const split = splitCountAndRows(sql);
+
     let queryResult: D1QueryResult;
+    let totalCount: number | undefined;
     try {
-      queryResult = await executeSQL(db, sql);
+      if (split.split && split.countSql !== split.rowsSql) {
+        const [rowsRes, countRes] = await Promise.all([
+          executeSQL(db, split.rowsSql),
+          executeSQL(db, split.countSql),
+        ]);
+        queryResult = rowsRes;
+        // The count query always returns exactly one row, one column.
+        const c0 = countRes.rows[0]?.[0];
+        if (typeof c0 === 'number') totalCount = c0;
+        else if (typeof c0 === 'string' && /^\d+$/.test(c0)) totalCount = Number(c0);
+      } else {
+        // Heuristic bailed (couldn't classify). Run the original once;
+        // if it's an aggregate, the lone numeric cell is the total.
+        queryResult = await executeSQL(db, sql);
+        if (queryResult.cols.length === 1 && queryResult.rows.length === 1) {
+          const v = queryResult.rows[0]?.[0];
+          if (typeof v === 'number') totalCount = v;
+          else if (typeof v === 'string' && /^\d+$/.test(v)) totalCount = Number(v);
+        }
+      }
     } catch (err) {
       return c.json({
         intent, sql, error: `SQL execution failed: ${String(err).slice(0, 200)}`,
@@ -330,7 +357,13 @@ export async function handleAskV2(
 
     let summary: string | undefined;
     try {
-      const m2 = await callM2(question, cols, rows, ai, modalApiKey, modalEndpoint);
+      // Pass the total count (when known) into M2's question framing so
+      // its summary phrasing stays consistent with what's actually in
+      // the warehouse, regardless of the LIMIT 50 on the rows.
+      const m2Question = totalCount != null
+        ? `${question}\n\n[INTERNAL: total matching rows = ${totalCount}; ${rows.length} shown below.]`
+        : question;
+      const m2 = await callM2(m2Question, cols, rows, ai, modalApiKey, modalEndpoint);
       summary = m2.summary;
       auditIds.push(await recordAudit(db, {
         userId, questionHash: qHash, intent: 'reasoning_local',
@@ -346,7 +379,10 @@ export async function handleAskV2(
       }));
     }
 
-    return c.json({ intent, sql, cols, rows, summary, audit_ids: auditIds } satisfies AskResponse);
+    return c.json({
+      intent, sql, cols, rows, count: totalCount, summary,
+      audit_ids: auditIds,
+    } satisfies AskResponse);
   }
 
   // ── general path: M3 (Anthropic, falls back to Workers AI) ────────────────

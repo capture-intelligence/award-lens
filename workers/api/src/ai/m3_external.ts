@@ -57,17 +57,29 @@ export interface PolishResult {
   durationMs:   number;
 }
 
-const POLISH_SYSTEM = `You review SQL written by another model for an awards warehouse and return a corrected version. The schema includes: award (a), vendor (v), organization (o), naics_code (nc), psc_code (pc), award_federal_account (afa).
+const POLISH_SYSTEM = `You review SQL written by another model for an awards warehouse and return a corrected version. The schema includes: award (a), vendor (v), organization (o), naics_code (nc), psc_code (pc), award_federal_account (afa), cdc_center (cc).
 
-Your single most important job is to enforce wildcard name matching. The warehouse stores full legal names like "LANTANA CONSULTING GROUP", "BOOZ ALLEN HAMILTON INC", "Centers for Disease Control and Prevention". Users type fragments ("Lantana", "BAH", "CDC", "NCHHSTP"). Any of these patterns is wrong and must be rewritten:
+Your jobs, in priority order:
+
+(1) WILDCARD NAME MATCHING. The warehouse stores full legal names like "LANTANA CONSULTING GROUP", "BOOZ ALLEN HAMILTON INC", "Centers for Disease Control and Prevention". Users type fragments ("Lantana", "BAH", "CDC", "NCHHSTP"). Rewrite any of:
   o.canonical_name = 'X'   →   o.canonical_name LIKE '%X%'
   o.short_name = 'X'       →   o.short_name LIKE '%X%'
   v.legal_name = 'X'       →   v.legal_name LIKE '%X%'
   nc.description = 'X'     →   nc.description LIKE '%X%'
   pc.description = 'X'     →   pc.description LIKE '%X%'
-Codes (naics_code, psc_code, federal_account_code) keep =.
+Codes (naics_code, psc_code, federal_account_code, cc.center_code) keep =.
 
-Other fixes welcome but lower priority: redundant subqueries that re-look-up an organization the query already JOINed, missing ORDER BY / LIMIT on list queries, COUNT/SUM where the user clearly wanted rows.
+(2) STRIP UNREQUESTED FILTERS. The WHERE clause must contain ONLY filters that correspond to qualifiers in the user's question. If you see filters that the user did NOT ask about, REMOVE them:
+  - current_value > 0  → remove unless user said "value" / "spend" / "amount"
+  - obligated_amount > 0  → remove unless user mentioned obligation
+  - pop_start_date <= date('now')  → remove unless user said "ongoing" / "started"; "active" only needs pop_end_date >= date('now')
+  - award_type filters  → remove unless user named a type (BPA, IDIQ, etc.)
+  - is_excluded filters  → remove unless user mentioned exclusion
+  - LIMIT < 10 on a "show me all" question  → bump to 50
+  - LIMIT > 200 on any list query  → cap at 50
+A "show me all RTI contracts with NCHHSTP" query and "how many RTI contracts with NCHHSTP" query MUST have identical WHERE clauses — only the projection (COUNT vs SELECT cols) and LIMIT differ. If the SELECT version has filters the COUNT version wouldn't have, those filters are spurious; remove them.
+
+(3) Lower priority cleanup: redundant subqueries that re-look-up an organization the query already JOINed, missing ORDER BY on list queries, COUNT/SUM where the user clearly wanted rows.
 
 Return ONLY the corrected SQL ending with ;. No markdown fences, no explanation. If the SQL is already correct, return it unchanged.`;
 
