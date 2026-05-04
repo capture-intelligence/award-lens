@@ -585,21 +585,25 @@
   border-color: var(--al-border-strong) !important;
 }
 
-/* Field chips (the draggable labels) — compact, with room for an absolute
-   X button (added at runtime by PivotShell for chips that have been placed
-   into a row/col/value zone). */
+/* Field chips (the draggable labels) — soft pill, no hard border.
+   A subtle background tint + 1px hairline (very low alpha) is enough
+   on the cream canvas; the heavy border on a teal-deep gradient was
+   reading as a "button-in-a-button" once we flipped to the light
+   theme. Drag affordance moves to a light shadow + cursor. */
 .awardlens-pivot .pvtAttr {
-  background: linear-gradient(180deg, var(--al-panel) 0%, var(--al-panel-elevated) 100%) !important;
+  background: var(--al-panel) !important;
   color: var(--al-text) !important;
-  border: 1px solid var(--al-border) !important;
-  border-radius: 8px !important;
-  padding: 3px 8px !important;
+  border: 0 !important;
+  box-shadow: 0 0 0 1px rgba(36, 72, 85, 0.10) !important;
+  border-radius: 999px !important;
+  padding: 3px 4px 3px 10px !important;
   margin: 2px !important;
-  font-size: 11.5px !important;
+  font-family: 'Inter', system-ui, sans-serif !important;
+  font-size: 11px !important;
   font-weight: 500 !important;
+  letter-spacing: 0.01em !important;
   cursor: grab !important;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset !important;
-  transition: transform 0.1s, border-color 0.12s, background 0.12s !important;
+  transition: box-shadow 0.12s, background 0.12s, transform 0.1s !important;
   display: inline-flex !important;
   align-items: center !important;
   gap: 4px !important;
@@ -607,50 +611,57 @@
 }
 .awardlens-pivot .pvtAttr:hover {
   background: var(--al-panel-elevated) !important;
-  border-color: var(--al-border-strong) !important;
+  box-shadow: 0 0 0 1px rgba(36, 72, 85, 0.20) !important;
   transform: translateY(-1px);
 }
 .awardlens-pivot .pvtAttr:active,
 .awardlens-pivot .pvtAttr.pvtDragging {
   cursor: grabbing !important;
   background: var(--al-accent-bg) !important;
-  border-color: var(--al-accent) !important;
+  box-shadow: 0 0 0 1px var(--al-accent) !important;
 }
 
-/* X button injected onto chips that have been placed in pvtRows / pvtCols /
-   pvtVals zones. PivotShell appends a <button class="pvtRemoveBtn"> at
-   runtime; the click handler removes the field from the axis. CSS keeps
-   it as a plain inline glyph — no border, no background, just an × that
-   tints vermilion on hover. */
-.awardlens-pivot .pvtRemoveBtn {
-  position: static !important;
+/* X button on placed chips — pure glyph, no chrome at all. The
+   important rules below override every default-button style modern
+   browsers ship (background gradient, focus ring, etc.) so what the
+   user sees is literally just the "×" character. */
+.awardlens-pivot .pvtRemoveBtn,
+.awardlens-pivot button.pvtRemoveBtn {
+  all: unset !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: auto !important;
-  height: auto !important;
-  margin: 0 0 0 4px !important;
+  margin: 0 2px 0 4px !important;
   padding: 0 !important;
-  border: 0 !important;
+  width: 14px !important;
+  height: 14px !important;
   background: transparent !important;
-  color: var(--al-text-muted) !important;
-  font-size: 13px !important;
-  font-weight: 500 !important;
+  background-image: none !important;
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  color: rgba(36, 72, 85, 0.55) !important;
+  font-family: 'Inter', system-ui, sans-serif !important;
+  font-size: 14px !important;
+  font-weight: 400 !important;
   line-height: 1 !important;
   cursor: pointer !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
   transition: color 0.12s !important;
 }
 .awardlens-pivot .pvtRemoveBtn:hover {
   color: var(--al-accent) !important;
   background: transparent !important;
   border: 0 !important;
+  box-shadow: none !important;
   transform: none !important;
 }
 .awardlens-pivot .pvtRemoveBtn:focus-visible {
   outline: 1px solid var(--al-accent) !important;
-  outline-offset: 1px !important;
+  outline-offset: 2px !important;
+  border-radius: 999px !important;
 }
 
 /* Filter trigger (the ▾ caret next to a chip) */
@@ -832,29 +843,45 @@
   color: var(--al-accent-soft) !important;
 }
 
-/* The pivot output table itself — tightened for compactness so a wide
-   pivot fits on screen without wrapping every cell. */
+/* The pivot output table — editorial, refined typography, hairline
+   borders only on the bottom of header rows and as faint vertical
+   separators between columns. No outer table border (the cream Card
+   provides the frame). Inter throughout, tabular-nums for the values. */
 .awardlens-pivot table.pvtTable {
-  border-collapse: separate !important;
-  border-spacing: 0 !important;
-  border: 1px solid var(--al-border) !important;
-  border-radius: 10px !important;
+  border-collapse: collapse !important;
+  border: 0 !important;
+  border-radius: 0 !important;
   overflow: hidden !important;
   background: var(--al-bg) !important;
   width: 100% !important;
+  font-family: 'Inter', system-ui, sans-serif !important;
   font-size: 11.5px !important;
-  margin-top: 8px !important;
+  margin-top: 12px !important;
 }
 
 .awardlens-pivot table.pvtTable th,
 .awardlens-pivot table.pvtTable td {
-  border: 1px solid var(--al-border) !important;
-  padding: 4px 8px !important;
+  border: 0 !important;
+  padding: 7px 12px !important;
   font-variant-numeric: tabular-nums lining-nums !important;
   color: var(--al-text) !important;
   background: var(--al-bg-row) !important;
   transition: background 0.1s !important;
-  line-height: 1.35 !important;
+  line-height: 1.4 !important;
+}
+
+/* Hairlines: bottom of every header cell, right of every cell except
+   the last column. 1px at very low alpha reads as printed grid rather
+   than UI chrome. */
+.awardlens-pivot table.pvtTable th {
+  border-bottom: 1px solid rgba(36, 72, 85, 0.18) !important;
+}
+.awardlens-pivot table.pvtTable td {
+  border-bottom: 1px solid rgba(36, 72, 85, 0.06) !important;
+}
+.awardlens-pivot table.pvtTable th:not(:last-child),
+.awardlens-pivot table.pvtTable td:not(:last-child) {
+  border-right: 1px solid rgba(36, 72, 85, 0.06) !important;
 }
 
 /* Header rows (pvtAxisLabel = "Awarding agency" type label,
@@ -864,19 +891,19 @@
 .awardlens-pivot table.pvtTable th.pvtColLabel,
 .awardlens-pivot table.pvtTable th.pvtRowLabel,
 .awardlens-pivot table.pvtTable th.pvtAttrLabel {
-  background: linear-gradient(180deg, var(--al-panel) 0%, var(--al-panel-elevated) 100%) !important;
+  background: var(--al-panel) !important;
   color: var(--al-text-soft) !important;
-  font-weight: 700 !important;
-  letter-spacing: 0.06em !important;
-  border-color: var(--al-border-strong) !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.04em !important;
 }
 
 .awardlens-pivot table.pvtTable th.pvtAxisLabel,
 .awardlens-pivot table.pvtTable th.pvtAttrLabel {
   text-transform: uppercase !important;
-  font-size: 10.5px !important;
-  letter-spacing: 0.10em !important;
+  font-size: 9.5px !important;
+  letter-spacing: 0.16em !important;
   color: var(--al-sage) !important;
+  font-weight: 700 !important;
 }
 
 .awardlens-pivot table.pvtTable th.pvtRowLabel {
@@ -885,8 +912,8 @@
   font-size: 11.5px !important;
   font-weight: 600 !important;
   color: var(--al-text) !important;
-  background: linear-gradient(90deg, var(--al-panel) 0%, var(--al-bg-elevated) 100%) !important;
-  border-right: 1px solid var(--al-border-strong) !important;
+  background: var(--al-panel) !important;
+  border-right: 1px solid rgba(36, 72, 85, 0.18) !important;
 }
 
 .awardlens-pivot table.pvtTable th.pvtColLabel {

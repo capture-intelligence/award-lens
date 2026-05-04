@@ -29,16 +29,6 @@ function lighten(color: string, shades: number): string {
   return c.formatHex();
 }
 
-/** Blend a hex/rgb colour toward black. Companion to lighten(); used to
- *  signal "collapsed" state (more density behind a + indicator). */
-function darken(color: string, shades: number): string {
-  const c = d3.rgb(color);
-  const t = Math.min(1, Math.max(0, shades) * 0.10);
-  c.r = c.r * (1 - t);
-  c.g = c.g * (1 - t);
-  c.b = c.b * (1 - t);
-  return c.formatHex();
-}
 
 export default function DataCoverageTree({
   data,
@@ -273,16 +263,7 @@ export default function DataCoverageTree({
       // Node circles
       nodeEnter.each(function (d: any) {
         const nodeGroup = d3.select(this);
-        const availability = d.data.availability;
-        const isCategory = d.data.category && d.depth > 0;
-        const isRoot = d.depth === 0;
         const isLeaf = !d.children && !d._children;
-
-        let fillColor = colors.public;
-        if (isRoot) fillColor = colors.root;
-        else if (availability === 'both') fillColor = colors.both;
-        else if (availability === 'restricted') fillColor = colors.restricted;
-        else if (isCategory) fillColor = colors.category;
 
         const cursor = isLeaf
           ? (onLeafClick ? 'pointer' : 'default')
@@ -302,24 +283,20 @@ export default function DataCoverageTree({
           .attr('opacity', cfg.linkBaseOpacity)
           .style('pointer-events', 'none');
 
-        // Body fill carries the state — three distinct levels:
-        //   collapsed (has hidden children, shows +) → DARK center
-        //     (deep mix toward black; reads as "press me, there's
-        //      something packed behind")
-        //   expanded  (children visible,    shows −) → VERY LIGHT
-        //     (deep mix toward white; reads as "already opened")
-        //   leaf      (no children at all,  no indicator) → LIGHT
-        //     (lighter than intrinsic but not as pale as expanded —
-        //      keeps the category tint readable)
+        // Body fill — fixed state colors so a fully-expanded node looks
+        // identical regardless of its category (sage / terracotta /
+        // teal). The category hue still lives in the halo + stroke;
+        // only the inner disc switches between two flat tones.
+        //   collapsed (shows +) → deep teal #1a3540
+        //   expanded  (shows −) → warm off-white #f5efe5
+        //   leaf       (none)   → same warm off-white as expanded
         const stateFill =
-          d._children ? darken(fillColor, 6)  : // collapsed → dark
-          d.children  ? lighten(fillColor, 8) : // expanded  → very light
-                        lighten(fillColor, 5);  // leaf      → light
+          d._children ? '#1a3540' :  // collapsed → dark
+                        '#f5efe5';   // expanded OR leaf → very light
 
-        // Indicator ink flips with state: light fills get dark teal
-        // ink, dark fills get cream ink. Without the flip the +/−
-        // lines disappear into the body when the fill is too pale.
-        const indicatorInk = d._children ? '#FBE9D0' : '#1a3540';
+        // Indicator ink is the inverse of stateFill so the +/− lines
+        // always have full WCAG contrast against the disc behind them.
+        const indicatorInk = d._children ? '#f5efe5' : '#1a3540';
         nodeGroup
           .append('circle')
           .attr('r', nodeRadius)
