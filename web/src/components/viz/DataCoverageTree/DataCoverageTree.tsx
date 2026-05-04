@@ -277,24 +277,41 @@ export default function DataCoverageTree({
           ? (onLeafClick ? 'pointer' : 'default')
           : (d.children || d._children ? 'pointer' : 'default');
 
+        // Outer halo — wider stroke at lower opacity, matching the
+        // link-base path. Drawn first so the body covers its interior,
+        // leaving a visible halo ring outside the body's stroke. Lines
+        // up exactly with the lighter halo on each incoming link.
+        nodeGroup
+          .append('circle')
+          .attr('class', 'node-halo')
+          .attr('r', nodeRadius)
+          .attr('fill', 'none')
+          .attr('stroke', strokeForData(d.data))
+          .attr('stroke-width', linkStrokeWidth)
+          .attr('opacity', cfg.linkBaseOpacity)
+          .style('pointer-events', 'none');
+
+        // Body — same colour as the link overlay, same stroke width,
+        // so the visual reads as a single continuous line of color
+        // that resolves at the node's outline.
         nodeGroup
           .append('circle')
           .attr('r', nodeRadius)
           .attr('fill', fillColor)
-          // Stroke matches the incoming link's overlay — same colour
-          // (intrinsic, lightened) and same width — so the link reads
-          // as a continuous line that resolves at the node's outline.
           .attr('stroke', strokeForData(d.data))
           .attr('stroke-width', linkOverlayWidth)
           .style('cursor', cursor)
           .style('filter', 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2))');
 
         if (d._children || d.children) {
+          // dominant-baseline='central' centers against the glyph's
+          // typographic center — correct for symbols like + / − whose
+          // visual midline doesn't sit at Latin-cap baseline.
           nodeGroup
             .append('text')
             .attr('class', 'node-indicator')
             .attr('text-anchor', 'middle')
-            .attr('dy', '0.35em')
+            .attr('dominant-baseline', 'central')
             .attr('fill', cfg.indicatorColor)
             .attr('font-size', `${nodeRadius * 1.2}px`)
             .attr('font-weight', 'bold')
