@@ -255,30 +255,42 @@ function deterministicVendorAliases(name: string): string[] {
   return Array.from(out).filter((a) => a.toLowerCase() !== canonical);
 }
 
-/** Insert a batch of aliases. Uses INSERT OR IGNORE against the unique index. */
+/** Insert aliases via db.batch() — a single subrequest regardless of row
+ *  count, which matters because Workers free tier caps a single
+ *  invocation at 50 subrequests total. Looping .run() per alias hits
+ *  that ceiling fast on a 500-vendor build. */
 async function persistAliases(
   db: D1Database,
   kind: 'vendor' | 'organization' | 'center',
   rows: Array<{ canonical_id: string | null; canonical_name: string; aliases: string[] }>,
 ): Promise<number> {
   const ts = new Date().toISOString();
-  let inserted = 0;
-  // D1 doesn't support arbitrary multi-row inserts cleanly; loop and batch.
   const stmt = db.prepare(`
     INSERT OR IGNORE INTO entity_alias
       (alias, alias_lower, entity_kind, canonical_id, canonical_name, source, created_at)
     VALUES (?, ?, ?, ?, ?, 'claude', ?)
   `);
+  const bound = [] as ReturnType<typeof stmt.bind>[];
   for (const row of rows) {
     for (const raw of row.aliases) {
       const alias = raw.trim();
       if (!alias || alias.length > 64) continue;
-      // Skip aliases that are identical to the canonical name — no value
-      // adding those, the LIKE match would catch them anyway.
+      // Skip aliases identical to the canonical name — LIKE would catch
+      // those naturally, no need to take a row in entity_alias.
       if (alias.toLowerCase() === row.canonical_name.toLowerCase()) continue;
-      const r = await stmt.bind(
+      bound.push(stmt.bind(
         alias, alias.toLowerCase(), kind, row.canonical_id, row.canonical_name, ts,
-      ).run();
+      ));
+    }
+  }
+  if (bound.length === 0) return 0;
+  // D1 batch caps at ~100 statements per call in practice; chunk to be safe.
+  let inserted = 0;
+  const BATCH = 80;
+  for (let i = 0; i < bound.length; i += BATCH) {
+    const slice = bound.slice(i, i + BATCH);
+    const results = await db.batch(slice);
+    for (const r of results) {
       if (r.meta?.changes) inserted += r.meta.changes;
     }
   }
