@@ -304,19 +304,34 @@ export default function DataCoverageTree({
           .style('filter', 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2))');
 
         if (d._children || d.children) {
-          // dominant-baseline='central' centers against the glyph's
-          // typographic center — correct for symbols like + / − whose
-          // visual midline doesn't sit at Latin-cap baseline.
-          nodeGroup
-            .append('text')
+          // Geometric +/− via <line> elements — perfectly centered
+          // by construction, regardless of font metrics, browser, or
+          // glyph design. Always draw the horizontal stroke; add the
+          // vertical stroke only when the node is collapsed (showing +
+          // to indicate "click to expand"). Round line caps so the
+          // strokes terminate cleanly inside the node.
+          const indicatorHalf   = Math.round(nodeRadius * 0.42);
+          const indicatorStroke = Math.max(1.5, nodeRadius * 0.18);
+          const indicatorGroup  = nodeGroup
+            .append('g')
             .attr('class', 'node-indicator')
-            .attr('text-anchor', 'middle')
-            .attr('dominant-baseline', 'central')
-            .attr('fill', cfg.indicatorColor)
-            .attr('font-size', `${nodeRadius * 1.2}px`)
-            .attr('font-weight', 'bold')
-            .style('pointer-events', 'none')
-            .text(d._children ? '+' : '−');
+            .style('pointer-events', 'none');
+          indicatorGroup
+            .append('line')
+            .attr('x1', -indicatorHalf).attr('x2', indicatorHalf)
+            .attr('y1', 0).attr('y2', 0)
+            .attr('stroke', cfg.indicatorColor)
+            .attr('stroke-width', indicatorStroke)
+            .attr('stroke-linecap', 'round');
+          if (d._children) {
+            indicatorGroup
+              .append('line')
+              .attr('x1', 0).attr('x2', 0)
+              .attr('y1', -indicatorHalf).attr('y2', indicatorHalf)
+              .attr('stroke', cfg.indicatorColor)
+              .attr('stroke-width', indicatorStroke)
+              .attr('stroke-linecap', 'round');
+          }
         }
       });
 
