@@ -17,7 +17,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     // Surface to console for ops; production errors land in Cloudflare logs.
-    console.error('AwardLens AI render error:', error, info);
+    console.error('CaptureRadar render error:', error, info);
   }
 
   render() {

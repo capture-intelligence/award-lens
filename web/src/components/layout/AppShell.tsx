@@ -3,7 +3,7 @@ import { Topbar } from './Topbar';
 import { Sidebar } from './Sidebar';
 import { cn } from '@/lib/utils';
 
-const SIDEBAR_STORAGE_KEY = 'awardlens.sidebar.collapsed';
+const SIDEBAR_STORAGE_KEY = 'captureradar.sidebar.collapsed';
 
 function readCollapsed(): boolean {
   if (typeof window === 'undefined') return false;

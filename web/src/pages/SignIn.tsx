@@ -23,7 +23,7 @@ export function SignInPage() {
         <div className="relative flex h-full flex-col justify-between px-14 py-14">
           <div className="flex items-center gap-3">
             <Logo size={44} withGlow />
-            <Wordmark size="lg" tagline="Capture Intelligence" />
+            <Wordmark size="lg" tagline="Federal Capture Intelligence" />
           </div>
 
           <motion.div
@@ -33,27 +33,28 @@ export function SignInPage() {
             className="max-w-xl"
           >
             <h1 className="text-5xl font-black leading-[1.05] tracking-tight text-foreground">
-              Federal procurement,{' '}
+              Every federal opportunity,{' '}
               <span className="bg-gradient-to-r from-brand-vermilion via-brand-vermilion-soft to-brand-cream bg-clip-text text-transparent">
-                seen with precision
+                on your radar
               </span>
               .
             </h1>
             <p className="mt-5 max-w-lg text-base text-muted">
-              AwardLens AI replicates USAspending, SAM.gov, and Grants.gov into a single
-              tamper-evident store — then turns it into views you can scope, share, and act on.
+              CaptureRadar indexes every federal contract, grant, awardee, agency, and document
+              into a single AI-augmented intelligence layer — so your business development team
+              spots the right opportunity, scores it, and pursues it before competitors notice.
             </p>
 
             <ul className="mt-10 space-y-4">
-              <Feature icon={Database}    text="Awards, exclusions, and opportunities refreshed on schedule." />
-              <Feature icon={Layers}      text="Curated views — admins scope each one to a department, agency, or office." />
-              <Feature icon={ShieldCheck} text="Per-view access control with admin approval and audit trail." />
-              <Feature icon={Sparkles}    text="Sub-second analytics with retry-aware ingestion." />
+              <Feature icon={Database}    text="8M+ contract opportunities, 80M+ awards, 2.2M awardees — refreshed daily." />
+              <Feature icon={Layers}      text="Pursuit pipelines with kanban, funnel analytics, and win/loss tracking." />
+              <Feature icon={Sparkles}    text="AI summaries, value estimates, semantic match scoring, document Q&A." />
+              <Feature icon={ShieldCheck} text="Multi-channel alerts to email, Slack, and Teams the moment a fit appears." />
             </ul>
           </motion.div>
 
           <div className="text-xs text-muted-soft">
-            USAspending · SAM.gov · Grants.gov
+            SAM.gov · USAspending.gov · Grants.gov · DLA · GSA · GAO
           </div>
         </div>
       </div>
@@ -75,7 +76,7 @@ export function SignInPage() {
           <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-brand-sage">
             Sign in
           </div>
-          <h2 className="text-2xl font-bold tracking-tight text-foreground">Welcome to AwardLens AI</h2>
+          <h2 className="text-2xl font-bold tracking-tight text-foreground">Welcome to CaptureRadar</h2>
           <p className="mt-2 text-sm text-muted">
             Continue with a federated identity provider. New accounts require admin approval.
           </p>

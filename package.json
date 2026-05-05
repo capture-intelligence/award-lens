@@ -1,8 +1,8 @@
 {
-  "name": "awards-pipeline",
-  "version": "0.1.0",
+  "name": "captureradar",
+  "version": "0.2.0",
   "private": true,
-  "description": "Cloudflare-native federal awards data pipeline (USAspending.gov + SAM.gov bulk)",
+  "description": "CaptureRadar — federal contracting and grant intelligence platform.",
   "packageManager": "pnpm@9.12.0",
   "scripts": {
     "bootstrap": "node scripts/bootstrap.mjs",
@@ -16,7 +16,8 @@
     "dev:sam": "pnpm --filter @awards/sam-bulk-workflow dev",
     "dev:grants": "pnpm --filter @awards/grants-gov-workflow dev",
     "dev:sam-api": "pnpm --filter @awards/sam-api dev",
-    "dev:web": "pnpm --filter @awards/web dev",
+    "dev:web": "pnpm --filter @captureradar/web dev",
+    "dev:api-node": "pnpm --filter @captureradar/api-node dev",
     "db:create": "wrangler d1 create awards-warehouse",
     "db:migrate:local": "wrangler d1 migrations apply awards-warehouse --local --config workers/api/wrangler.toml",
     "db:migrate:remote": "wrangler d1 migrations apply awards-warehouse --remote --config workers/api/wrangler.toml",

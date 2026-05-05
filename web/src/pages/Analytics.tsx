@@ -118,7 +118,7 @@ function downloadBlob(blob: Blob, name: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 function safeFilename(name: string, ext: string): string {
-  const stem = name.replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '').toLowerCase() || 'awardlens';
+  const stem = name.replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '').toLowerCase() || 'captureradar';
   return `${stem}_${new Date().toISOString().slice(0, 10)}.${ext}`;
 }
 function exportCsv(rows: Record<string, unknown>[], viewName: string) {

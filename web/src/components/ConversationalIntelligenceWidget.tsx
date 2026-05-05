@@ -260,7 +260,7 @@ function Header({ onClose, hasContext }: { onClose: () => void; hasContext: bool
           <Sparkles className="h-4 w-4" />
         </span>
         <div>
-          <div className="text-sm font-semibold leading-tight text-foreground">Ask AwardLens</div>
+          <div className="text-sm font-semibold leading-tight text-foreground">Ask CaptureRadar</div>
           <div className="text-[10px] uppercase tracking-[0.14em] text-muted-soft">
             {hasContext ? (
               <span className="text-brand-sage">Award context active</span>
@@ -410,7 +410,7 @@ function ReportInaccuracy({
         examples:               examples.trim() || undefined,
       });
       setSubmitted(true);
-      toast.success('Report submitted — thanks for helping improve AwardLens.');
+      toast.success('Report submitted — thanks for helping improve CaptureRadar.');
     } catch (err) {
       const msg = err instanceof ApiError
         ? `Failed (${err.status})`

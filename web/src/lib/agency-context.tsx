@@ -12,8 +12,8 @@ import * as React from 'react';
 import { api, ApiError } from './api';
 import { useAuth } from './auth-context';
 
-const STORAGE_KEY        = 'awardlens.awarding_agency';
-const CENTER_STORAGE_KEY = 'awardlens.center_code';
+const STORAGE_KEY        = 'captureradar.awarding_agency';
+const CENTER_STORAGE_KEY = 'captureradar.center_code';
 const DEFAULT_AGENCY     = 'Centers for Disease Control and Prevention';
 
 // Default filter window every time the scope (agency/center) resets.

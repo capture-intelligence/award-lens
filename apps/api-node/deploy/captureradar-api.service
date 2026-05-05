@@ -1,0 +1,30 @@
+[Unit]
+Description=CaptureRadar API (Hono + Postgres + Redis)
+After=network-online.target postgresql.service redis.service redis-server.service
+Wants=network-online.target postgresql.service redis.service
+
+[Service]
+Type=simple
+User=captureradar
+Group=captureradar
+WorkingDirectory=/opt/captureradar/apps/api-node
+EnvironmentFile=/etc/captureradar/api.env
+ExecStart=/usr/bin/node dist/index.js
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+LimitNOFILE=65536
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/captureradar
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target
