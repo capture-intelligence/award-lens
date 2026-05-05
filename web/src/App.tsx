@@ -13,6 +13,13 @@ import { SignInPage } from '@/pages/SignIn';
 import { PendingPage } from '@/pages/Pending';
 import { RejectedPage } from '@/pages/Rejected';
 import { AnalyticsPage } from '@/pages/Analytics';
+import { DashboardHomePage } from '@/pages/DashboardHome';
+import { ContractOpportunitiesListPage } from '@/pages/opportunities/ContractOpportunitiesList';
+import { ContractOpportunityDetailPage } from '@/pages/opportunities/ContractOpportunityDetail';
+import { AwardeesListPage } from '@/pages/awardees/AwardeesList';
+import { AwardeeDetailPage } from '@/pages/awardees/AwardeeDetail';
+import { MarketAnalysisPage } from '@/pages/MarketAnalysis';
+import { SettingsPage } from '@/pages/Settings';
 import { QualityPage } from '@/pages/Quality';
 import { SchedulePage } from '@/pages/Schedule';
 import { RunsPage } from '@/pages/Runs';
@@ -114,12 +121,12 @@ function AppRoutes() {
   return (
     <Routes>
       {/* ── Explore ───────────────────────────────────────────────────── */}
-      <Route path={routes.home}      element={<AnalyticsPage />} />
+      <Route path={routes.home}      element={<DashboardHomePage />} />
       <Route path={routes.searchAll} element={<StubPage title="Search All Federal" eyebrow="Explore" />} />
 
       {/* ── Business Development — Opportunities ─────────────────────── */}
-      <Route path={routes.contractOpps} element={<StubPage title="Federal Contract Opportunities" eyebrow="Business Development" />} />
-      <Route path={routes.contractOpp}  element={<StubPage title="Contract Opportunity" eyebrow="Detail" />} />
+      <Route path={routes.contractOpps} element={<ContractOpportunitiesListPage />} />
+      <Route path={routes.contractOpp}  element={<ContractOpportunityDetailPage />} />
       <Route path={routes.grantOpps}    element={<StubPage title="Federal Grant Opportunities" eyebrow="Business Development" />} />
       <Route path={routes.grantOpp}     element={<StubPage title="Grant Opportunity" eyebrow="Detail" />} />
       <Route path={routes.forecasts}    element={<StubPage title="Forecasts" eyebrow="Business Development" />} />
@@ -138,7 +145,7 @@ function AppRoutes() {
       <Route path={routes.laborPricing}    element={<StubPage title="Labor Pricing" eyebrow="Business Development" />} />
 
       {/* ── Market Intelligence ──────────────────────────────────────── */}
-      <Route path={routes.marketAnalysis}      element={<StubPage title="Market Analysis" eyebrow="Market Intelligence" />} />
+      <Route path={routes.marketAnalysis}      element={<MarketAnalysisPage />} />
       <Route path={routes.vehicles}            element={<StubPage title="Contract Vehicles" eyebrow="Market Intelligence" />} />
       <Route path={routes.vehicle}             element={<StubPage title="Vehicle" eyebrow="Detail" />} />
       <Route path={routes.contractAwards}      element={<StubPage title="Federal Contract Awards" eyebrow="Market Intelligence" />} />
@@ -149,8 +156,8 @@ function AppRoutes() {
       <Route path={routes.grantAward}          element={<StubPage title="Grant Award" eyebrow="Detail" />} />
 
       {/* ── Awardees / Agencies / People ────────────────────────────── */}
-      <Route path={routes.awardees} element={<StubPage title="Federal Awardees" eyebrow="Market Intelligence" />} />
-      <Route path={routes.awardee}  element={<StubPage title="Awardee" eyebrow="Detail" />} />
+      <Route path={routes.awardees} element={<AwardeesListPage />} />
+      <Route path={routes.awardee}  element={<AwardeeDetailPage />} />
       <Route path={routes.agencies} element={<StubPage title="Federal Agencies" eyebrow="Market Intelligence" />} />
       <Route path={routes.agency}   element={<StubPage title="Agency" eyebrow="Detail" />} />
       <Route path={routes.people}   element={<StubPage title="Federal People" eyebrow="Market Intelligence" />} />
@@ -200,8 +207,8 @@ function AppRoutes() {
       <Route path={routes.downloads}     element={<StubPage title="Downloads"      eyebrow="Tools" />} />
 
       {/* ── Settings (unified — DIFFERENTIATION) ────────────────────── */}
-      <Route path={routes.settings}    element={<StubPage title="Settings" eyebrow="Account" />} />
-      <Route path={routes.settingsTab} element={<StubPage title="Settings" eyebrow="Account" />} />
+      <Route path={routes.settings}    element={<SettingsPage />} />
+      <Route path={routes.settingsTab} element={<SettingsPage />} />
 
       {/* ── Pricing ──────────────────────────────────────────────────── */}
       <Route path={routes.pricing} element={<StubPage title="Pricing" eyebrow="Plans" />} />
