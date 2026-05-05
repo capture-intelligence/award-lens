@@ -1,6 +1,7 @@
 import * as React from 'react';
 import {
   TableProperties,
+  Briefcase,
   Activity,
   CalendarRange,
   History,
@@ -28,7 +29,8 @@ const SECTIONS: NavSection[] = [
   {
     title: 'Explore',
     items: [
-      { to: '#/', label: 'Analytics', icon: TableProperties },
+      { to: '#/',         label: 'Analytics', icon: TableProperties },
+      { to: '#/pipeline', label: 'Pipeline',  icon: Briefcase },
     ],
   },
   {

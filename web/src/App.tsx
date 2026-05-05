@@ -18,6 +18,7 @@ import { AdminUsersPage } from '@/pages/AdminUsers';
 import { AdminViewsPage } from '@/pages/AdminViews';
 import { AdminAccessRequestsPage } from '@/pages/AdminAccessRequests';
 import { BrowseViewsPage } from '@/pages/BrowseViews';
+import { PipelinePage } from '@/pages/Pipeline';
 import { PlaceholderPage } from '@/pages/Placeholder';
 import { ConversationalIntelligenceWidget } from '@/components/ConversationalIntelligenceWidget';
 import { AwardDetail } from '@/components/AwardDetail';
@@ -97,6 +98,7 @@ function RouteView({ route }: { route: string }) {
   // Default landing → Analytics. Users pick a view from the topbar, then
   // explore everything in one consolidated table.
   if (route === '/' || route === '')                  return <AnalyticsPage />;
+  if (route === '/pipeline')                          return <PipelinePage />;
   if (route === '/views')                             return <BrowseViewsPage />;
   // Operate-section pages are admin-only — non-admins fall through to 404
   // if they hit the URL directly.

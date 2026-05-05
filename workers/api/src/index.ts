@@ -2543,6 +2543,136 @@ app.get('/opportunities/:id', async (c) => {
   return c.json(row);
 });
 
+// ---------- Pipeline (SAM.gov contract solicitations) ----------
+//
+// User-facing list of upcoming/open solicitations with the AI-generated
+// SOW summary attached when available. The dashboard's Pipeline tab calls
+// /pipeline/solicitations to populate the table view, then /pipeline/solicitations/:id
+// for the expandable detail panel.
+//
+// Auth: requires a signed-in user (resolveScope handles this). No view-
+// scoping for v1 — solicitations aren't view-classified yet, all signed-in
+// users see the full CDC pipeline.
+
+app.get('/pipeline/solicitations', async (c) => {
+  const scope = await resolveScope(c);
+  if (scope.kind === 'error') return scope.response;
+
+  const q          = c.req.query('q')?.trim();
+  const noticeType = c.req.query('notice_type');
+  const setAside   = c.req.query('set_aside');
+  const openOnly   = c.req.query('open_only') !== 'false';
+  const limit      = Math.min(Number(c.req.query('limit') ?? 100), 500);
+
+  const filters: string[] = [];
+  const params: unknown[] = [];
+
+  if (q) {
+    filters.push('(s.title LIKE ? OR s.sol_number LIKE ? OR s.description LIKE ?)');
+    const like = `%${q}%`;
+    params.push(like, like, like);
+  }
+  if (noticeType) { filters.push('s.notice_type = ?'); params.push(noticeType); }
+  if (setAside)   { filters.push('s.set_aside = ?');   params.push(setAside); }
+  if (openOnly) {
+    filters.push("(s.response_deadline IS NULL OR date(s.response_deadline) >= date('now'))");
+  }
+
+  const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+
+  // Aggregate attachments per solicitation: count, summarized count, and
+  // pick the longest extracted attachment as the "primary" doc (usually
+  // the actual SOW vs. cover letters or amendments).
+  const result = await c.env.DB.prepare(`
+    WITH att AS (
+      SELECT
+        solicitation_id,
+        COUNT(*) AS attachment_count,
+        SUM(CASE WHEN extracted_text IS NOT NULL THEN 1 ELSE 0 END) AS extracted_count,
+        SUM(CASE WHEN sow_summary IS NOT NULL THEN 1 ELSE 0 END)    AS summarized_count,
+        MAX(extracted_chars) AS max_chars
+      FROM solicitation_attachment
+      GROUP BY solicitation_id
+    )
+    SELECT
+      s.solicitation_id, s.sol_number, s.notice_type, s.title,
+      s.posted_date, s.response_deadline, s.archive_date,
+      s.agency, s.sub_agency, s.office,
+      s.naics_codes, s.psc_codes, s.set_aside,
+      s.pop_state, s.pop_city,
+      s.link,
+      COALESCE(att.attachment_count,  0) AS attachment_count,
+      COALESCE(att.extracted_count,   0) AS extracted_count,
+      COALESCE(att.summarized_count,  0) AS summarized_count,
+      CAST(julianday(s.response_deadline) - julianday('now') AS INTEGER) AS days_to_deadline
+    FROM solicitation s
+    LEFT JOIN att ON att.solicitation_id = s.solicitation_id
+    ${where}
+    ORDER BY
+      CASE WHEN s.response_deadline IS NULL THEN 1 ELSE 0 END,
+      s.response_deadline ASC,
+      s.posted_date DESC
+    LIMIT ?
+  `).bind(...params, limit).all();
+
+  return c.json({ count: result.results.length, results: result.results });
+});
+
+app.get('/pipeline/solicitations/:id', async (c) => {
+  const scope = await resolveScope(c);
+  if (scope.kind === 'error') return scope.response;
+  const id = c.req.param('id');
+  const sol = await c.env.DB.prepare(
+    'SELECT * FROM solicitation WHERE solicitation_id = ?',
+  ).bind(id).first();
+  if (!sol) return c.json({ error: 'not found' }, 404);
+
+  // Pick the longest summarized attachment as the "primary" — its summary
+  // is the most useful for triage. Other attachments returned alongside.
+  const atts = await c.env.DB.prepare(`
+    SELECT attachment_id, file_name, file_url, file_type,
+           content_type, size_bytes, extracted_chars, extract_error,
+           sow_summary, summarized_at, extracted_at
+    FROM solicitation_attachment
+    WHERE solicitation_id = ?
+    ORDER BY
+      CASE WHEN sow_summary IS NOT NULL THEN 0 ELSE 1 END,
+      extracted_chars DESC NULLS LAST
+  `).bind(id).all();
+
+  return c.json({ solicitation: sol, attachments: atts.results });
+});
+
+app.get('/pipeline/stats', async (c) => {
+  const scope = await resolveScope(c);
+  if (scope.kind === 'error') return scope.response;
+  const r = await c.env.DB.prepare(`
+    SELECT
+      COUNT(*) AS total_solicitations,
+      SUM(CASE WHEN response_deadline IS NOT NULL AND date(response_deadline) >= date('now') THEN 1 ELSE 0 END) AS open_now,
+      SUM(CASE WHEN response_deadline IS NOT NULL
+                AND date(response_deadline) >= date('now')
+                AND date(response_deadline) <= date('now', '+14 days') THEN 1 ELSE 0 END) AS due_in_14d,
+      (SELECT COUNT(*) FROM solicitation_attachment WHERE sow_summary IS NOT NULL) AS summarized_attachments
+    FROM solicitation
+  `).first();
+  // Distinct notice types for filter chips
+  const types = await c.env.DB.prepare(`
+    SELECT notice_type, COUNT(*) AS n FROM solicitation GROUP BY notice_type ORDER BY n DESC
+  `).all();
+  // Distinct set-asides for filter chips
+  const setasides = await c.env.DB.prepare(`
+    SELECT set_aside, COUNT(*) AS n FROM solicitation
+    WHERE set_aside IS NOT NULL AND set_aside <> ''
+    GROUP BY set_aside ORDER BY n DESC
+  `).all();
+  return c.json({
+    ...(r ?? {}),
+    notice_types: types.results,
+    set_asides:   setasides.results,
+  });
+});
+
 app.get('/stats/opportunities-by-agency', async (c) => {
   const result = await c.env.DB.prepare(`
     SELECT agency_name AS agency,
