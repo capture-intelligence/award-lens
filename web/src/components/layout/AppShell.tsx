@@ -21,16 +21,11 @@ export function useCollapseSidebar() {
   return React.useContext(SidebarCollapseContext);
 }
 
-export function AppShell({
-  route,
-  children,
-}: {
-  route: string;
-  children: React.ReactNode;
-}) {
-  // Sidebar collapsed state lives here so the main column can react to it
-  // (drop the max-width cap → the analytics canvas, pivot grid, and tree
-  // visualization all expand into the freed real estate).
+/**
+ * AppShell — top bar + sidebar + main content. Children come from
+ * react-router's <Outlet/> so each route renders inside the same chrome.
+ */
+export function AppShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = React.useState<boolean>(readCollapsed);
 
   React.useEffect(() => {
@@ -40,42 +35,28 @@ export function AppShell({
 
   return (
     // h-screen (not min-h-screen) locks the root to exactly the viewport
-    // height. With min-h-screen the root would grow with content, which
-    // sabotages the flex-1 chain inside Analytics — children get the
-    // grown-out height as their flex basis and end up shorter than viewport.
-    // overflow-hidden here keeps stray content from forcing root taller;
-    // <main> below carries its own overflow-y-auto so any page taller than
-    // viewport (Settings, etc.) can still scroll inside the main column.
+    // height so the inner flex chain can `flex-1` without the page growing
+    // taller than viewport. <main> carries its own overflow-y-auto.
     <SidebarCollapseContext.Provider value={setCollapsed}>
-    <div className="flex h-screen flex-col overflow-hidden">
-      <Topbar />
-      <div className="flex flex-1 min-h-0">
-        <Sidebar
-          currentRoute={route}
-          collapsed={collapsed}
-          onToggle={() => setCollapsed((v) => !v)}
-        />
-        <main className="flex flex-1 min-h-0 flex-col overflow-x-hidden overflow-y-auto">
-          {/* Inner content column is a flex container so any page that
-              opts in (Analytics) can have its tab panels grow to fill the
-              full remaining viewport height. The min-h-0 on <main> is
-              what lets that flex chain actually shrink — without it,
-              flex-1 children would push past the viewport instead. */}
-          {/* pt-8 keeps breathing room under the topbar; pb-0 lets a
-              flex-1 child (e.g. Analytics' Tab card) reach the viewport
-              edge. The old py-8 left ~32px of dead space below content
-              that was already flex-1ing to fill. */}
-          <div
-            className={cn(
-              'mx-auto flex h-full w-full flex-col px-6 pt-8 pb-0 transition-[max-width] duration-200 ease-out',
-              collapsed ? 'max-w-none' : 'max-w-[1400px]',
-            )}
-          >
-            {children}
-          </div>
-        </main>
+      <div className="flex h-screen flex-col overflow-hidden">
+        <Topbar />
+        <div className="flex flex-1 min-h-0">
+          <Sidebar
+            collapsed={collapsed}
+            onToggle={() => setCollapsed((v) => !v)}
+          />
+          <main className="flex flex-1 min-h-0 flex-col overflow-x-hidden overflow-y-auto">
+            <div
+              className={cn(
+                'mx-auto flex h-full w-full flex-col px-6 pt-8 pb-0 transition-[max-width] duration-200 ease-out',
+                collapsed ? 'max-w-none' : 'max-w-[1400px]',
+              )}
+            >
+              {children}
+            </div>
+          </main>
+        </div>
       </div>
-    </div>
     </SidebarCollapseContext.Provider>
   );
 }

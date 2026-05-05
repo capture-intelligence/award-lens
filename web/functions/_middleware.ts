@@ -1,18 +1,36 @@
 /**
- * Pages Functions middleware — proxies API + auth paths to the worker so the
- * session cookie ends up first-party on the dashboard's origin.
+ * Pages Functions middleware — same-origin proxy that splits API traffic
+ * between the legacy Cloudflare Worker (auth issuance + legacy D1 routes)
+ * and the new Node API on the Oracle VM (Phase 1 data layer).
  *
- * Why: Edge Tracking Prevention, Safari ITP, and Chrome's third-party cookie
- * phase-out silently drop cookies set on api-worker.algocrat.workers.dev when
- * the user is viewing awards-dashboard.pages.dev. Routing the API through
- * this same origin makes the cookie first-party.
+ * Why same-origin: Edge Tracking Prevention, Safari ITP, and Chrome's
+ * third-party cookie phase-out silently drop cookies set on a different
+ * origin. Routing both APIs through the dashboard's own origin makes the
+ * session cookie first-party.
  *
- * Static assets and the SPA HTML are not touched — only the listed API
- * prefixes are forwarded. Anything else falls through to Pages' static asset
- * pipeline via context.next().
+ * Routing:
+ *   /auth/*                                       → CF Worker (OAuth issuance)
+ *   /admin/users, /admin/access-requests, /admin/  → CF Worker (legacy admin)
+ *   /opportunities/*, /v1/*, /admin/queues/*       → Node API (data layer)
+ *   anything else listed                           → CF Worker (legacy data)
+ *   unmatched                                      → static SPA (context.next())
  */
 
-const API_PREFIXES = [
+interface Env {
+  /** Node API origin — set in Pages env. Falls back to CF Worker if absent. */
+  NODE_API_ORIGIN?: string;
+}
+
+// Paths owned by the new Node API (Postgres + BullMQ on Oracle VM).
+const NODE_API_PREFIXES = [
+  '/opportunities',
+  '/v1',
+  '/admin/queues',
+] as const;
+
+// Paths still served by the CF Worker (workers/api). Cutover happens path-
+// by-path as the Node API gains coverage.
+const CF_WORKER_PREFIXES = [
   '/auth',
   '/admin',
   '/awards',
@@ -21,7 +39,6 @@ const API_PREFIXES = [
   '/runs',
   '/stats',
   '/exclusions',
-  '/opportunities',
   '/reconciliation',
   '/schedule',
   '/sam-api',
@@ -36,27 +53,37 @@ const API_PREFIXES = [
   '/ai',
 ] as const;
 
-const WORKER_ORIGIN = 'https://api-worker.algocrat.workers.dev';
+const CF_WORKER_ORIGIN = 'https://api-worker.algocrat.workers.dev';
 
-function shouldProxy(pathname: string): boolean {
-  return API_PREFIXES.some(
-    (p) => pathname === p || pathname.startsWith(p + '/'),
-  );
+function findUpstream(pathname: string, env: Env): string | null {
+  // Node API takes precedence — its prefixes are more specific (/admin/queues
+  // matches before /admin).
+  for (const p of NODE_API_PREFIXES) {
+    if (pathname === p || pathname.startsWith(p + '/')) {
+      return env.NODE_API_ORIGIN ?? CF_WORKER_ORIGIN; // fall back to worker for Phase 0
+    }
+  }
+  for (const p of CF_WORKER_PREFIXES) {
+    if (pathname === p || pathname.startsWith(p + '/')) {
+      return CF_WORKER_ORIGIN;
+    }
+  }
+  return null;
 }
 
-export const onRequest: PagesFunction = async (context) => {
+export const onRequest: PagesFunction<Env> = async (context) => {
   const url = new URL(context.request.url);
+  const upstreamOrigin = findUpstream(url.pathname, context.env);
 
-  if (!shouldProxy(url.pathname)) {
+  if (!upstreamOrigin) {
     return context.next();
   }
 
-  // Build the upstream URL: same path + same query string, swapped origin.
-  const upstream = new URL(url.pathname + url.search, WORKER_ORIGIN);
+  const upstream = new URL(url.pathname + url.search, upstreamOrigin);
 
   // Clone the incoming request, but rewrite the URL. We must NOT forward the
-  // browser's Host header (it would say awards-dashboard.pages.dev) — fetch()
-  // sets the right Host automatically when given a fresh URL.
+  // browser's Host header — fetch() sets the right Host automatically when
+  // given a fresh URL.
   const upstreamReq = new Request(upstream.toString(), {
     method: context.request.method,
     headers: stripHopByHop(context.request.headers),
@@ -69,8 +96,6 @@ export const onRequest: PagesFunction = async (context) => {
 
   const upstreamRes = await fetch(upstreamReq);
 
-  // Pass the response through verbatim — including any Set-Cookie headers,
-  // which the browser will now treat as first-party for awards-dashboard.pages.dev.
   return new Response(upstreamRes.body, {
     status: upstreamRes.status,
     statusText: upstreamRes.statusText,
@@ -78,10 +103,6 @@ export const onRequest: PagesFunction = async (context) => {
   });
 };
 
-/**
- * Strip headers that should not be forwarded across a proxy hop.
- * Keep the Cookie header (browser session) and Authorization (Bearer ingest).
- */
 function stripHopByHop(input: Headers): Headers {
   const out = new Headers(input);
   for (const h of [

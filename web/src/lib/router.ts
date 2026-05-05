@@ -1,12 +1,12 @@
 import * as React from 'react';
 
 /**
+ * @deprecated Use `useNavigate()` from react-router-dom for navigation and
+ * `useLocation()` for the current path. This module remains only so legacy
+ * pages (BrowseViews, AdminViews, ViewSelector, NoViewSelected) compile
+ * during the views-feature sunset; those pages are no longer mounted.
+ *
  * Minimal hash-based router: returns the current path (without leading '#').
- * Examples:
- *   ''        -> '/'
- *   '#/'      -> '/'
- *   '#/awards' -> '/awards'
- *   '#/admin/users' -> '/admin/users'
  */
 export function useHashRoute(): string {
   const [route, setRoute] = React.useState<string>(() => parse(window.location.hash));

@@ -1,11 +1,13 @@
 import { LogOut, Settings, Bell } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import { useNavigate, Link } from 'react-router-dom';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { RoleBadge } from '@/components/ui/Badge';
 import { Logo, Wordmark } from '@/components/ui/Logo';
 import { useAuth } from '@/lib/auth-context';
 import { initials } from '@/lib/utils';
+import { routes } from '@/lib/routes';
 import { AgencySelector } from './AgencySelector';
 import { CenterSelector } from './CenterSelector';
 import { ValueFilter } from './ValueFilter';
@@ -14,6 +16,7 @@ import { NatureFilter } from './NatureFilter';
 
 export function Topbar() {
   const { user, signOut } = useAuth();
+  const navigate = useNavigate();
 
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-brand-teal-deep/55 backdrop-blur-xl">
@@ -78,7 +81,7 @@ export function Topbar() {
                   </div>
                   <DropdownMenu.Item
                     className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-sm outline-none data-[highlighted]:bg-brand-teal-soft/30"
-                    onSelect={() => { window.location.hash = '#/settings'; }}
+                    onSelect={() => { navigate(routes.settings); }}
                   >
                     <Settings className="h-4 w-4" />
                     Settings
@@ -102,8 +105,8 @@ export function Topbar() {
 
 function BrandMark() {
   return (
-    <a
-      href="#/"
+    <Link
+      to={routes.home}
       className="group flex items-center gap-3 rounded-lg px-1 py-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-sage/50"
     >
       <Logo size={36} withGlow className="transition-transform duration-300 group-hover:scale-[1.04]" />
@@ -112,6 +115,6 @@ function BrandMark() {
         tagline="Federal Capture Intelligence"
         className="hidden sm:flex"
       />
-    </a>
+    </Link>
   );
 }

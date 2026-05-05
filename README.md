@@ -1,8 +1,25 @@
-# AwardLens AI — Federal Procurement Intelligence
+# CaptureRadar — Federal Capture Intelligence
 
-> **Live site:** **<https://awards-dashboard.pages.dev>**
+> **Live site:** **<https://awards-dashboard.pages.dev>** (URL still legacy; brand is CaptureRadar.)
 
-A hybrid pipeline that replicates federal contracting data from **USAspending.gov**, **Grants.gov**, and **SAM.gov** into a queryable warehouse, then exposes it through a curated-views dashboard with per-user access control. Cloudflare's Free tier hosts the API + Pages dashboard + D1 warehouse; an Oracle Cloud Always-Free VM runs all ingestion via systemd timers.
+CaptureRadar is a federal contracting and grant intelligence platform — an open-source HigherGov-class alternative.
+It indexes contract opportunities, grant solicitations, award histories, awardee profiles, agency hierarchies,
+contract vehicles, documents, protests, programs, and reference data into a single searchable AI-augmented
+interface. **Designed to run at $0/mo on the Cloudflare free tier + an Oracle Always-Free VM** for the demo
+phase, and scales up cleanly when budget unlocks.
+
+**Phase 0 status — foundations shipped:**
+- Brand swap to CaptureRadar (radar-themed logo, sign-in copy, page metadata)
+- New Node.js API at [`apps/api-node/`](apps/api-node/) — Hono on Node, Drizzle ORM over Postgres, BullMQ workers, ioredis
+- 30+ Drizzle schema modules covering every entity in the HigherGov spec audit (`apps/api-node/src/db/schema/*`)
+- Oracle VM provisioning script (`apps/api-node/deploy/install.sh`): Postgres 16 + pg_trgm + pgvector + Redis + Node 20 + nginx + systemd
+- 12 shared React components per spec — DataTable, FilterPanel, EntityDetailLayout, FederalAwardAnalysisChart, SaveSearchModal, PipelineDropdown, AIAssistantChat, ExportDropdown, AISummaryToggle, TextSnapshot, SkeletonLoader, EmptyState
+- React Router replaces the hash router; every spec route is mounted (`StubPage` placeholders for not-yet-built ones)
+- Cloudflare Pages middleware splits API traffic between the legacy CF Worker (auth issuance) and the new Node API
+- Phase 0 deployment runbook: [`docs/PHASE_0_RUNBOOK.md`](docs/PHASE_0_RUNBOOK.md)
+- Phase 1 plan: [`docs/PHASE_1_PLAN.md`](docs/PHASE_1_PLAN.md)
+
+**Legacy pipeline preserved:** the original AwardLens AI hybrid pipeline (USAspending.gov, Grants.gov, and SAM.gov ingestion via systemd timers on the Oracle VM, Hono API on Cloudflare Workers, D1 warehouse) is still wired and working. The CaptureRadar Node API runs alongside it; data migrates D1 → Postgres in Phase 1.
 
 **Cost: ~$0/month forever** (Cloudflare Free + Oracle Always Free).
 

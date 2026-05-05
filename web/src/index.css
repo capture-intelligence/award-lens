@@ -2,6 +2,25 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ════════════════════════════════════════════════════════════════════════
+ *  Shimmer keyframes used by <Skeleton/> and <TableSkeleton/>.
+ *  Defined outside @layer so they're not purgeable by Tailwind's content scan.
+ * ════════════════════════════════════════════════════════════════════════ */
+@keyframes shimmer {
+  0%   { background-position: -120% 0; }
+  100% { background-position: 120%  0; }
+}
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(144, 174, 173, 0.06) 0%,
+    rgba(144, 174, 173, 0.18) 50%,
+    rgba(144, 174, 173, 0.06) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
 @layer base {
   html, body, #root {
     min-height: 100vh;
