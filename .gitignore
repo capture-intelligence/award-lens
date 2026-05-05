@@ -52,3 +52,9 @@ awards-slm-handoff.zip
 
 # IDE
 .idea/
+
+# Python build artifacts (slm/ helper scripts + top-level scripts/)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
