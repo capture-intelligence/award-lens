@@ -1,6 +1,6 @@
 import * as React from 'react';
 import {
-  BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis,
+  BarChart, Bar, AreaChart, Area, XAxis, YAxis,
   Tooltip, Legend, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
 import { cn } from '@/lib/utils';

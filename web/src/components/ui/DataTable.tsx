@@ -198,7 +198,7 @@ export function DataTable<T>({
                   </tr>
                   {isExpanded && expandedRowRenderer && (
                     <tr className="border-b border-border/40 bg-brand-teal-deep/15">
-                      <td colSpan={row.getVisibleCells().length + (expandedRowRenderer ? 1 : 0)} className="px-12 py-3 text-xs text-muted">
+                      <td colSpan={row.getVisibleCells().length + 1} className="px-12 py-3 text-xs text-muted">
                         {expandedRowRenderer(row.original)}
                       </td>
                     </tr>

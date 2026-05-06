@@ -9,8 +9,8 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-  EmptyState,
 } from '@/components/ui/Table';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { TableSkeleton, StatSkeleton } from '@/components/ui/Skeleton';
 import { api, ApiError } from '@/lib/api';
 import { fmtDate } from '@/lib/utils';
@@ -133,9 +133,9 @@ export function PipelinePage() {
           <><StatSkeleton /><StatSkeleton /><StatSkeleton /><StatSkeleton /></>
         ) : (
           <>
-            <Card><Stat label="Open now"           value={String(stats.open_now ?? 0)}              icon={<Briefcase className="h-4 w-4" />} /></Card>
-            <Card><Stat label="Due in 14 days"     value={String(stats.due_in_14d ?? 0)}            icon={<Clock     className="h-4 w-4" />} /></Card>
-            <Card><Stat label="With AI summary"    value={String(stats.summarized_attachments ?? 0)} icon={<Sparkles  className="h-4 w-4" />} /></Card>
+            <Card><Stat label="Open now"           value={String(stats.open_now ?? 0)}              icon={Briefcase} /></Card>
+            <Card><Stat label="Due in 14 days"     value={String(stats.due_in_14d ?? 0)}            icon={Clock} /></Card>
+            <Card><Stat label="With AI summary"    value={String(stats.summarized_attachments ?? 0)} icon={Sparkles} /></Card>
             <Card><Stat label="Total solicitations" value={String(stats.total_solicitations ?? 0)} /></Card>
           </>
         )}
@@ -199,9 +199,9 @@ export function PipelinePage() {
           <TableSkeleton rows={8} />
         ) : rows.length === 0 ? (
           <EmptyState
-            icon={<AlertTriangle className="h-6 w-6" />}
+            icon={AlertTriangle}
             title="No solicitations match"
-            description="Try clearing filters or expanding the date range."
+            message="Try clearing filters or expanding the date range."
           />
         ) : (
           <Table>

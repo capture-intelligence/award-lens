@@ -2,8 +2,8 @@ import * as React from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-  ArrowRight, Calendar, Sparkles, FileText, Award, Users, TrendingUp,
-  Building2, Bell, BarChart3, ChevronRight, Plus,
+  ArrowRight, Calendar, FileText, Award, Users,
+  Bell, BarChart3, Plus,
 } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';

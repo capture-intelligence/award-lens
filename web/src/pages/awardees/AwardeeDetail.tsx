@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useParams } from 'react-router-dom';
-import { Share2, Star, Bell, ShieldCheck, Building2, ExternalLink, BarChart3 } from 'lucide-react';
+import { Share2, Star, Bell, ShieldCheck, ExternalLink, BarChart3 } from 'lucide-react';
 import { EntityDetailLayout, type TabDef } from '@/components/ui/EntityDetailLayout';
 import { ExportDropdown } from '@/components/ui/ExportDropdown';
 import { FederalAwardAnalysisChart } from '@/components/ui/FederalAwardAnalysisChart';
@@ -33,7 +33,8 @@ const SECONDARY_TABS: TabDef[] = [
 ];
 
 export function AwardeeDetailPage() {
-  const { slug } = useParams<{ slug: string }>();
+  // slug param available via useParams when wired to a real query
+  useParams<{ slug: string }>();
   const [activeTab, setActiveTab] = React.useState('overview');
   const [type, setType] = React.useState<'all'|'contracts'|'grants'>('all');
   const [years, setYears] = React.useState<3|5|10>(5);

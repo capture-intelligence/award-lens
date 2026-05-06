@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useParams } from 'react-router-dom';
-import { Share2, Download, ThumbsDown, Star, Bell, ExternalLink, Sparkles, MapPin, FileText, Loader2 } from 'lucide-react';
+import { Share2, ThumbsDown, Star, Bell, ExternalLink, Sparkles, MapPin, FileText } from 'lucide-react';
 import { EntityDetailLayout, type TabDef } from '@/components/ui/EntityDetailLayout';
 import { AISummaryToggle, AIBadge } from '@/components/ui/AISummaryToggle';
 import { TextSnapshot } from '@/components/ui/TextSnapshot';
@@ -44,7 +44,8 @@ const SECONDARY_TABS: TabDef[] = [
 ];
 
 export function ContractOpportunityDetailPage() {
-  const { slug } = useParams<{ slug: string }>();
+  // slug param available via useParams when wired to a real query
+  useParams<{ slug: string }>();
   const [activeTab, setActiveTab] = React.useState('overview');
 
   // Mock data → replace with useQuery on /opportunities/contract/:slug
@@ -81,7 +82,7 @@ export function ContractOpportunityDetailPage() {
                 { pipeline_id: 'p1', title: 'CDC Q3 capture' },
                 { pipeline_id: 'p2', title: 'Defense IT recompetes' },
               ]}
-              onSelect={async (id) => toast.success(`Added to pipeline ${id}`)}
+              onSelect={async (id) => { toast.success(`Added to pipeline ${id}`); }}
               onCreateNew={() => toast.info('New pipeline modal opens here')}
             />
           </>
@@ -127,7 +128,7 @@ export function ContractOpportunityDetailPage() {
         suggestedPrompts={[
           'Who are the most likely incumbents for this work?',
           'Summarize the reporting requirements across all attachments.',
-          'What's the realistic value range based on similar past awards?',
+          "What's the realistic value range based on similar past awards?",
           'Which past CDC NCHHSTP awards are closest in scope?',
         ]}
         onSendMessage={async (text) => {

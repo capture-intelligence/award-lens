@@ -1,6 +1,31 @@
 import * as React from 'react';
 import { api, ApiError, apiBase } from './api';
 
+/**
+ * Dev-only mock auth bypass. Set `VITE_DEMO_MODE=1` in `web/.env.local` to
+ * skip the `/auth/me` round-trip and inject a fake admin user. Lets you
+ * navigate the SPA locally without OAuth (which redirects through the
+ * deployed Cloudflare Worker and would 404 against `localhost:5173`).
+ *
+ * Never enabled in production — Vite strips this branch from the bundle.
+ */
+const DEMO_MODE = import.meta.env.DEV && import.meta.env.VITE_DEMO_MODE === '1';
+
+const DEMO_USER: AppUser = {
+  user_id:        'demo-admin',
+  email:          'algocrat@gmail.com',
+  display_name:   'Tejas Patel',
+  avatar_url:     null,
+  provider:       'google',
+  provider_sub:   'demo',
+  role:           'admin',
+  approved_at:    new Date().toISOString(),
+  approved_by:    null,
+  rejected_at:    null,
+  created_at:     new Date().toISOString(),
+  last_login_at:  new Date().toISOString(),
+};
+
 export type Role = 'pending' | 'user' | 'admin' | 'rejected';
 
 export interface AppUser {
@@ -50,15 +75,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = React.useState<string | null>(null);
 
   const refresh = React.useCallback(async () => {
+    if (DEMO_MODE) {
+      setUser(DEMO_USER);
+      setStatus('approved');
+      setError(null);
+      return;
+    }
     try {
       // /auth/me returns { authenticated: false } or { authenticated: true, user: {...} }
-      const me = await api.get<{ authenticated: boolean; user?: AppUser }>('/auth/me');
-      const u = me.authenticated && me.user ? me.user : null;
+      const me = await api.get<{ authenticated: boolean; user?: AppUser } | null>('/auth/me');
+      const u = me?.authenticated && me.user ? me.user : null;
       setUser(u);
       setStatus(deriveStatus(u));
       setError(null);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
+        setUser(null);
+        setStatus('unauthenticated');
+        setError(null);
+        return;
+      }
+      // In dev the API isn't proxied — silently fall through to the
+      // sign-in page instead of showing a scary parse error.
+      if (import.meta.env.DEV) {
         setUser(null);
         setStatus('unauthenticated');
         setError(null);

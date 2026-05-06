@@ -19,7 +19,7 @@ export function StubPage({ title, eyebrow, message }: { title?: string; eyebrow?
       <PageHeader
         eyebrow={eyebrow ?? 'Phase 1'}
         title={title ?? auto}
-        description="This page is scaffolded — list, detail, filters, and exports are wired into the API. Ingestion job will populate it on the next run."
+        description={message ?? 'This page is scaffolded — list, detail, filters, and exports are wired into the API. Ingestion job will populate it on the next run.'}
       />
       <EmptyState
         icon={Construction}
