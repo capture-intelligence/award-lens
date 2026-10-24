@@ -10,6 +10,7 @@ import { SaveSearchModal, type SaveSearchConfig } from '@/components/ui/SaveSear
 import { TextSnapshot } from '@/components/ui/TextSnapshot';
 import { AIBadge } from '@/components/ui/AISummaryToggle';
 import { fmtDate, fmtMoney } from '@/lib/utils';
+import { api, ApiError } from '@/lib/api';
 import { toast } from 'sonner';
 
 /**
@@ -50,11 +51,38 @@ export function ContractOpportunitiesListPage() {
   });
   const [saveOpen, setSaveOpen] = React.useState(false);
 
-  // Real data path → swap this to useContractOpportunities(filters) once
-  // the API hook lands. Until then we render the mock fixture so the UX
-  // and components are demo-able today.
-  const data = MOCK_ROWS;
-  const totalCount = 78_412;
+  // Live data: the CDC contract-solicitation pipeline (GET /pipeline/solicitations).
+  // Server-side filtering isn't wired yet — that's the next increment — but the
+  // rows, pagination, row-expand, and export affordances all run on real data.
+  const [data, setData] = React.useState<OppRow[]>([]);
+  const [totalCount, setTotalCount] = React.useState(0);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    api
+      .get<{ count: number; results: PipelineSolicitation[] }>('/pipeline/solicitations', {
+        open_only: 'false',
+        limit: 500,
+      })
+      .then((res) => {
+        if (!alive) return;
+        setData((res.results ?? []).map(mapSolicitation));
+        setTotalCount(res.count ?? 0);
+        setError(null);
+      })
+      .catch((e) => {
+        if (alive) setError(e instanceof ApiError ? `Couldn't load opportunities (API ${e.status}).` : "Couldn't load opportunities.");
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const columns = React.useMemo<ColumnDef<OppRow, unknown>[]>(() => [
     {
@@ -155,15 +183,18 @@ export function ContractOpportunitiesListPage() {
 
       <div className="flex items-center gap-2">
         <span className="rounded-full border border-brand-vermilion/40 bg-brand-vermilion/10 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-brand-vermilion-soft">
-          {totalCount.toLocaleString()} results
+          {totalCount.toLocaleString()} result{totalCount === 1 ? '' : 's'}
         </span>
         <span className="rounded-full border border-border px-3 py-1 text-[11px] font-medium text-muted">
-          Forecasts · 140.9K
-        </span>
-        <span className="rounded-full border border-border px-3 py-1 text-[11px] font-medium text-muted">
-          DIBBS · 3M
+          CDC contract pipeline · live
         </span>
       </div>
+
+      {error && (
+        <div className="rounded-md border border-brand-vermilion/40 bg-brand-vermilion/10 px-4 py-2.5 text-[13px] text-brand-vermilion-soft">
+          {error}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[320px_1fr]">
         <FilterPanel
@@ -197,11 +228,12 @@ export function ContractOpportunitiesListPage() {
           columns={columns}
           data={data}
           totalCount={totalCount}
+          isLoading={loading}
           ariaLabel="Federal contract opportunities"
           columnVisibilityStorageKey="captureradar.contract_opps.cols"
           expandedRowRenderer={(row) => <TextSnapshot text={row.description_summary} />}
-          emptyTitle="No opportunities match these filters."
-          emptyMessage="Try expanding your date range, removing a NAICS code, or unchecking 'Only civilian'."
+          emptyTitle="No contract opportunities found."
+          emptyMessage="The CDC solicitation pipeline is empty right now — new postings appear after the daily SAM.gov sync."
         />
       </div>
 
@@ -222,61 +254,44 @@ function describeChannels(c: SaveSearchConfig['channels']): string {
   return on.slice(0, -1).join(', ') + ' + ' + on[on.length - 1];
 }
 
-// ─── Mock data (Phase 0 demo dataset) ──────────────────────────────────────
+// ─── Live data mapping ──────────────────────────────────────────────────────
+// Shape returned by GET /pipeline/solicitations (workers/api). The list
+// endpoint returns metadata + attachment/summary counts; the AI summary text
+// itself is fetched per-solicitation on the detail view, so description_summary
+// is left null here. ai_value_* are null until a value-estimation model exists.
 
-const MOCK_ROWS: OppRow[] = [
-  {
-    opportunity_id: 'opp-1', slug: 'cdc-data-platform-modernization-fy26',
-    title: 'CDC Data Platform Modernization — FY26 Phase II',
-    type: 'Solicitation', agency: 'Centers for Disease Control', set_aside: '8(a)',
-    posted_at: '2026-04-12T10:00:00Z', deadline: '2026-06-15T17:00:00Z',
-    is_near_deadline: true,
-    ai_value_min: 12_000_000, ai_value_max: 24_000_000,
-    description_summary: 'Multi-year IDIQ for cloud-native data engineering supporting NCHHSTP surveillance dashboards. PoP includes one base year plus four option years.',
-  },
-  {
-    opportunity_id: 'opp-2', slug: 'army-amc-aviation-logistics-bpa',
-    title: 'AMC Aviation Logistics Support BPA',
-    type: 'Solicitation', agency: 'U.S. Army Materiel Command', set_aside: 'SDVOSB',
-    posted_at: '2026-03-28T09:00:00Z', deadline: '2026-05-28T17:00:00Z',
-    is_near_deadline: true,
-    ai_value_min: 45_000_000, ai_value_max: 90_000_000,
-    description_summary: 'BPA covering rotary-wing logistics, MRO scheduling, and supply-chain analytics for the AMC enterprise. AS9100D certification required.',
-  },
-  {
-    opportunity_id: 'opp-3', slug: 'va-tele-mental-health-platform',
-    title: 'VA Tele-Mental Health Platform — Recompete',
-    type: 'Presolicitation', agency: 'Veterans Affairs', set_aside: 'WOSB',
-    posted_at: '2026-04-22T11:00:00Z', deadline: '2026-07-02T17:00:00Z',
-    ai_value_min: 6_500_000, ai_value_max: 15_000_000,
-    description_summary: 'Recompete of FY21 VA tele-health program. Reduced provider-to-veteran latency, FedRAMP High posture, integration with VistA Evolution.',
-  },
-  {
-    opportunity_id: 'opp-4', slug: 'dhs-border-imagery-analytics',
-    title: 'DHS Border Imagery Analytics — Special Notice',
-    type: 'Special Notice', agency: 'Homeland Security', set_aside: 'None',
-    posted_at: '2026-04-30T14:00:00Z', deadline: '2026-08-19T17:00:00Z',
-    ai_value_min: 100_000_000, ai_value_max: 250_000_000,
-    description_summary: 'Pre-solicitation for ML-driven imagery analytics across CBP southern-border sensor towers. Edge inference + on-device redaction; classified annex available.',
-  },
-  {
-    opportunity_id: 'opp-5', slug: 'navy-undersea-cable-monitoring-rfi',
-    title: 'NAVY Undersea Cable Monitoring — RFI',
-    type: 'Synopsis Solicitation', agency: 'Department of the Navy', set_aside: 'None',
-    posted_at: '2026-04-15T08:00:00Z', deadline: '2026-05-30T17:00:00Z',
-    is_near_deadline: true,
-    ai_value_min: 30_000_000, ai_value_max: 80_000_000,
-    description_summary: 'Request for Information on persistent undersea cable monitoring capabilities. Vendors with sonar-ML and acoustic-event-detection experience encouraged.',
-  },
-  {
-    opportunity_id: 'opp-6', slug: 'gsa-mas-it-cat-recompete',
-    title: 'GSA MAS — Information Technology Category — Recompete',
-    type: 'Solicitation', agency: 'General Services Administration', set_aside: 'None',
-    posted_at: '2026-02-01T10:00:00Z', deadline: '2026-07-25T17:00:00Z',
-    ai_value_min: 10_000_000_000, ai_value_max: 25_000_000_000,
-    description_summary: 'Recompete of GSA MAS IT category — multiple-award schedule covering 541512, 541519, 518210. Vendors must hold active SAM registration and 2-year past performance.',
-  },
-];
+interface PipelineSolicitation {
+  solicitation_id: string;
+  sol_number: string | null;
+  notice_type: string;
+  title: string;
+  posted_date: string | null;
+  response_deadline: string | null;
+  agency: string | null;
+  sub_agency: string | null;
+  office: string | null;
+  naics_codes: string | null;
+  set_aside: string | null;
+  days_to_deadline: number | null;
+  summarized_count: number;
+}
+
+function mapSolicitation(s: PipelineSolicitation): OppRow {
+  return {
+    opportunity_id: s.solicitation_id,
+    slug: s.solicitation_id,
+    title: s.title,
+    type: s.notice_type,
+    agency: s.office ?? s.sub_agency ?? s.agency ?? '—',
+    set_aside: s.set_aside ?? 'None',
+    posted_at: s.posted_date ?? '',
+    deadline: s.response_deadline ?? '',
+    description_summary: null,
+    ai_value_min: null,
+    ai_value_max: null,
+    is_near_deadline: s.days_to_deadline != null && s.days_to_deadline >= 0 && s.days_to_deadline <= 7,
+  };
+}
 
 const AGENCY_OPTS = [
   { value: 'cdc',  label: 'Centers for Disease Control' },
