@@ -102,21 +102,31 @@ export async function loadSession<B extends { DB: D1Database }>(
   if (!sessionId) return null;
 
   const row = await c.env.DB.prepare(`
-    SELECT u.*
+    SELECT u.*, s.last_seen_at AS _session_last_seen
     FROM app_session s
     JOIN app_user u ON u.user_id = s.user_id
     WHERE s.session_id = ? AND datetime(s.expires_at) > datetime('now')
-  `).bind(sessionId).first<AppUser>();
+  `).bind(sessionId).first<AppUser & { _session_last_seen: string | null }>();
 
   if (!row) return null;
 
-  // Best-effort touch last_seen_at; non-blocking.
-  c.executionCtx.waitUntil(
-    c.env.DB.prepare('UPDATE app_session SET last_seen_at = ? WHERE session_id = ?')
-      .bind(nowIso(), sessionId).run().then(() => {}, () => {}),
-  );
+  // Throttle the last_seen_at touch. This UPDATE used to run on EVERY
+  // authenticated request; on a multi-tab/multi-user dashboard that burned
+  // through D1's free-tier daily write cap (100K rows), and once exhausted
+  // it blocked new logins entirely (the session INSERT fails). Writing at
+  // most once per session per few minutes carries the same "last active"
+  // signal at a tiny fraction of the write volume.
+  const { _session_last_seen, ...user } = row;
+  const LAST_SEEN_THROTTLE_MS = 5 * 60 * 1000;
+  const lastMs = _session_last_seen ? Date.parse(_session_last_seen) : 0;
+  if (Date.now() - lastMs > LAST_SEEN_THROTTLE_MS) {
+    c.executionCtx.waitUntil(
+      c.env.DB.prepare('UPDATE app_session SET last_seen_at = ? WHERE session_id = ?')
+        .bind(nowIso(), sessionId).run().then(() => {}, () => {}),
+    );
+  }
 
-  return row;
+  return user as AppUser;
 }
 
 export async function destroySession<B extends { DB: D1Database }>(
