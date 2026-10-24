@@ -258,6 +258,13 @@ async function postBatch(path, key, rows) {
       await new Promise((r) => setTimeout(r, PACE_MS));
     }
   } catch (err) {
+    if (err && err.quotaExhausted) {
+      // Expected on a ~10-call/day key once the earlier SAM jobs have run.
+      // Exit 0 so systemd doesn't mark the unit failed every single day —
+      // the exclusions sync already does this; opps was the odd one out.
+      log('warn', 'sync paused — daily quota exhausted', { error: String(err).slice(0, 200) });
+      process.exit(0);
+    }
     log('error', 'sync failed', { error: String(err).slice(0, 300) });
     process.exit(1);
   }

@@ -92,6 +92,15 @@ async function fetchEntity(uei, attempt = 1) {
     }
     if (r.status === 404) return null;
     if (r.status >= 500) throw new Error(`SAM ${r.status}`);
+    if (r.status === 401 || r.status === 403) {
+      // Dead/revoked key. Must NOT fall through to the "give up → null →
+      // stamp Not Found" path: from 2026-07-31 to 09-29 that path silently
+      // wrote 1,534 bogus 'Not Found' rows against a 401. Abort the run.
+      const body = await r.text();
+      const e = new Error(`SAM auth failed ${r.status}: ${body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160)}`);
+      e.authFailed = true;
+      throw e;
+    }
     if (!r.ok) {
       const body = await r.text();
       throw new Error(`SAM ${r.status}: ${body.slice(0, 200)}`);
@@ -100,7 +109,7 @@ async function fetchEntity(uei, attempt = 1) {
     const list = data?.entityData ?? [];
     return list[0] ?? null;
   } catch (err) {
-    if (err && err.quotaExhausted) throw err;
+    if (err && (err.quotaExhausted || err.authFailed)) throw err;
     if (attempt >= 3) {
       log('warn', 'entity fetch giving up', { uei, error: String(err).slice(0, 200) });
       return null;
@@ -194,6 +203,11 @@ async function runBatch() {
       const u = await processRow(row);
       if (u) updates.push(u);
     } catch (err) {
+      if (err && err.authFailed) {
+        // Loud failure, no postback: nothing fetched this run is trustworthy.
+        log('error', 'SAM API key rejected — aborting without stamping any rows', { error: String(err).slice(0, 200) });
+        process.exit(1);
+      }
       if (err && err.quotaExhausted) {
         log('error', 'quota exhausted, stopping', { error: String(err).slice(0, 200) });
         if (updates.length > 0) {

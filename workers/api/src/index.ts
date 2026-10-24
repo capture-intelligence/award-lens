@@ -249,6 +249,14 @@ function extractJson(s: string): Record<string, unknown> | null {
 app.get('/centers', async (c) => {
   const agency = c.req.query('awarding_agency')?.trim();
   if (!agency) return c.json({ error: 'awarding_agency_required' }, 400);
+
+  // This CTE costs ~85K D1 row-reads per call (measured 2026-10-24) and the
+  // answer only changes when the daily import runs. Cache the catalog in KV
+  // for an hour so repeat picker opens are free against the D1 read cap.
+  const cacheKey = `centers:v1:${agency}`;
+  const cached = await c.env.META.get(cacheKey, 'json') as { count: number; results: unknown[] } | null;
+  if (cached) return c.json(cached);
+
   // Per-award resolution mirrors /explore decorate(): overrides win, otherwise
   // the federal-account priority window. The CTE produces exactly one
   // (award_id, center_code, center_name) row per award; the outer query then
@@ -279,7 +287,12 @@ app.get('/centers', async (c) => {
     GROUP BY fr.center_code
     ORDER BY n DESC
   `).bind(agency).all<{ code: string; name: string; n: number }>();
-  return c.json({ count: r.results.length, results: r.results });
+  const payload = { count: r.results.length, results: r.results };
+  // Fill the cache off the response path; a KV hiccup must not fail the request.
+  c.executionCtx.waitUntil(
+    c.env.META.put(cacheKey, JSON.stringify(payload), { expirationTtl: 3600 }).catch(() => {}),
+  );
+  return c.json(payload);
 });
 
 // ---------- Awarding-agency catalog (top-of-screen scope picker) ----------
