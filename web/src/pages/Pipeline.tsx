@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Briefcase, Clock, Sparkles, AlertTriangle, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
+import { Briefcase, Clock, Sparkles, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
 import { Card, Stat } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import {
@@ -133,9 +133,9 @@ export function PipelinePage() {
           <><StatSkeleton /><StatSkeleton /><StatSkeleton /><StatSkeleton /></>
         ) : (
           <>
-            <Card><Stat label="Open now"           value={String(stats.open_now ?? 0)}              icon={<Briefcase className="h-4 w-4" />} /></Card>
-            <Card><Stat label="Due in 14 days"     value={String(stats.due_in_14d ?? 0)}            icon={<Clock     className="h-4 w-4" />} /></Card>
-            <Card><Stat label="With AI summary"    value={String(stats.summarized_attachments ?? 0)} icon={<Sparkles  className="h-4 w-4" />} /></Card>
+            <Card><Stat label="Open now"           value={String(stats.open_now ?? 0)}              icon={Briefcase} /></Card>
+            <Card><Stat label="Due in 14 days"     value={String(stats.due_in_14d ?? 0)}            icon={Clock} /></Card>
+            <Card><Stat label="With AI summary"    value={String(stats.summarized_attachments ?? 0)} icon={Sparkles} /></Card>
             <Card><Stat label="Total solicitations" value={String(stats.total_solicitations ?? 0)} /></Card>
           </>
         )}
@@ -198,11 +198,7 @@ export function PipelinePage() {
         {rows === null ? (
           <TableSkeleton rows={8} />
         ) : rows.length === 0 ? (
-          <EmptyState
-            icon={<AlertTriangle className="h-6 w-6" />}
-            title="No solicitations match"
-            description="Try clearing filters or expanding the date range."
-          />
+          <EmptyState>No solicitations match. Try clearing filters or expanding the date range.</EmptyState>
         ) : (
           <Table>
             <TableHeader>
