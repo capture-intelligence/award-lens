@@ -22,6 +22,7 @@ const API_PREFIXES = [
   '/stats',
   '/exclusions',
   '/opportunities',
+  '/pipeline',
   '/reconciliation',
   '/schedule',
   '/sam-api',
