@@ -345,7 +345,7 @@ export async function handleAskV2(
         sql = polished.sql;
         auditIds.push(await recordAudit(db, {
           userId, questionHash: qHash, intent, model: 'M3',
-          modelId: polishProvider === 'claude' ? M3_MODEL_ID : '@cf/meta/llama-3.1-8b-instruct',
+          modelId: polishProvider === 'claude' ? M3_MODEL_ID : '@cf/meta/llama-3.1-8b-instruct-fp8',
           promptTokens: polished.promptTokens, outputTokens: polished.outputTokens,
           durationMs: polished.durationMs, status: 'success',
           dataClass: 'INTERNAL',
@@ -495,7 +495,7 @@ export async function handleAskV2(
       }
       fbBlocks.push(`Question: ${question}`);
       const fbUserMsg = fbBlocks.join('\n\n');
-      const fbResp = await ai.run('@cf/meta/llama-3.1-8b-instruct', {
+      const fbResp = await ai.run('@cf/meta/llama-3.1-8b-instruct-fp8', {
         messages: [
           { role: 'system', content: 'You are a helpful assistant for federal procurement questions. When a FOCUSED AWARD block is present, the metadata is from public USAspending.gov records — discuss it freely. Be concise and cite regulation numbers when relevant.' },
           { role: 'user',   content: fbUserMsg },
@@ -504,7 +504,7 @@ export async function handleAskV2(
       } as Parameters<typeof ai.run>[1]);
       const answer = ((fbResp as { response?: string }).response ?? '').trim();
       auditIds.push(await recordAudit(db, {
-        userId, questionHash: qHash, intent, model: 'M3', modelId: '@cf/meta/llama-3.1-8b-instruct',
+        userId, questionHash: qHash, intent, model: 'M3', modelId: '@cf/meta/llama-3.1-8b-instruct-fp8',
         durationMs: Date.now() - t0, status: 'success', dataClass: 'PUBLIC',
       }));
       return c.json({ intent, answer, audit_ids: auditIds } satisfies AskResponse);

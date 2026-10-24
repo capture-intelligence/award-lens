@@ -160,7 +160,12 @@ function payloadForPage(filterBlock, page) {
       'Place of Performance Country Code',
     ],
     sort: 'Last Modified Date',
-    order: 'asc',
+    // desc, not asc: MAX_PAGES_PER_VIEW caps each run at 2,500 rows and the
+    // NCHHSTP view has more than that in-window (every run since at least
+    // 2026-10-04 returned exactly 2,500). With asc we kept the 2,500 *least*
+    // recently modified and silently dropped the newest every day. desc keeps
+    // the same row budget (no extra D1 writes) but keeps the right rows.
+    order: 'desc',
     limit: PAGE_SIZE,
     page,
   };
