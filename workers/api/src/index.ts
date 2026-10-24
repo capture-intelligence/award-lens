@@ -181,7 +181,7 @@ Respond with JSON only. Include only the fields the query mentions. Format:
 {"agency"?: string, "center"?: string, "min_value"?: number, "max_value"?: number, "date_range"?: [string, string], "natures"?: string[]}`;
 
   try {
-    const routerResp = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+    const routerResp = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct-fp8', {
       messages: [
         { role: 'system', content: routerSystem },
         { role: 'user',   content: query },
@@ -198,7 +198,7 @@ Respond with JSON only. Include only the fields the query mentions. Format:
       return c.json({ type, raw_router: routerText });
     }
 
-    const paramsResp = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+    const paramsResp = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct-fp8', {
       messages: [
         { role: 'system', content: paramsSystem },
         { role: 'user',   content: query },
@@ -1632,7 +1632,7 @@ app.post('/sidecar/solicitations/summarize-batch', async (c) => {
     ].join('\n');
 
     try {
-      const resp = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+      const resp = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct-fp8', {
         messages: [
           { role: 'system', content: SOW_SUMMARY_SYSTEM },
           { role: 'user',   content: userPrompt },

@@ -113,7 +113,7 @@ export async function polishSqlWithWorkersAI(
 ): Promise<PolishResult> {
   const t0 = Date.now();
   const userMsg = `User question: ${question}\n\nSQL to review:\n${sql}`;
-  const resp = await ai.run('@cf/meta/llama-3.1-8b-instruct', {
+  const resp = await ai.run('@cf/meta/llama-3.1-8b-instruct-fp8', {
     messages: [
       { role: 'system', content: POLISH_SYSTEM },
       { role: 'user',   content: userMsg },

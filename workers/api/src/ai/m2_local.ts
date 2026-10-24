@@ -91,7 +91,7 @@ export async function callM2(
       summary = (data.output?.text ?? '').trim();
     } catch {
       // Modal unavailable or cold-starting — fall through to Workers AI
-      const fbResp = await ai.run('@cf/meta/llama-3.1-8b-instruct', {
+      const fbResp = await ai.run('@cf/meta/llama-3.1-8b-instruct-fp8', {
         messages: [
           { role: 'system', content: SYSTEM },
           { role: 'user',   content: userMsg },
@@ -102,7 +102,7 @@ export async function callM2(
     }
   } else {
     // Fallback: Workers AI base model
-    const resp = await ai.run('@cf/meta/llama-3.1-8b-instruct', {
+    const resp = await ai.run('@cf/meta/llama-3.1-8b-instruct-fp8', {
       messages: [
         { role: 'system', content: SYSTEM },
         { role: 'user',   content: userMsg },
