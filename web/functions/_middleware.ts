@@ -50,6 +50,7 @@ const CF_WORKER_PREFIXES = [
   '/awarding-agencies',
   '/centers',
   '/explore',
+  '/pipeline',
   '/ai',
 ] as const;
 
