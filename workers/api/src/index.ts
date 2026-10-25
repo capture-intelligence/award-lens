@@ -2179,13 +2179,47 @@ app.post('/import/opportunities', async (c) => {
   const detailsMap = new Map(Object.entries(body.details ?? {}));
   const extractDate = now.slice(0, 10);
   let upserted = 0;
+  let skipped = 0;
 
   for (let i = 0; i < hits.length; i += 100) {
     const chunk = hits.slice(i, i + 100);
-    const stmts: D1PreparedStatement[] = [];
-    for (const hit of chunk) {
+    const rows = chunk.map((hit) => {
       const detail = detailsMap.get(String((hit as { id: unknown }).id)) ?? null;
-      const r = hitToDbRow(hit as Parameters<typeof hitToDbRow>[0], detail as Parameters<typeof hitToDbRow>[1], extractDate);
+      return hitToDbRow(hit as Parameters<typeof hitToDbRow>[0], detail as Parameters<typeof hitToDbRow>[1], extractDate);
+    });
+
+    // Skip rows whose mutable fields are unchanged. grants.gov re-serves the
+    // same ~1,500 opportunities on every run, and the old code re-upserted all
+    // of them unconditionally — the dominant avoidable write against D1's
+    // free-tier daily cap. One batched read of exactly the columns the
+    // ON CONFLICT clause below touches lets us write only what actually moved.
+    const ids = rows.map((r) => r.opportunity_id);
+    const existing = new Map<string, Record<string, unknown>>();
+    if (ids.length) {
+      const ph = ids.map(() => '?').join(',');
+      const res = await c.env.DB.prepare(
+        `SELECT opportunity_id, opportunity_number, title, agency_code, agency_name, posted_date, close_date, status
+         FROM grant_opportunity WHERE opportunity_id IN (${ph})`,
+      ).bind(...ids).all();
+      for (const e of res.results as Record<string, unknown>[]) existing.set(String(e.opportunity_id), e);
+    }
+
+    const stmts: D1PreparedStatement[] = [];
+    for (const r of rows) {
+      const e = existing.get(r.opportunity_id);
+      if (
+        e &&
+        e.opportunity_number === r.opportunity_number &&
+        e.title === r.title &&
+        e.agency_code === r.agency_code &&
+        e.agency_name === r.agency_name &&
+        e.posted_date === r.posted_date &&
+        e.close_date === r.close_date &&
+        e.status === r.status
+      ) {
+        skipped++;
+        continue;
+      }
       stmts.push(c.env.DB.prepare(`
         INSERT INTO grant_opportunity
           (opportunity_id, opportunity_number, title, agency_code, agency_name,
@@ -2211,9 +2245,9 @@ app.post('/import/opportunities', async (c) => {
         r.eligibility_codes, r.description, r.status, r.opportunity_url, r.doc_type,
         r.extract_date, now, now,
       ));
+      upserted++;
     }
     if (stmts.length) await c.env.DB.batch(stmts);
-    upserted += chunk.length;
   }
 
   await c.env.DB.prepare(`
@@ -2227,7 +2261,7 @@ app.post('/import/opportunities', async (c) => {
       WHERE run_id = ?
     `).bind(now, runId).run();
   }
-  return c.json({ run_id: runId, fetched: hits.length, upserted });
+  return c.json({ run_id: runId, fetched: hits.length, upserted, skipped });
 });
 
 // ---------- Import: SAM exclusions (called by VM cron) ----------
