@@ -73,7 +73,7 @@ export function AwardeesListPage() {
       meta: { minWidth: 320 },
     },
     { accessorKey: 'uei', header: 'UEI', cell: ({ row }) => <span className="text-muted tabular-nums">{row.original.uei ?? '—'}</span>, meta: { minWidth: 130 } },
-    { accessorKey: 'num_awards', header: 'Awards', cell: ({ row }) => <span className="tabular-nums">{row.original.num_awards.toLocaleString()}</span>, meta: { numeric: true } },
+    { accessorKey: 'num_awards', header: 'Awards', cell: ({ row }) => <span className="tabular-nums">{(row.original.num_awards ?? 0).toLocaleString()}</span>, meta: { numeric: true } },
     { accessorKey: 'total_value', header: 'Total value', cell: ({ row }) => fmtMoney(row.original.total_value), meta: { numeric: true, minWidth: 140 } },
     { accessorKey: 'last_pop_end', header: 'Last activity', cell: ({ row }) => (row.original.last_pop_end ? fmtDate(row.original.last_pop_end) : '—'), meta: { minWidth: 120 } },
   ], []);

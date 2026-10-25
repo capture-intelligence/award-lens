@@ -85,7 +85,7 @@ export function AwardeeDetailPage() {
   if (loading) {
     return <div className="p-8 text-sm text-muted">Loading awardee…</div>;
   }
-  if (error || !data) {
+  if (error || !data || !data.vendor) {
     return (
       <div className="p-8">
         <EmptyState icon={Building2} title="Couldn't load this awardee." message={error ?? 'Unknown error.'} />
@@ -103,7 +103,7 @@ export function AwardeeDetailPage() {
         <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
           <span>UEI {v.uei ?? '—'}</span>
           <span>·</span>
-          <span>{v.num_awards.toLocaleString()} awards</span>
+          <span>{(v.num_awards ?? 0).toLocaleString()} awards</span>
           <span>·</span>
           <span>{fmtMoney(v.total_value)} obligated</span>
         </span>
@@ -120,8 +120,8 @@ export function AwardeeDetailPage() {
       onTabChange={setActiveTab}
     >
       {activeTab === 'overview' && <OverviewTab v={v} />}
-      {activeTab === 'awards' && <AwardsTab awards={data.top_awards} />}
-      {activeTab === 'classifications' && <ClassificationsTab rows={data.classifications} />}
+      {activeTab === 'awards' && <AwardsTab awards={data.top_awards ?? []} />}
+      {activeTab === 'classifications' && <ClassificationsTab rows={data.classifications ?? []} />}
     </EntityDetailLayout>
   );
 }
@@ -146,7 +146,7 @@ function OverviewTab({ v }: { v: VendorRollup }) {
     <div className="grid gap-x-6 gap-y-4 md:grid-cols-2">
       <KV label="Legal name"   value={v.legal_name} />
       <KV label="UEI"          value={<span className="tabular-nums">{v.uei ?? '—'}</span>} />
-      <KV label="Awards"       value={v.num_awards.toLocaleString()} />
+      <KV label="Awards"       value={(v.num_awards ?? 0).toLocaleString()} />
       <KV label="Total obligated" value={fmtMoney(v.total_value)} />
       <KV label="First award"  value={v.first_award_date ? fmtDate(v.first_award_date) : '—'} />
       <KV label="Last activity" value={v.last_pop_end ? fmtDate(v.last_pop_end) : '—'} />

@@ -93,7 +93,7 @@ export function ContractOpportunityDetailPage() {
   if (loading) {
     return <div className="p-8 text-sm text-muted">Loading opportunity…</div>;
   }
-  if (error || !data) {
+  if (error || !data || !data.solicitation) {
     return (
       <div className="p-8">
         <EmptyState icon={FileText} title="Couldn't load this opportunity." message={error ?? 'Unknown error.'} />
@@ -102,7 +102,7 @@ export function ContractOpportunityDetailPage() {
   }
 
   const s = data.solicitation;
-  const docs = data.attachments;
+  const docs = data.attachments ?? [];
   // Primary document = the longest summarized attachment (usually the SOW/PWS,
   // vs. cover letters or amendments).
   const primary =
