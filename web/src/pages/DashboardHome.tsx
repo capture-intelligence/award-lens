@@ -303,7 +303,8 @@ function NewsWidget() {
     <Card>
       <CardHeader
         title="Industry news"
-        eyebrow="Insights"
+        eyebrow="Sample data"
+        description="Placeholder headlines — a live news feed isn't wired yet."
         cta={<Link to={routes.news} className="inline-flex items-center gap-1 text-[12px] text-muted-soft hover:text-foreground">
           More <ArrowRight className="h-3 w-3" />
         </Link>}
