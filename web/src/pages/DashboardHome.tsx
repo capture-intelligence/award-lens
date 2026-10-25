@@ -12,6 +12,7 @@ import { useAuth } from '@/lib/auth-context';
 import { routes } from '@/lib/routes';
 import { fmtDate, fmtMoney } from '@/lib/utils';
 import { api } from '@/lib/api';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 /**
  * DashboardHome — authenticated landing page (spec §3.1 Dashboard).
@@ -51,18 +52,19 @@ export function DashboardHomePage() {
         }
       />
 
-      {/* KPI strip */}
-      <KPIStrip />
+      {/* KPI strip. Each widget gets its own boundary so one failing section
+          degrades in place instead of blanking the whole dashboard. */}
+      <ErrorBoundary compact label="KPIs unavailable"><KPIStrip /></ErrorBoundary>
 
       {/* Two-column main */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="flex flex-col gap-6 lg:col-span-2">
-          <RecommendedOpportunities />
-          <CalendarWidget />
+          <ErrorBoundary compact label="Latest opportunities unavailable"><RecommendedOpportunities /></ErrorBoundary>
+          <ErrorBoundary compact label="Calendar unavailable"><CalendarWidget /></ErrorBoundary>
         </div>
         <div className="flex flex-col gap-6">
-          <OpenActivities />
-          <NewsWidget />
+          <ErrorBoundary compact label="Activities unavailable"><OpenActivities /></ErrorBoundary>
+          <ErrorBoundary compact label="News unavailable"><NewsWidget /></ErrorBoundary>
         </div>
       </div>
     </div>

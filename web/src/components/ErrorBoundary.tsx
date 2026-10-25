@@ -1,11 +1,15 @@
 import * as React from 'react';
 
 /**
- * Last-line-of-defense error boundary. When a child throws during render,
- * we show a plain card with the message instead of unmounting the whole
- * app and leaving a blank page.
+ * Error boundary. When a child throws during render, we show a card with the
+ * message instead of unmounting and leaving a blank page.
+ *
+ * `compact` renders a small inline fallback instead of the full-height card —
+ * use it to wrap individual widgets/sections so one failing widget degrades
+ * in place rather than blanking the whole page (the page-level boundary in
+ * App.tsx is the non-compact last line of defense).
  */
-interface Props { children: React.ReactNode; label?: string }
+interface Props { children: React.ReactNode; label?: string; compact?: boolean }
 interface State { error: Error | null }
 
 export class ErrorBoundary extends React.Component<Props, State> {
@@ -22,6 +26,24 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
   render() {
     if (!this.state.error) return this.props.children;
+
+    if (this.props.compact) {
+      return (
+        <div className="rounded-xl border border-brand-vermilion/30 bg-brand-vermilion/5 p-4 text-sm">
+          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand-vermilion-soft">
+            {this.props.label ?? 'Section unavailable'}
+          </div>
+          <p className="mt-1 text-muted">{this.state.error.message || 'This section failed to load.'}</p>
+          <button
+            type="button"
+            onClick={() => this.setState({ error: null })}
+            className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-brand-vermilion/30 bg-brand-vermilion/15 px-2.5 py-1 text-[12px] font-semibold text-brand-vermilion-soft transition-colors hover:bg-brand-vermilion/25"
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
 
     return (
       <div className="grid min-h-[60vh] place-items-center px-6">
