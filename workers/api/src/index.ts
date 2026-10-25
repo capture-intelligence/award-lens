@@ -710,13 +710,25 @@ app.get('/vendors', async (c) => {
   const limit = Math.min(Number(c.req.query('limit') ?? 50), 500);
 
   if (scope.kind === 'unscoped') {
+    // v_vendor_rollup aggregates over the whole award table (~6.5K D1
+    // row-reads/call). The default awardees load (no search term) is the hot
+    // path and only changes after the daily import — cache it per-limit for an
+    // hour. Keyword searches vary too much to cache and fall through to D1.
+    const canCache = !q;
+    const cacheKey = `vendors:v1:unscoped:l${limit}`;
+    if (canCache) {
+      const cached = await c.env.META.get(cacheKey, 'json') as { count: number; results: unknown[] } | null;
+      if (cached) return c.json(cached);
+    }
     let sql = 'SELECT * FROM v_vendor_rollup';
     const params: unknown[] = [];
     if (q) { sql += ' WHERE legal_name LIKE ?'; params.push(`%${q}%`); }
     sql += ' ORDER BY total_value DESC LIMIT ?';
     params.push(limit);
     const r = await c.env.DB.prepare(sql).bind(...params).all();
-    return c.json({ count: r.results.length, results: r.results });
+    const payload = { count: r.results.length, results: r.results };
+    if (canCache) c.executionCtx.waitUntil(c.env.META.put(cacheKey, JSON.stringify(payload), { expirationTtl: 3600 }).catch(() => {}));
+    return c.json(payload);
   }
 
   // Scoped: aggregate vendor rollup over only this view's awards.
@@ -771,6 +783,14 @@ app.get('/vendors/:idOrUei', async (c) => {
 // ---------- Organizations ----------
 
 app.get('/organizations', async (c) => {
+  // Aggregates over the whole award table (~5K D1 row-reads/call) and only
+  // changes after the daily import. There are no params or view scoping here,
+  // so one KV key caches the catalog for an hour — repeat loads (the Agencies
+  // page) then cost nothing against D1's free-tier read cap.
+  const cacheKey = 'organizations:v1';
+  const cached = await c.env.META.get(cacheKey, 'json') as { count: number; results: unknown[] } | null;
+  if (cached) return c.json(cached);
+
   const result = await c.env.DB.prepare(`
     SELECT o.org_id, o.canonical_name, o.short_name, o.org_type,
            COUNT(a.award_id) AS num_awards,
@@ -781,7 +801,9 @@ app.get('/organizations', async (c) => {
     ORDER BY total_value DESC
     LIMIT 200
   `).all();
-  return c.json({ count: result.results.length, results: result.results });
+  const payload = { count: result.results.length, results: result.results };
+  c.executionCtx.waitUntil(c.env.META.put(cacheKey, JSON.stringify(payload), { expirationTtl: 3600 }).catch(() => {}));
+  return c.json(payload);
 });
 
 // ---------- Ingestion run history ----------
@@ -816,18 +838,28 @@ app.get('/stats/overview', async (c) => {
   if (scope.kind === 'error') return scope.response;
 
   if (scope.kind === 'unscoped') {
+    // Warehouse-wide KPI tiles on every dashboard load — ~11K D1 row-reads
+    // across four COUNT/SUM scans, changing only after the daily import. Cache
+    // the unscoped result in KV for an hour. Scoped view requests fall through
+    // below and are intentionally NOT cached, so there is no cross-view leak.
+    const cacheKey = 'stats:overview:v1:unscoped';
+    const cached = await c.env.META.get(cacheKey, 'json') as Record<string, number> | null;
+    if (cached) return c.json(cached);
+
     const [awards, vendors, orgs, spend] = await Promise.all([
       c.env.DB.prepare('SELECT COUNT(*) AS n FROM award').first<{ n: number }>(),
       c.env.DB.prepare('SELECT COUNT(*) AS n FROM vendor').first<{ n: number }>(),
       c.env.DB.prepare('SELECT COUNT(*) AS n FROM organization').first<{ n: number }>(),
       c.env.DB.prepare('SELECT COALESCE(SUM(current_value), 0) AS total FROM award').first<{ total: number }>(),
     ]);
-    return c.json({
+    const payload = {
       awards: awards?.n ?? 0,
       vendors: vendors?.n ?? 0,
       organizations: orgs?.n ?? 0,
       total_obligated_usd: spend?.total ?? 0,
-    });
+    };
+    c.executionCtx.waitUntil(c.env.META.put(cacheKey, JSON.stringify(payload), { expirationTtl: 3600 }).catch(() => {}));
+    return c.json(payload);
   }
 
   // Scoped: count + sum within the view's award set.
