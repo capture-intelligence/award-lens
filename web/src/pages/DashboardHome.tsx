@@ -7,7 +7,6 @@ import {
 } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { TextSnapshot } from '@/components/ui/TextSnapshot';
 import { AIBadge } from '@/components/ui/AISummaryToggle';
 import { useAuth } from '@/lib/auth-context';
 import { routes } from '@/lib/routes';
@@ -117,65 +116,88 @@ function KPIStrip() {
   );
 }
 
-// ─── Recommended opportunities ─────────────────────────────────────────────
+// ─── Latest opportunities (live) ───────────────────────────────────────────
+interface RecRow {
+  solicitation_id: string;
+  title: string;
+  notice_type: string;
+  response_deadline: string | null;
+  agency: string | null;
+  sub_agency: string | null;
+  office: string | null;
+  naics_codes: string | null;
+  set_aside: string | null;
+  summarized_count: number;
+}
+
 function RecommendedOpportunities() {
-  // Mock recs — wire to /v1/recommendations/opportunities once embeddings job runs.
-  const recs = MOCK_OPPS;
+  const [recs, setRecs] = React.useState<RecRow[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  React.useEffect(() => {
+    let alive = true;
+    api
+      .get<{ results: RecRow[] }>('/pipeline/solicitations', { open_only: 'false', limit: 6 })
+      .then((d) => { if (alive) setRecs(d.results ?? []); })
+      .catch(() => { if (alive) setRecs([]); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, []);
+
   return (
     <Card>
       <CardHeader
-        title="Recommended for you"
-        eyebrow="AI Curated"
-        description="Ranked by similarity to your saved searches, NAICS profile, and pursuit history."
+        title="Latest opportunities"
+        eyebrow="CDC Pipeline"
+        description="The most recent CDC solicitations from SAM.gov. Similarity-ranked recommendations arrive once the embeddings job runs."
         cta={<Link to={routes.contractOpps} className="inline-flex items-center gap-1 text-[12px] text-muted-soft hover:text-foreground">
           See all <ArrowRight className="h-3 w-3" />
         </Link>}
       />
-      <ul className="flex flex-col divide-y divide-border/50">
-        {recs.map((o) => (
-          <li key={o.opportunity_id} className="group">
-            <Link
-              to={`/opportunity/contract/${o.slug}`}
-              className="block px-4 py-3 transition-colors hover:bg-brand-teal-soft/15"
-            >
-              <div className="flex items-start gap-4">
-                <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-vermilion/15 text-brand-vermilion-soft ring-1 ring-brand-vermilion/30">
-                  <FileText className="h-4 w-4" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-start justify-between gap-3">
-                    <h3 className="truncate text-sm font-semibold text-foreground group-hover:text-brand-vermilion-soft">
-                      {o.title}
-                    </h3>
-                    <span className="shrink-0 rounded-full bg-brand-sage/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-brand-sage">
-                      {o.match_pct}% match
-                    </span>
-                  </div>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-soft">
-                    <span>{o.agency}</span>
-                    <span>·</span>
-                    <span>NAICS {o.naics}</span>
-                    <span>·</span>
-                    <span>{o.set_aside}</span>
-                    <span>·</span>
-                    <span>Due {fmtDate(o.deadline)}</span>
-                    {o.ai_value_min && (
-                      <>
+      {loading ? (
+        <div className="px-4 py-6 text-sm text-muted">Loading…</div>
+      ) : recs.length === 0 ? (
+        <div className="px-4 py-6">
+          <EmptyState icon={FileText} title="No opportunities yet." message="New CDC solicitations appear after the daily SAM.gov sync." />
+        </div>
+      ) : (
+        <ul className="flex flex-col divide-y divide-border/50">
+          {recs.map((o) => {
+            const agency = o.office ?? o.sub_agency ?? o.agency ?? '—';
+            const naics = (o.naics_codes ?? '').split('|')[0] || null;
+            return (
+              <li key={o.solicitation_id} className="group">
+                <Link
+                  to={`/opportunity/contract/${o.solicitation_id}`}
+                  className="block px-4 py-3 transition-colors hover:bg-brand-teal-soft/15"
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-vermilion/15 text-brand-vermilion-soft ring-1 ring-brand-vermilion/30">
+                      <FileText className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-3">
+                        <h3 className="truncate text-sm font-semibold text-foreground group-hover:text-brand-vermilion-soft">
+                          {o.title}
+                        </h3>
+                        {o.summarized_count > 0 && <span className="shrink-0"><AIBadge label="AI summary" /></span>}
+                      </div>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-soft">
+                        <span>{o.notice_type}</span>
                         <span>·</span>
-                        <span className="inline-flex items-center gap-1">
-                          <AIBadge label="value" />
-                          {fmtMoney(o.ai_value_min)} – {fmtMoney(o.ai_value_max)}
-                        </span>
-                      </>
-                    )}
+                        <span className="truncate">{agency}</span>
+                        {naics && (<><span>·</span><span>NAICS {naics}</span></>)}
+                        <span>·</span>
+                        <span>{o.set_aside ?? 'None'}</span>
+                        {o.response_deadline && (<><span>·</span><span>Due {fmtDate(o.response_deadline)}</span></>)}
+                      </div>
+                    </div>
                   </div>
-                  <TextSnapshot text={o.summary} />
-                </div>
-              </div>
-            </Link>
-          </li>
-        ))}
-      </ul>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </Card>
   );
 }
@@ -347,60 +369,6 @@ function greeting(hour: number): string {
 
 // ─── Mock data (replaced by API once wired) ───────────────────────────────
 
-const MOCK_OPPS = [
-  {
-    opportunity_id: 'opp-1',
-    slug: 'cdc-data-platform-modernization-fy26',
-    title: 'CDC Data Platform Modernization — FY26 Phase II',
-    agency: 'Centers for Disease Control and Prevention',
-    naics: '541512',
-    set_aside: '8(a)',
-    deadline: '2026-06-15',
-    match_pct: 91,
-    ai_value_min: 12_000_000,
-    ai_value_max: 24_000_000,
-    summary: 'Multi-year IDIQ for cloud-native data engineering supporting NCHHSTP surveillance dashboards. Period of performance includes one base year plus four option years; emphasis on Snowflake/Databricks expertise and HIPAA-aligned data handling.',
-  },
-  {
-    opportunity_id: 'opp-2',
-    slug: 'army-amc-aviation-logistics-bpa',
-    title: 'AMC Aviation Logistics Support BPA',
-    agency: 'U.S. Army Materiel Command',
-    naics: '336411',
-    set_aside: 'SDVOSB',
-    deadline: '2026-05-28',
-    match_pct: 84,
-    ai_value_min: 45_000_000,
-    ai_value_max: 90_000_000,
-    summary: 'Blanket Purchase Agreement covering rotary-wing logistics, MRO scheduling, and supply-chain analytics for the AMC enterprise. Vendor must hold AS9100D certification and demonstrate prior depot-level work.',
-  },
-  {
-    opportunity_id: 'opp-3',
-    slug: 'va-tele-mental-health-platform',
-    title: 'VA Tele-Mental Health Platform — Recompete',
-    agency: 'Department of Veterans Affairs',
-    naics: '622310',
-    set_aside: 'WOSB',
-    deadline: '2026-07-02',
-    match_pct: 78,
-    ai_value_min: 6_500_000,
-    ai_value_max: 15_000_000,
-    summary: 'Recompete of FY21 VA tele-health program. Incumbent transitions; agency seeks reduced provider-to-veteran latency, FedRAMP High posture, and integration with VistA Evolution.',
-  },
-  {
-    opportunity_id: 'opp-4',
-    slug: 'dhs-border-imagery-analytics',
-    title: 'DHS Border Imagery Analytics — Special Notice',
-    agency: 'Department of Homeland Security',
-    naics: '541715',
-    set_aside: 'None',
-    deadline: '2026-08-19',
-    match_pct: 72,
-    ai_value_min: 100_000_000,
-    ai_value_max: 250_000_000,
-    summary: 'Pre-solicitation special notice for ML-driven imagery analytics across CBP southern-border sensor towers. Focus on edge inference and on-device redaction; classified annex available to cleared bidders.',
-  },
-];
 
 const MOCK_NEWS = [
   { id: 'n1', headline: 'GSA awards $1.2B Alliant 3 IDIQ — full vendor list',         source: 'CaptureRadar',           date: 'May 4, 2026', category: 'Contract Award', url: '#' },
