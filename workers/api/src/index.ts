@@ -1842,14 +1842,33 @@ app.post('/import/awards', async (c) => {
 
   // Upsert each award (in its own batch so a single bad row doesn't kill the page).
   let upserted = 0;
+  let skipped = 0;
   let failed = 0;
   const awardIds: string[] = [];
   let firstError: string | null = null;
   for (const award of canonical) {
     try {
+      const awardId = await deterministicId('usaspending', `award::${award.external_id}`);
+      // Skip unchanged awards. Re-upserting a row whose source_last_modified
+      // hasn't advanced re-writes the award plus its federal-account and
+      // performance-location rows (~6 writes) for nothing — the dominant
+      // avoidable load against D1's free-tier daily write cap. One cheap
+      // primary-key read avoids it; new or genuinely-changed awards fall
+      // through and upsert normally.
+      const existing = await c.env.DB.prepare(
+        'SELECT source_last_modified FROM award WHERE award_id = ?',
+      ).bind(awardId).first<{ source_last_modified: string | null }>();
+      if (
+        existing?.source_last_modified &&
+        award.source_last_modified &&
+        existing.source_last_modified >= award.source_last_modified
+      ) {
+        awardIds.push(awardId); // keep it tagged to this view (no-op if already present)
+        skipped++;
+        continue;
+      }
       const stmts = await buildUpsertStatements(c.env.DB, 'usaspending', award);
       await c.env.DB.batch(stmts);
-      const awardId = await deterministicId('usaspending', `award::${award.external_id}`);
       awardIds.push(awardId);
       upserted++;
     } catch (err) {
@@ -1928,7 +1947,7 @@ app.post('/import/awards', async (c) => {
   }
 
   return c.json({
-    run_id: runId, upserted, failed,
+    run_id: runId, upserted, skipped, failed,
     agency_purged: agencyPurged,
     window_purged: windowPurged,
     office_purged: officePurged,
