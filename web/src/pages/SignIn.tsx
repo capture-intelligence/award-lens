@@ -46,7 +46,7 @@ export function SignInPage() {
             </p>
 
             <ul className="mt-10 space-y-4">
-              <Feature icon={Database}    text="8M+ contract opportunities, 80M+ awards, 2.2M awardees — refreshed daily." />
+              <Feature icon={Database}    text="Federal contract awards, grantees, and agencies — HHS/CDC coverage, with the live SAM.gov solicitation pipeline." />
               <Feature icon={Layers}      text="Pursuit pipelines with kanban, funnel analytics, and win/loss tracking." />
               <Feature icon={Sparkles}    text="AI summaries, value estimates, semantic match scoring, document Q&A." />
               <Feature icon={ShieldCheck} text="Multi-channel alerts to email, Slack, and Teams the moment a fit appears." />
