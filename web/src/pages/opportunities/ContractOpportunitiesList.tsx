@@ -19,8 +19,7 @@ import { toast } from 'sonner';
  * template to copy.
  *
  * Data source for this view:
- *   - Phase 0 (now): mock rows, real components, working filters
- *   - Phase 1 (next): wire to GET /opportunities/contract via TanStack Query
+ *   - Live: GET /pipeline/solicitations (workers/api → CDC pipeline)
  *
  * Filters mirror the audit-observed set:
  *   Quick:  Active, Exclude No Bid, My Favorites, My Pursuits,

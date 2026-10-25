@@ -23,10 +23,10 @@ import { api } from '@/lib/api';
  *   - Open Activities widget
  *   - News & Insights feed
  *
- * Phase 1 ships with mock data so investors / customers see a populated
- * page; the API hooks come online as ingestion runs land. Each section is
- * already wired to the corresponding route — clicking through goes to the
- * full list view.
+ * The KPI strip and the "Latest opportunities" widget are wired to live
+ * endpoints (/stats/overview, /pipeline/solicitations). The calendar, open-
+ * activities, and news sections are still placeholders until those domains
+ * are ingested. Each section links through to its full list view.
  */
 
 export function DashboardHomePage() {
