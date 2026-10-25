@@ -18,6 +18,7 @@ import { ContractOpportunitiesListPage } from '@/pages/opportunities/ContractOpp
 import { ContractOpportunityDetailPage } from '@/pages/opportunities/ContractOpportunityDetail';
 import { AwardeesListPage } from '@/pages/awardees/AwardeesList';
 import { AwardeeDetailPage } from '@/pages/awardees/AwardeeDetail';
+import { AgenciesListPage } from '@/pages/agencies/AgenciesList';
 import { MarketAnalysisPage } from '@/pages/MarketAnalysis';
 import { SettingsPage } from '@/pages/Settings';
 import { QualityPage } from '@/pages/Quality';
@@ -158,7 +159,7 @@ function AppRoutes() {
       {/* ── Awardees / Agencies / People ────────────────────────────── */}
       <Route path={routes.awardees} element={<AwardeesListPage />} />
       <Route path={routes.awardee}  element={<AwardeeDetailPage />} />
-      <Route path={routes.agencies} element={<StubPage title="Federal Agencies" eyebrow="Market Intelligence" />} />
+      <Route path={routes.agencies} element={<AgenciesListPage />} />
       <Route path={routes.agency}   element={<StubPage title="Agency" eyebrow="Detail" />} />
       <Route path={routes.people}   element={<StubPage title="Federal People" eyebrow="Market Intelligence" />} />
       <Route path={routes.person}   element={<StubPage title="Person" eyebrow="Detail" />} />

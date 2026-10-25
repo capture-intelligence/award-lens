@@ -101,6 +101,15 @@ const contracts = [
     },
     arrays: ['classifications', 'top_awards'],
   },
+  {
+    name: 'organizations',
+    path: '/organizations',
+    shape: 'results',
+    fields: {
+      org_id: 'string', canonical_name: 'string', short_name: 'string|null',
+      org_type: 'string|null', num_awards: 'number', total_value: 'number',
+    },
+  },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
