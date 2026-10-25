@@ -12,6 +12,7 @@ import { AIBadge } from '@/components/ui/AISummaryToggle';
 import { useAuth } from '@/lib/auth-context';
 import { routes } from '@/lib/routes';
 import { fmtDate, fmtMoney } from '@/lib/utils';
+import { api } from '@/lib/api';
 
 /**
  * DashboardHome — authenticated landing page (spec §3.1 Dashboard).
@@ -70,13 +71,31 @@ export function DashboardHomePage() {
 }
 
 // ─── KPI strip ─────────────────────────────────────────────────────────────
+interface Overview {
+  open_opportunities: number;
+  total_opportunities: number;
+  summarized_docs: number;
+  awards: number;
+  awards_value: number;
+  awardees: number;
+}
+
 function KPIStrip() {
-  // Mock data — wire to /v1/dashboard/kpis once API ships.
+  const [o, setO] = React.useState<Overview | null>(null);
+  React.useEffect(() => {
+    let alive = true;
+    api.get<Overview>('/stats/overview')
+      .then((d) => { if (alive) setO(d); })
+      .catch(() => { if (alive) setO(null); });
+    return () => { alive = false; };
+  }, []);
+
+  const n = (v: number | null | undefined) => (o && v != null ? v.toLocaleString() : '—');
   const kpis = [
-    { label: 'Active opportunities', value: '78,412', delta: '+1,204 this week', icon: FileText, color: 'text-brand-vermilion-soft' },
-    { label: 'Awards FY25',           value: '$487B',  delta: 'tracking 50 agencies',  icon: Award,    color: 'text-brand-sage' },
-    { label: 'Awardees indexed',      value: '82,103', delta: 'with profile vectors',   icon: Users,    color: 'text-foreground' },
-    { label: 'Saved searches firing', value: '0',      delta: 'create your first',      icon: Bell,     color: 'text-muted' },
+    { label: 'Open opportunities', value: n(o?.open_opportunities), delta: o ? `${o.total_opportunities.toLocaleString()} in pipeline` : 'loading…', icon: FileText, color: 'text-brand-vermilion-soft' },
+    { label: 'Awards tracked',     value: n(o?.awards),             delta: o ? `${fmtMoney(o.awards_value)} total` : 'loading…',                    icon: Award,    color: 'text-brand-sage' },
+    { label: 'Awardees indexed',   value: n(o?.awardees),           delta: 'vendors with awards',                                                  icon: Users,    color: 'text-foreground' },
+    { label: 'Docs summarized',    value: n(o?.summarized_docs),    delta: 'AI SOW summaries',                                                     icon: Bell,     color: 'text-muted' },
   ];
   return (
     <ul className="grid grid-cols-2 gap-3 sm:grid-cols-4">
