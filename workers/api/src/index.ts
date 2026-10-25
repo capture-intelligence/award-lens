@@ -2705,6 +2705,23 @@ app.get('/pipeline/stats', async (c) => {
   });
 });
 
+// Landing-page KPI tiles (dashboard home). One cheap read of warehouse-wide
+// counts. Modeled on /stats/opportunities-by-agency (no view scoping — these
+// are aggregate counts over public federal data, shown to any approved user).
+app.get('/stats/overview', async (c) => {
+  const r = await c.env.DB.prepare(`
+    SELECT
+      (SELECT COUNT(*) FROM solicitation
+        WHERE response_deadline IS NOT NULL AND date(response_deadline) >= date('now')) AS open_opportunities,
+      (SELECT COUNT(*) FROM solicitation)                                          AS total_opportunities,
+      (SELECT COUNT(*) FROM solicitation_attachment WHERE sow_summary IS NOT NULL) AS summarized_docs,
+      (SELECT COUNT(*) FROM award)                                                 AS awards,
+      (SELECT COALESCE(SUM(current_value), 0) FROM award)                          AS awards_value,
+      (SELECT COUNT(*) FROM vendor)                                                AS awardees
+  `).first();
+  return c.json(r ?? {});
+});
+
 app.get('/stats/opportunities-by-agency', async (c) => {
   const result = await c.env.DB.prepare(`
     SELECT agency_name AS agency,
