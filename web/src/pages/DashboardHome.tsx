@@ -70,31 +70,39 @@ export function DashboardHomePage() {
 }
 
 // ─── KPI strip ─────────────────────────────────────────────────────────────
+// Two live endpoints back this strip: /stats/overview (warehouse award/vendor
+// rollup) and /pipeline/stats (CDC solicitation pipeline). Every field is
+// read defensively — a missing or null field renders "—", never a crash. The
+// whole dashboard white-screened once because a direct `.toLocaleString()` on
+// an absent field threw inside render; `num()` is the guard against that.
 interface Overview {
-  open_opportunities: number;
-  total_opportunities: number;
-  summarized_docs: number;
   awards: number;
-  awards_value: number;
-  awardees: number;
+  vendors: number;
+  organizations: number;
+  total_obligated_usd: number;
+}
+interface PipelineStats {
+  open_now: number;
+  total_solicitations: number;
+  summarized_attachments: number;
 }
 
 function KPIStrip() {
-  const [o, setO] = React.useState<Overview | null>(null);
+  const [o, setO] = React.useState<Partial<Overview> | null>(null);
+  const [p, setP] = React.useState<Partial<PipelineStats> | null>(null);
   React.useEffect(() => {
     let alive = true;
-    api.get<Overview>('/stats/overview')
-      .then((d) => { if (alive) setO(d); })
-      .catch(() => { if (alive) setO(null); });
+    api.get<Overview>('/stats/overview').then((d) => { if (alive) setO(d); }).catch(() => { if (alive) setO(null); });
+    api.get<PipelineStats>('/pipeline/stats').then((d) => { if (alive) setP(d); }).catch(() => { if (alive) setP(null); });
     return () => { alive = false; };
   }, []);
 
-  const n = (v: number | null | undefined) => (o && v != null ? v.toLocaleString() : '—');
+  const num = (v: number | null | undefined) => (v != null ? v.toLocaleString() : '—');
   const kpis = [
-    { label: 'Open opportunities', value: n(o?.open_opportunities), delta: o ? `${o.total_opportunities.toLocaleString()} in pipeline` : 'loading…', icon: FileText, color: 'text-brand-vermilion-soft' },
-    { label: 'Awards tracked',     value: n(o?.awards),             delta: o ? `${fmtMoney(o.awards_value)} total` : 'loading…',                    icon: Award,    color: 'text-brand-sage' },
-    { label: 'Awardees indexed',   value: n(o?.awardees),           delta: 'vendors with awards',                                                  icon: Users,    color: 'text-foreground' },
-    { label: 'Docs summarized',    value: n(o?.summarized_docs),    delta: 'AI SOW summaries',                                                     icon: Bell,     color: 'text-muted' },
+    { label: 'Open opportunities', value: num(p?.open_now),               delta: p?.total_solicitations != null ? `${p.total_solicitations.toLocaleString()} in pipeline` : 'loading…', icon: FileText, color: 'text-brand-vermilion-soft' },
+    { label: 'Awards tracked',     value: num(o?.awards),                 delta: o?.total_obligated_usd != null ? `${fmtMoney(o.total_obligated_usd)} total` : 'loading…',               icon: Award,    color: 'text-brand-sage' },
+    { label: 'Awardees indexed',   value: num(o?.vendors),                delta: 'vendors with awards',                                                                                 icon: Users,    color: 'text-foreground' },
+    { label: 'Docs summarized',    value: num(p?.summarized_attachments), delta: 'AI SOW summaries',                                                                                    icon: Bell,     color: 'text-muted' },
   ];
   return (
     <ul className="grid grid-cols-2 gap-3 sm:grid-cols-4">
