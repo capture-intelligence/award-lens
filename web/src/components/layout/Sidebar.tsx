@@ -86,8 +86,9 @@ function buildSections(opts: { isAdmin: boolean; isLeader: boolean }): NavSectio
     {
       title: 'Explore',
       items: [
-        { to: routes.home,        label: 'Dashboard',  icon: LayoutDashboard },
-        { to: routes.searchAll,   label: 'Search All', icon: Search },
+        { to: routes.home,            label: 'Dashboard',       icon: LayoutDashboard },
+        { to: routes.legacyAnalytics, label: 'Award Analytics', icon: BarChart3 },
+        { to: routes.searchAll,       label: 'Search All',      icon: Search },
       ],
     },
     {
