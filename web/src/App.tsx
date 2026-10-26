@@ -19,6 +19,7 @@ import { ContractOpportunityDetailPage } from '@/pages/opportunities/ContractOpp
 import { AwardeesListPage } from '@/pages/awardees/AwardeesList';
 import { AwardeeDetailPage } from '@/pages/awardees/AwardeeDetail';
 import { AgenciesListPage } from '@/pages/agencies/AgenciesList';
+import { ExplorePage } from '@/pages/Explore';
 import { MarketAnalysisPage } from '@/pages/MarketAnalysis';
 import { SettingsPage } from '@/pages/Settings';
 import { QualityPage } from '@/pages/Quality';
@@ -123,6 +124,7 @@ function AppRoutes() {
     <Routes>
       {/* ── Explore ───────────────────────────────────────────────────── */}
       <Route path={routes.home}      element={<DashboardHomePage />} />
+      <Route path={routes.explorer}  element={<ExplorePage />} />
       <Route path={routes.searchAll} element={<StubPage title="Search All Federal" eyebrow="Explore" />} />
 
       {/* ── Business Development — Opportunities ─────────────────────── */}

@@ -11,6 +11,7 @@
 export const routes = {
   // Explore
   home:               '/',
+  explorer:           '/explorer',
   searchAll:          '/all',
 
   // Business Development — Opportunities

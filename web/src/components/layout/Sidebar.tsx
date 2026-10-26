@@ -5,7 +5,7 @@ import {
   Users, Building2, FileSearch, Tag, Calendar, History, BookOpen, Bell,
   TrendingUp, MapPin, BarChart3, Truck, Scale, Banknote, ListTree, Layers,
   Megaphone, Newspaper, FileCheck, Bookmark, Download, Settings as SettingsIcon,
-  ChevronsLeft, ChevronsRight, Lock, Plus, ShieldAlert, Inbox,
+  ChevronsLeft, ChevronsRight, Lock, Plus, ShieldAlert, Inbox, Compass,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth-context';
@@ -88,6 +88,7 @@ function buildSections(opts: { isAdmin: boolean; isLeader: boolean }): NavSectio
       items: [
         { to: routes.home,            label: 'Dashboard',       icon: LayoutDashboard },
         { to: routes.legacyAnalytics, label: 'Award Analytics', icon: BarChart3 },
+        { to: routes.explorer,        label: 'Explore',         icon: Compass },
         { to: routes.searchAll,       label: 'Search All',      icon: Search },
       ],
     },

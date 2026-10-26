@@ -1065,7 +1065,7 @@ function compareRows(key: SortKey, a: Record<string, unknown>, b: Record<string,
   }
 }
 
-function AwardBrowser({
+export function AwardBrowser({
   rows, onSelect, viewName,
 }: {
   rows: Record<string, unknown>[];

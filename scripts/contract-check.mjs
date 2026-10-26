@@ -110,6 +110,15 @@ const contracts = [
       org_type: 'string|null', num_awards: 'number', total_value: 'number',
     },
   },
+  {
+    // Backs the Explore page + Award Analytics charts. Heavy (≤5K rows) in
+    // authenticated mode — only the top-level envelope is contracted here.
+    name: 'explore',
+    path: '/explore',
+    shape: 'object',
+    fields: { view_id: 'string', view_name: 'string', count: 'number' },
+    arrays: ['results'],
+  },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
