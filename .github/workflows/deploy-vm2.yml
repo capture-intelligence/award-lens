@@ -119,7 +119,7 @@ jobs:
               # Cleanup tmp
               rm -f /tmp/*.mjs /tmp/package.json /tmp/*.service /tmp/*.timer
               echo "Install OK on VM2"
-INSTALL
+          INSTALL
 
       - name: Verify
         run: |
