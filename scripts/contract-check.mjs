@@ -160,6 +160,18 @@ const contracts = [
     },
   },
   {
+    name: 'ref/naics',
+    path: '/ref/naics',
+    shape: 'results',
+    fields: { code: 'string|null', description: 'string|null', num_awards: 'number', total_value: 'number' },
+  },
+  {
+    name: 'ref/psc',
+    path: '/ref/psc',
+    shape: 'results',
+    fields: { code: 'string|null', description: 'string|null', num_awards: 'number', total_value: 'number' },
+  },
+  {
     name: 'awards',
     path: '/awards?limit=1',
     shape: 'results',

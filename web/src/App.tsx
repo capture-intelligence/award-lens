@@ -26,6 +26,7 @@ import { AgenciesListPage } from '@/pages/agencies/AgenciesList';
 import { AgencyDetailPage } from '@/pages/agencies/AgencyDetail';
 import { ExplorePage } from '@/pages/Explore';
 import { DocumentsListPage } from '@/pages/DocumentsList';
+import { NaicsPage, PscPage } from '@/pages/reference/ReferenceCodes';
 import { MarketAnalysisPage } from '@/pages/MarketAnalysis';
 import { SettingsPage } from '@/pages/Settings';
 import { QualityPage } from '@/pages/Quality';
@@ -184,13 +185,13 @@ function AppRoutes() {
       <Route path={routes.cfda}            element={<StubPage title="Grant Programs (CFDA)" eyebrow="Reference" />} />
       <Route path={routes.cfdaProgram}     element={<StubPage title="CFDA Program" eyebrow="Detail" />} />
       <Route path={routes.sewp}            element={<StubPage title="SEWP Catalog" eyebrow="Reference" />} />
-      <Route path={routes.naics}           element={<StubPage title="NAICS Codes" eyebrow="Reference" />} />
+      <Route path={routes.naics}           element={<NaicsPage />} />
       <Route path={routes.naicsCode}       element={<StubPage title="NAICS Code" eyebrow="Detail" />} />
       <Route path={routes.nia}             element={<StubPage title="National Interest Actions" eyebrow="Reference" />} />
       <Route path={routes.niaCode}         element={<StubPage title="NIA" eyebrow="Detail" />} />
       <Route path={routes.nsn}             element={<StubPage title="NSN" eyebrow="Reference" />} />
       <Route path={routes.nsnItem}         element={<StubPage title="NSN" eyebrow="Detail" />} />
-      <Route path={routes.psc}             element={<StubPage title="PSC Codes" eyebrow="Reference" />} />
+      <Route path={routes.psc}             element={<PscPage />} />
       <Route path={routes.pscCode}         element={<StubPage title="PSC Code" eyebrow="Detail" />} />
       <Route path={routes.budget}          element={<StubPage title="DoD Budget" eyebrow="Reference" />} />
       <Route path={routes.budgetItem}      element={<StubPage title="Budget Line Item" eyebrow="Detail" />} />
