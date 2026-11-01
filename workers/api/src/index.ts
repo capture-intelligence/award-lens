@@ -834,6 +834,36 @@ app.get('/organizations', async (c) => {
   return c.json(payload);
 });
 
+// Agency detail: the org plus its top awards and top vendors. Public data
+// (USAspending), auth-gated by the global middleware like the list. v_award_current
+// exposes awarding_org_name (not id), and it equals organization.canonical_name,
+// so scope by name. Cached 1h — aggregates over the award table per call.
+app.get('/organizations/:id', async (c) => {
+  const org = await c.env.DB.prepare(
+    'SELECT org_id, canonical_name, short_name, org_type FROM organization WHERE org_id = ?',
+  ).bind(c.req.param('id')).first<{ org_id: string; canonical_name: string; short_name: string | null; org_type: string | null }>();
+  if (!org) return c.json({ error: 'not found' }, 404);
+
+  const cacheKey = `organization:v1:${org.org_id}`;
+  const cached = await c.env.META.get(cacheKey, 'json') as Record<string, unknown> | null;
+  if (cached) return c.json(cached);
+
+  const name = org.canonical_name;
+  const [rollup, topAwards, topVendors] = await Promise.all([
+    c.env.DB.prepare('SELECT COUNT(*) AS num_awards, COALESCE(SUM(current_value), 0) AS total_value FROM v_award_current WHERE awarding_org_name = ?').bind(name).first<{ num_awards: number; total_value: number }>(),
+    c.env.DB.prepare('SELECT award_id, award_piid, award_type, vendor_name, current_value, pop_end_date FROM v_award_current WHERE awarding_org_name = ? ORDER BY current_value DESC LIMIT 20').bind(name).all(),
+    c.env.DB.prepare('SELECT vendor_id, vendor_name, COUNT(*) AS num_awards, COALESCE(SUM(current_value), 0) AS total_value FROM v_award_current WHERE awarding_org_name = ? GROUP BY vendor_id, vendor_name ORDER BY total_value DESC LIMIT 20').bind(name).all(),
+  ]);
+
+  const payload = {
+    organization: { ...org, num_awards: rollup?.num_awards ?? 0, total_value: rollup?.total_value ?? 0 },
+    top_awards: topAwards.results,
+    top_vendors: topVendors.results,
+  };
+  c.executionCtx.waitUntil(c.env.META.put(cacheKey, JSON.stringify(payload), { expirationTtl: 3600 }).catch(() => {}));
+  return c.json(payload);
+});
+
 // ---------- Ingestion run history ----------
 
 app.get('/runs', async (c) => {
