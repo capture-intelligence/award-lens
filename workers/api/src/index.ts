@@ -102,7 +102,7 @@ app.get('/', (c) => c.json({
 const SESSION_GATED_PREFIXES = [
   '/awards', '/vendors', '/organizations', '/runs', '/stats',
   '/exclusions', '/opportunities', '/reconciliation', '/schedule',
-  '/sam-api', '/health', '/views',
+  '/sam-api', '/health', '/views', '/documents',
 ];
 app.use('*', async (c, next) => {
   const path = c.req.path;
