@@ -4,6 +4,7 @@ import { Toaster } from 'sonner';
 import { AnimatePresence, motion } from 'framer-motion';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
 import { AgencyProvider } from '@/lib/agency-context';
+import { FavoritesProvider } from '@/lib/favorites-context';
 // ViewProvider is retained for the legacy /legacy/analytics page until that
 // page is rebuilt as the new Dashboard. The /views, /admin/views, and
 // /admin/access-requests routes are sunset (spec direction).
@@ -28,6 +29,7 @@ import { ExplorePage } from '@/pages/Explore';
 import { DocumentsListPage } from '@/pages/DocumentsList';
 import { NaicsPage, PscPage } from '@/pages/reference/ReferenceCodes';
 import { SavedSearchesPage } from '@/pages/SavedSearches';
+import { FavoritesPage } from '@/pages/Favorites';
 import { MarketAnalysisPage } from '@/pages/MarketAnalysis';
 import { SettingsPage } from '@/pages/Settings';
 import { QualityPage } from '@/pages/Quality';
@@ -85,7 +87,7 @@ function RootRouter() {
   if (status === 'rejected')        return <RejectedPage />;
 
   return (
-    <>
+    <FavoritesProvider>
       <AppShell>
         <AnimatedRoute>
           <ErrorBoundary label="Page error">
@@ -95,7 +97,7 @@ function RootRouter() {
       </AppShell>
       <ConversationalIntelligenceWidget />
       <GlobalAwardDetail />
-    </>
+    </FavoritesProvider>
   );
 }
 
@@ -208,7 +210,7 @@ function AppRoutes() {
       <Route path={routes.advisor}      element={<StubPage title="Advisor"          eyebrow="Detail" />} />
 
       {/* ── Tools ────────────────────────────────────────────────────── */}
-      <Route path={routes.favorites}     element={<StubPage title="Favorites"      eyebrow="Tools" />} />
+      <Route path={routes.favorites}     element={<FavoritesPage />} />
       <Route path={routes.savedSearches} element={<SavedSearchesPage />} />
       <Route path={routes.proposals}     element={<StubPage title="Proposals"      eyebrow="Tools" />} />
       <Route path={routes.proposal}      element={<StubPage title="Proposal"       eyebrow="Detail" />} />

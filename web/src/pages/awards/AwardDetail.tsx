@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Award as AwardIcon, Share2, Star, Bell, Building2, Sparkles } from 'lucide-react';
+import { Award as AwardIcon, Share2, Bell, Building2, Sparkles } from 'lucide-react';
+import { FavoriteStar } from '@/components/FavoriteStar';
 import { EntityDetailLayout, type TabDef } from '@/components/ui/EntityDetailLayout';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { fmtDate, fmtMoney } from '@/lib/utils';
@@ -96,7 +97,7 @@ export function AwardDetailPage() {
       actions={
         <>
           <IconButton icon={Share2} label="Share" />
-          <IconButton icon={Star}   label="Favorite" />
+          <FavoriteStar entity_type="award" entity_id={a.award_id} />
           <IconButton icon={Bell}   label="Notify" />
         </>
       }

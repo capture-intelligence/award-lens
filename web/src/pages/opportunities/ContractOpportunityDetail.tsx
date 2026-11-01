@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { useParams } from 'react-router-dom';
-import { Share2, ThumbsDown, Star, Bell, ExternalLink, Sparkles, MapPin, FileText } from 'lucide-react';
+import { Share2, ThumbsDown, Bell, ExternalLink, Sparkles, MapPin, FileText } from 'lucide-react';
+import { FavoriteStar } from '@/components/FavoriteStar';
 import { EntityDetailLayout, type TabDef } from '@/components/ui/EntityDetailLayout';
 import { TextSnapshot } from '@/components/ui/TextSnapshot';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -133,7 +134,7 @@ export function ContractOpportunityDetailPage() {
           <>
             <IconButton icon={Share2}     label="Share" />
             <IconButton icon={ThumbsDown} label="No bid" />
-            <IconButton icon={Star}       label="Favorite" />
+            <FavoriteStar entity_type="solicitation" entity_id={s.solicitation_id} />
             <IconButton icon={Bell}       label="Notify" />
           </>
         }

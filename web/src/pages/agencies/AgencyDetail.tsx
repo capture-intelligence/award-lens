@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Landmark, Building2, Award as AwardIcon } from 'lucide-react';
+import { FavoriteStar } from '@/components/FavoriteStar';
 import { EntityDetailLayout, type TabDef } from '@/components/ui/EntityDetailLayout';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { fmtDate, fmtMoney } from '@/lib/utils';
@@ -97,7 +98,7 @@ export function AgencyDetailPage() {
           <span>{fmtMoney(o.total_value)} obligated</span>
         </span>
       }
-      actions={null}
+      actions={<FavoriteStar entity_type="agency" entity_id={o.org_id} />}
       primaryTabs={TABS}
       secondaryTabs={[]}
       activeTab={activeTab}

@@ -200,6 +200,12 @@ const contracts = [
     shape: 'results',
     fields: { id: 'string', name: 'string', entity: 'string', created_at: 'string' },
   },
+  {
+    name: 'me/favorites',
+    path: '/me/favorites',
+    shape: 'results',
+    fields: { id: 'string', entity_type: 'string', entity_id: 'string', created_at: 'string' },
+  },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────

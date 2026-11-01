@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Star, Bell, Building2, ExternalLink } from 'lucide-react';
+import { Bell, Building2, ExternalLink } from 'lucide-react';
+import { FavoriteStar } from '@/components/FavoriteStar';
 import { EntityDetailLayout, type TabDef } from '@/components/ui/EntityDetailLayout';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { fmtMoney, fmtDate } from '@/lib/utils';
@@ -110,7 +111,7 @@ export function AwardeeDetailPage() {
       }
       actions={
         <>
-          <IconButton icon={Star} label="Favorite" />
+          <FavoriteStar entity_type="awardee" entity_id={v.vendor_id} />
           <IconButton icon={Bell} label="Notify" />
         </>
       }

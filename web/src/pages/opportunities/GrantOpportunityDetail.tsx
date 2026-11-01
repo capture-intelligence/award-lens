@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { useParams } from 'react-router-dom';
-import { ExternalLink, BookOpen, Share2, Star, Bell, Sparkles } from 'lucide-react';
+import { ExternalLink, BookOpen, Share2, Bell, Sparkles } from 'lucide-react';
+import { FavoriteStar } from '@/components/FavoriteStar';
 import { EntityDetailLayout, type TabDef } from '@/components/ui/EntityDetailLayout';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { fmtDate, fmtMoney } from '@/lib/utils';
@@ -101,7 +102,7 @@ export function GrantOpportunityDetailPage() {
       actions={
         <>
           <IconButton icon={Share2} label="Share" />
-          <IconButton icon={Star}   label="Favorite" />
+          <FavoriteStar entity_type="grant" entity_id={g.opportunity_id} />
           <IconButton icon={Bell}   label="Notify" />
         </>
       }
