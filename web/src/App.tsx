@@ -16,6 +16,7 @@ import { AnalyticsPage } from '@/pages/Analytics';
 import { DashboardHomePage } from '@/pages/DashboardHome';
 import { ContractOpportunitiesListPage } from '@/pages/opportunities/ContractOpportunitiesList';
 import { ContractOpportunityDetailPage } from '@/pages/opportunities/ContractOpportunityDetail';
+import { GrantOpportunitiesListPage } from '@/pages/opportunities/GrantOpportunitiesList';
 import { AwardeesListPage } from '@/pages/awardees/AwardeesList';
 import { AwardeeDetailPage } from '@/pages/awardees/AwardeeDetail';
 import { AgenciesListPage } from '@/pages/agencies/AgenciesList';
@@ -130,7 +131,7 @@ function AppRoutes() {
       {/* ── Business Development — Opportunities ─────────────────────── */}
       <Route path={routes.contractOpps} element={<ContractOpportunitiesListPage />} />
       <Route path={routes.contractOpp}  element={<ContractOpportunityDetailPage />} />
-      <Route path={routes.grantOpps}    element={<StubPage title="Federal Grant Opportunities" eyebrow="Business Development" />} />
+      <Route path={routes.grantOpps}    element={<GrantOpportunitiesListPage />} />
       <Route path={routes.grantOpp}     element={<StubPage title="Grant Opportunity" eyebrow="Detail" />} />
       <Route path={routes.forecasts}    element={<StubPage title="Forecasts" eyebrow="Business Development" />} />
       <Route path={routes.dibbs}        element={<StubPage title="DIBBS Opportunities" eyebrow="Business Development" />} />

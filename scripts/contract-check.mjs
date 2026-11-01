@@ -119,6 +119,17 @@ const contracts = [
     fields: { view_id: 'string', view_name: 'string', count: 'number' },
     arrays: ['results'],
   },
+  {
+    name: 'opportunities',
+    path: '/opportunities?active=true&limit=1',
+    shape: 'results',
+    fields: {
+      opportunity_id: 'string', title: 'string', opportunity_number: 'string|null',
+      agency_name: 'string|null', agency_code: 'string|null', status: 'string|null',
+      close_date: 'string|null', est_total_funding: 'number|null',
+      opportunity_url: 'string|null', days_to_close: 'number|null',
+    },
+  },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
