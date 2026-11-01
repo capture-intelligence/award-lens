@@ -6,6 +6,8 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { FilterPanel, type FilterState } from '@/components/ui/FilterPanel';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { api } from '@/lib/api';
+import { useAgencyParam } from '@/lib/content-filters';
+import { ActiveScopeNote } from '@/components/ActiveScopeNote';
 
 /**
  * Documents — solicitation attachments (PDFs) with their AI SOW summaries.
@@ -43,6 +45,7 @@ export function DocumentsListPage() {
     const search: FilterState['search'] = initQ ? { q: { kind: 'text', value: initQ } } : {};
     return { quick: {}, search };
   });
+  const agencyParam = useAgencyParam();
   const [rows, setRows] = React.useState<DocRow[]>([]);
   const [loading, setLoading] = React.useState(true);
 
@@ -53,16 +56,20 @@ export function DocumentsListPage() {
     return () => clearTimeout(t);
   }, [q]);
 
+  // Agency scope from the top-bar picker — documents inherit their
+  // solicitation's agency (server-side).
+  const agencyKey = agencyParam.awarding_agency ?? '';
   React.useEffect(() => {
     let alive = true;
     setLoading(true);
     api
-      .get<{ count: number; results: DocRow[] }>('/documents', { limit: '200', ...(debouncedQ ? { q: debouncedQ } : {}) })
+      .get<{ count: number; results: DocRow[] }>('/documents', { limit: '200', ...agencyParam, ...(debouncedQ ? { q: debouncedQ } : {}) })
       .then((d) => { if (alive) setRows(d.results ?? []); })
       .catch(() => { if (alive) setRows([]); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [debouncedQ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQ, agencyKey]);
 
   return (
     <div className="flex flex-col gap-6 pb-12">
@@ -73,10 +80,11 @@ export function DocumentsListPage() {
         actions={<SaveSearchButton entity="documents" query={{ q: debouncedQ }} />}
       />
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="rounded-full border border-brand-vermilion/40 bg-brand-vermilion/10 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-brand-vermilion-soft">
           {loading ? 'Loading…' : `${rows.length.toLocaleString()} documents`}
         </span>
+        <ActiveScopeNote dims={['agency']} />
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[320px_1fr]">

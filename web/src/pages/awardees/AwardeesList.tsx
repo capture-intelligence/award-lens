@@ -8,6 +8,8 @@ import { DataTable } from '@/components/ui/DataTable';
 import { FilterPanel, type FilterState } from '@/components/ui/FilterPanel';
 import { fmtMoney, fmtDate } from '@/lib/utils';
 import { api } from '@/lib/api';
+import { useAgencyParam } from '@/lib/content-filters';
+import { ActiveScopeNote } from '@/components/ActiveScopeNote';
 
 /**
  * Federal Awardees — list view.
@@ -38,6 +40,7 @@ export function AwardeesListPage() {
     const search: FilterState['search'] = initQ ? { q: { kind: 'text', value: initQ } } : {};
     return { quick: {}, search };
   });
+  const agencyParam = useAgencyParam();
   const [rows, setRows] = React.useState<VendorRow[]>([]);
   const [loading, setLoading] = React.useState(true);
 
@@ -50,19 +53,24 @@ export function AwardeesListPage() {
     return () => clearTimeout(t);
   }, [q]);
 
+  // Agency scope from the top-bar picker (server-side). Value/date don't map to
+  // the vendor rollup (its value is a lifetime aggregate, not a per-award band).
+  const agencyKey = agencyParam.awarding_agency ?? '';
   React.useEffect(() => {
     let alive = true;
     setLoading(true);
     api
       .get<{ count: number; results: VendorRow[] }>('/vendors', {
         limit: '200',
+        ...agencyParam,
         ...(debouncedQ ? { q: debouncedQ } : {}),
       })
       .then((d) => { if (alive) setRows(d.results ?? []); })
       .catch(() => { if (alive) setRows([]); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [debouncedQ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQ, agencyKey]);
 
   const columns = React.useMemo<ColumnDef<VendorRow, unknown>[]>(() => [
     {
@@ -93,10 +101,11 @@ export function AwardeesListPage() {
         actions={<SaveSearchButton entity="awardees" query={{ q: debouncedQ }} />}
       />
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="rounded-full border border-brand-vermilion/40 bg-brand-vermilion/10 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-brand-vermilion-soft">
           {loading ? 'Loading…' : `${rows.length.toLocaleString()} shown`}
         </span>
+        <ActiveScopeNote dims={['agency']} />
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[320px_1fr]">

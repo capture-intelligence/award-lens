@@ -8,6 +8,8 @@ import { FilterPanel, type FilterState } from '@/components/ui/FilterPanel';
 import { SaveSearchButton } from '@/components/SaveSearchButton';
 import { fmtMoney, fmtDate } from '@/lib/utils';
 import { api } from '@/lib/api';
+import { useAgencyParam, useGrantRowPredicate } from '@/lib/content-filters';
+import { ActiveScopeNote } from '@/components/ActiveScopeNote';
 
 /**
  * Federal Grant Opportunities — list view.
@@ -42,7 +44,9 @@ export function GrantOpportunitiesListPage() {
     const search: FilterState['search'] = initQ ? { q: { kind: 'text', value: initQ } } : {};
     return { quick: {}, search };
   });
-  const [rows, setRows] = React.useState<GrantRow[]>([]);
+  const agencyParam = useAgencyParam();
+  const grantPredicate = useGrantRowPredicate();
+  const [rawRows, setRawRows] = React.useState<GrantRow[]>([]);
   const [loading, setLoading] = React.useState(true);
 
   const q = (filters.search?.q as { kind: 'text'; value: string } | undefined)?.value ?? '';
@@ -52,6 +56,9 @@ export function GrantOpportunitiesListPage() {
     return () => clearTimeout(t);
   }, [q]);
 
+  // Agency scope is server-side; the top-bar value/date refine client-side
+  // (value → est_total_funding, date → close_date).
+  const agencyKey = agencyParam.awarding_agency ?? '';
   React.useEffect(() => {
     let alive = true;
     setLoading(true);
@@ -59,13 +66,17 @@ export function GrantOpportunitiesListPage() {
       .get<{ count: number; results: GrantRow[] }>('/opportunities', {
         active: 'true',
         limit: '500',
+        ...agencyParam,
         ...(debouncedQ ? { q: debouncedQ } : {}),
       })
-      .then((d) => { if (alive) setRows(d.results ?? []); })
-      .catch(() => { if (alive) setRows([]); })
+      .then((d) => { if (alive) setRawRows(d.results ?? []); })
+      .catch(() => { if (alive) setRawRows([]); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [debouncedQ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQ, agencyKey]);
+
+  const rows = React.useMemo(() => rawRows.filter(grantPredicate), [rawRows, grantPredicate]);
 
   const columns = React.useMemo<ColumnDef<GrantRow, unknown>[]>(() => [
     {
@@ -112,10 +123,11 @@ export function GrantOpportunitiesListPage() {
         actions={<SaveSearchButton entity="grants" query={{ q: debouncedQ }} />}
       />
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="rounded-full border border-brand-vermilion/40 bg-brand-vermilion/10 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-brand-vermilion-soft">
           {loading ? 'Loading…' : `${rows.length.toLocaleString()} open`}
         </span>
+        <ActiveScopeNote dims={['agency', 'value', 'date']} />
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[320px_1fr]">

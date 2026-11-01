@@ -11,6 +11,8 @@ import { TextSnapshot } from '@/components/ui/TextSnapshot';
 import { AIBadge } from '@/components/ui/AISummaryToggle';
 import { fmtDate, fmtMoney } from '@/lib/utils';
 import { api, ApiError } from '@/lib/api';
+import { useAgencyParam } from '@/lib/content-filters';
+import { ActiveScopeNote } from '@/components/ActiveScopeNote';
 import { toast } from 'sonner';
 
 /**
@@ -51,13 +53,15 @@ export function ContractOpportunitiesListPage() {
   const [saveOpen, setSaveOpen] = React.useState(false);
 
   // Live data: the CDC contract-solicitation pipeline (GET /pipeline/solicitations).
-  // Server-side filtering isn't wired yet — that's the next increment — but the
-  // rows, pagination, row-expand, and export affordances all run on real data.
+  // Agency scope from the top-bar picker is applied server-side; the rest of the
+  // filter panel is a later increment.
+  const agencyParam = useAgencyParam();
   const [data, setData] = React.useState<OppRow[]>([]);
   const [totalCount, setTotalCount] = React.useState(0);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
+  const agencyKey = agencyParam.awarding_agency ?? '';
   React.useEffect(() => {
     let alive = true;
     setLoading(true);
@@ -65,6 +69,7 @@ export function ContractOpportunitiesListPage() {
       .get<{ count: number; results: PipelineSolicitation[] }>('/pipeline/solicitations', {
         open_only: 'false',
         limit: 500,
+        ...agencyParam,
       })
       .then((res) => {
         if (!alive) return;
@@ -81,7 +86,8 @@ export function ContractOpportunitiesListPage() {
     return () => {
       alive = false;
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agencyKey]);
 
   const columns = React.useMemo<ColumnDef<OppRow, unknown>[]>(() => [
     {
@@ -187,6 +193,7 @@ export function ContractOpportunitiesListPage() {
         <span className="rounded-full border border-border px-3 py-1 text-[11px] font-medium text-muted">
           CDC contract pipeline · live
         </span>
+        <ActiveScopeNote dims={['agency']} />
       </div>
 
       {error && (

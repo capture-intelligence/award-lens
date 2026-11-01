@@ -8,6 +8,8 @@ import { DataTable } from '@/components/ui/DataTable';
 import { FilterPanel, type FilterState } from '@/components/ui/FilterPanel';
 import { fmtMoney, fmtDate } from '@/lib/utils';
 import { api } from '@/lib/api';
+import { useAwardListParams, useAwardRowPredicate } from '@/lib/content-filters';
+import { ActiveScopeNote } from '@/components/ActiveScopeNote';
 
 /**
  * Federal Contract Awards — list view.
@@ -36,7 +38,9 @@ export function ContractAwardsListPage() {
     const search: FilterState['search'] = initQ ? { q: { kind: 'text', value: initQ } } : {};
     return { quick: {}, search };
   });
-  const [rows, setRows] = React.useState<AwardRow[]>([]);
+  const awardParams = useAwardListParams();
+  const awardPredicate = useAwardRowPredicate();
+  const [rawRows, setRawRows] = React.useState<AwardRow[]>([]);
   const [loading, setLoading] = React.useState(true);
 
   const q = (filters.search?.q as { kind: 'text'; value: string } | undefined)?.value ?? '';
@@ -46,19 +50,32 @@ export function ContractAwardsListPage() {
     return () => clearTimeout(t);
   }, [q]);
 
+  // Server-side scope: agency + center + value band come from the top-bar
+  // picker. A larger page (500) gives the client-side date / Nature refinement
+  // below enough rows to work with.
+  const awardParamsKey = JSON.stringify(awardParams);
   React.useEffect(() => {
     let alive = true;
     setLoading(true);
     api
       .get<{ count: number; results: AwardRow[] }>('/awards', {
-        limit: '200',
+        limit: '500',
+        ...awardParams,
         ...(debouncedQ ? { q: debouncedQ } : {}),
       })
-      .then((d) => { if (alive) setRows(d.results ?? []); })
-      .catch(() => { if (alive) setRows([]); })
+      .then((d) => { if (alive) setRawRows(d.results ?? []); })
+      .catch(() => { if (alive) setRawRows([]); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [debouncedQ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQ, awardParamsKey]);
+
+  // Date window + Nature bucket are applied in memory (see content-filters) over
+  // the agency/center/value-scoped rows the server returned.
+  const rows = React.useMemo(
+    () => rawRows.filter((r) => awardPredicate(r as unknown as Record<string, unknown>)),
+    [rawRows, awardPredicate],
+  );
 
   const columns = React.useMemo<ColumnDef<AwardRow, unknown>[]>(() => [
     {
@@ -92,10 +109,11 @@ export function ContractAwardsListPage() {
         actions={<SaveSearchButton entity="awards" query={{ q: debouncedQ }} />}
       />
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="rounded-full border border-brand-vermilion/40 bg-brand-vermilion/10 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-brand-vermilion-soft">
           {loading ? 'Loading…' : `${rows.length.toLocaleString()} shown`}
         </span>
+        <ActiveScopeNote />
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[320px_1fr]">
