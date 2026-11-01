@@ -1,6 +1,7 @@
 import * as React from 'react';
+import { Link } from 'react-router-dom';
 import { type ColumnDef } from '@tanstack/react-table';
-import { BookOpen, ExternalLink } from 'lucide-react';
+import { BookOpen } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { DataTable } from '@/components/ui/DataTable';
 import { FilterPanel, type FilterState } from '@/components/ui/FilterPanel';
@@ -64,20 +65,14 @@ export function GrantOpportunitiesListPage() {
     {
       accessorKey: 'title',
       header: 'Title',
-      cell: ({ row }) => {
-        const o = row.original;
-        const inner = (
-          <span className="flex items-start gap-2 font-medium text-foreground">
-            <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md bg-brand-teal-soft/30 text-muted-soft">
-              <BookOpen className="h-3.5 w-3.5" />
-            </span>
-            <span className="line-clamp-2">{o.title}</span>
+      cell: ({ row }) => (
+        <Link to={`/opportunity/grant/${row.original.opportunity_id}`} className="group flex items-start gap-2 font-medium text-foreground hover:text-brand-vermilion-soft">
+          <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md bg-brand-teal-soft/30 text-muted-soft group-hover:text-brand-vermilion-soft">
+            <BookOpen className="h-3.5 w-3.5" />
           </span>
-        );
-        return o.opportunity_url
-          ? <a href={o.opportunity_url} target="_blank" rel="noreferrer" className="group inline-flex items-start gap-1 hover:text-brand-vermilion-soft">{inner}<ExternalLink className="mt-1 h-3 w-3 shrink-0 text-muted-soft group-hover:text-brand-vermilion-soft" /></a>
-          : inner;
-      },
+          <span className="line-clamp-2">{row.original.title}</span>
+        </Link>
+      ),
       meta: { minWidth: 360 },
     },
     { accessorKey: 'opportunity_number', header: 'Number', cell: ({ row }) => <span className="text-muted tabular-nums">{row.original.opportunity_number ?? '—'}</span>, meta: { minWidth: 130 } },

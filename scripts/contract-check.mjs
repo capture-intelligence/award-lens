@@ -129,6 +129,17 @@ const contracts = [
       close_date: 'string|null', est_total_funding: 'number|null',
       opportunity_url: 'string|null', days_to_close: 'number|null',
     },
+    captureId: (row) => row.opportunity_id,
+  },
+  {
+    name: 'opportunities/:id',
+    path: (id) => `/opportunities/${encodeURIComponent(id)}`,
+    needsId: 'opportunities',
+    shape: 'object',
+    fields: {
+      opportunity_id: 'string', title: 'string', status: 'string|null',
+      close_date: 'string|null', description: 'string|null', opportunity_url: 'string|null',
+    },
   },
   {
     name: 'awards',
