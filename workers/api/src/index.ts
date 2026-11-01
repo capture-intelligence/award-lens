@@ -102,7 +102,7 @@ app.get('/', (c) => c.json({
 const SESSION_GATED_PREFIXES = [
   '/awards', '/vendors', '/organizations', '/runs', '/stats',
   '/exclusions', '/opportunities', '/reconciliation', '/schedule',
-  '/sam-api', '/health', '/views', '/documents',
+  '/sam-api', '/health', '/views', '/documents', '/ref',
 ];
 app.use('*', async (c, next) => {
   const path = c.req.path;
@@ -886,6 +886,38 @@ app.get('/documents', async (c) => {
     LIMIT ?
   `).bind(...params, limit).all();
   return c.json({ count: r.results.length, results: r.results });
+});
+
+// Reference: NAICS / PSC codes observed in the award table, with their
+// description and award count/value. Cached 1h (changes only on import).
+app.get('/ref/naics', async (c) => {
+  const cached = await c.env.META.get('naics:v1', 'json') as { count: number; results: unknown[] } | null;
+  if (cached) return c.json(cached);
+  const r = await c.env.DB.prepare(`
+    SELECT a.naics_code AS code, MAX(n.description) AS description,
+           COUNT(*) AS num_awards, COALESCE(SUM(a.current_value), 0) AS total_value
+    FROM award a LEFT JOIN naics_code n ON n.naics_code = a.naics_code
+    WHERE a.naics_code IS NOT NULL AND a.naics_code != ''
+    GROUP BY a.naics_code ORDER BY num_awards DESC LIMIT 500
+  `).all();
+  const payload = { count: r.results.length, results: r.results };
+  c.executionCtx.waitUntil(c.env.META.put('naics:v1', JSON.stringify(payload), { expirationTtl: 3600 }).catch(() => {}));
+  return c.json(payload);
+});
+
+app.get('/ref/psc', async (c) => {
+  const cached = await c.env.META.get('psc:v1', 'json') as { count: number; results: unknown[] } | null;
+  if (cached) return c.json(cached);
+  const r = await c.env.DB.prepare(`
+    SELECT a.psc_code AS code, MAX(p.description) AS description,
+           COUNT(*) AS num_awards, COALESCE(SUM(a.current_value), 0) AS total_value
+    FROM award a LEFT JOIN psc_code p ON p.psc_code = a.psc_code
+    WHERE a.psc_code IS NOT NULL AND a.psc_code != ''
+    GROUP BY a.psc_code ORDER BY num_awards DESC LIMIT 500
+  `).all();
+  const payload = { count: r.results.length, results: r.results };
+  c.executionCtx.waitUntil(c.env.META.put('psc:v1', JSON.stringify(payload), { expirationTtl: 3600 }).catch(() => {}));
+  return c.json(payload);
 });
 
 // ---------- Ingestion run history ----------
