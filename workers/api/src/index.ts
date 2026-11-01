@@ -490,6 +490,19 @@ app.get('/explore', async (c) => {
       ? scope.awarding_agency
       : c.req.query('awarding_agency')?.trim();
     const centerCode = c.req.query('center_code')?.trim();
+
+    // Cache this slice in KV for an hour. It's the hot path behind the Analytics
+    // charts + Explore page (~up to 5K heavy rows/call against D1's read cap),
+    // and the response is a pure function of (awardingAgency, centerCode, limit)
+    // — the SQL is identical for admin (unscoped) and non-admin (agency) over
+    // public USAspending data, so one key serves both with no leakage. The
+    // view_id/filter_id branches below are NOT cached (they carry per-user
+    // access checks a cache hit would bypass). An oversized payload simply
+    // fails to cache (put is best-effort) and falls back to D1.
+    const cacheKey = `explore:v1:a=${awardingAgency ?? '-'}:c=${centerCode ?? '-'}:l=${limit}`;
+    const cached = await c.env.META.get(cacheKey, 'json') as { view_id: null; view_name: string; count: number; results: unknown[] } | null;
+    if (cached) return c.json(cached);
+
     const where: string[] = [];
     const params: unknown[] = [];
     let agencyJoin = '';
@@ -532,12 +545,14 @@ app.get('/explore', async (c) => {
     const label = awardingAgency
       ? (centerCode ? `${awardingAgency} · ${centerCode}` : `${awardingAgency} (all data)`)
       : 'All data (admin)';
-    return c.json({
-      view_id:   null,
+    const payload = {
+      view_id:   null as null,
       view_name: label,
       count:     r.results.length,
       results:   decorate(r.results),
-    });
+    };
+    c.executionCtx.waitUntil(c.env.META.put(cacheKey, JSON.stringify(payload), { expirationTtl: 3600 }).catch(() => {}));
+    return c.json(payload);
   }
 
   // New filter path: query-time only. Subtier + federal_account expansion,
