@@ -88,37 +88,44 @@ jobs:
           SAM_KEY_VAL: ${{ secrets.SAM_API_KEY_NEW }}
         run: |
           echo "::add-mask::$SAM_KEY_VAL"
-          # Pipe the .env contents over stdin so the values never appear on argv.
+          # Write the .env in its OWN ssh. The values ride the pipe into `tee`,
+          # so they never land on argv or the remote process list. Keeping it
+          # separate from the install heredoc below is the actual fix: a single
+          # `ssh ... bash <<'INSTALL'` already binds the remote stdin to the
+          # heredoc script, so a printf piped into that same ssh is thrown away
+          # (the heredoc redirect wins) and `tee` ends up reading the script
+          # stream rather than the .env. Two ssh calls keeps the two streams
+          # from colliding.
           printf 'API_BASE=%s\nINGEST_TOKEN=%s\nSAM_API_KEY=%s\n' \
             "$API_BASE_VAL" "$INGEST_TOKEN_VAL" "$SAM_KEY_VAL" \
-            | ssh -i ~/.ssh/id_ed25519 ${{ secrets.VM_USER }}@${{ secrets.VM2_HOST }} bash <<'INSTALL'
-              set -e
-              # Move scripts into place
-              for f in /tmp/*.mjs /tmp/package.json; do
-                [ -f "$f" ] || continue
-                sudo install -o awards -g awards -m 0644 "$f" \
-                  "/opt/awards-pipeline/sidecar-oracle/$(basename "$f")"
-              done
-              # systemd units
-              for f in /tmp/*.service /tmp/*.timer; do
-                [ -f "$f" ] || continue
-                sudo install -m 0644 "$f" "/etc/systemd/system/$(basename "$f")"
-              done
-              # Write .env from stdin
-              sudo tee /opt/awards-pipeline/sidecar-oracle/.env >/dev/null
-              sudo chown awards:awards /opt/awards-pipeline/sidecar-oracle/.env
-              sudo chmod 600 /opt/awards-pipeline/sidecar-oracle/.env
+            | ssh -i ~/.ssh/id_ed25519 ${{ secrets.VM_USER }}@${{ secrets.VM2_HOST }} \
+                'sudo tee /opt/awards-pipeline/sidecar-oracle/.env >/dev/null && sudo chown awards:awards /opt/awards-pipeline/sidecar-oracle/.env && sudo chmod 600 /opt/awards-pipeline/sidecar-oracle/.env'
 
-              # Reload + enable timers
-              sudo systemctl daemon-reload
-              for u in awards-sam-opps awards-sam-vendors awards-enrich-descriptions; do
-                if sudo systemctl list-unit-files --no-legend "$u.timer" | grep -q .; then
-                  sudo systemctl enable "$u.timer" >/dev/null 2>&1 || true
-                fi
-              done
-              # Cleanup tmp
-              rm -f /tmp/*.mjs /tmp/package.json /tmp/*.service /tmp/*.timer
-              echo "Install OK on VM2"
+          # Install code + systemd units, then reload + enable timers. No stdin
+          # is needed here, so the heredoc is free to carry the script.
+          ssh -i ~/.ssh/id_ed25519 ${{ secrets.VM_USER }}@${{ secrets.VM2_HOST }} bash <<'INSTALL'
+            set -e
+            # Move scripts into place
+            for f in /tmp/*.mjs /tmp/package.json; do
+              [ -f "$f" ] || continue
+              sudo install -o awards -g awards -m 0644 "$f" \
+                "/opt/awards-pipeline/sidecar-oracle/$(basename "$f")"
+            done
+            # systemd units
+            for f in /tmp/*.service /tmp/*.timer; do
+              [ -f "$f" ] || continue
+              sudo install -m 0644 "$f" "/etc/systemd/system/$(basename "$f")"
+            done
+            # Reload + enable timers
+            sudo systemctl daemon-reload
+            for u in awards-sam-opps awards-sam-vendors awards-enrich-descriptions; do
+              if sudo systemctl list-unit-files --no-legend "$u.timer" | grep -q .; then
+                sudo systemctl enable "$u.timer" >/dev/null 2>&1 || true
+              fi
+            done
+            # Cleanup tmp
+            rm -f /tmp/*.mjs /tmp/package.json /tmp/*.service /tmp/*.timer
+            echo "Install OK on VM2"
           INSTALL
 
       - name: Verify
