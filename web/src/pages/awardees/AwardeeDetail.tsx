@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { Star, Bell, Building2, ExternalLink } from 'lucide-react';
 import { EntityDetailLayout, type TabDef } from '@/components/ui/EntityDetailLayout';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -163,7 +163,7 @@ function AwardsTab({ awards }: { awards: TopAward[] }) {
       {awards.map((a) => (
         <li key={a.award_id} className="flex items-start justify-between gap-4 rounded-xl border border-border bg-brand-teal-deep/25 p-3">
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-foreground">{a.award_piid ?? a.award_id}</div>
+            <Link to={`/award/contract/prime/${a.award_id}`} className="truncate block text-sm font-semibold text-foreground hover:text-brand-vermilion-soft hover:underline">{a.award_piid ?? a.award_id}</Link>
             <div className="mt-0.5 text-[11px] text-muted-soft">
               {a.awarding_org_name ?? 'Unknown agency'}
               {a.pop_end_date && <> · ends {fmtDate(a.pop_end_date)}</>}
