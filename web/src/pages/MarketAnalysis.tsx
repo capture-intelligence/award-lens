@@ -20,13 +20,16 @@ export function MarketAnalysisPage() {
   return (
     <div className="flex flex-col gap-6 pb-12">
       <PageHeader
-        eyebrow="Market Intelligence"
+        eyebrow="Sample data · Market Intelligence"
         title="Market Analysis"
-        description="Federal spending across contracts, subcontracts, grants, and subgrants — sliced by year, agency, NAICS, PSC, vehicle, set-aside, and place of performance."
+        description="Placeholder figures — this page isn't wired to the warehouse yet. Real market analysis (spending sliced by year, agency, NAICS, PSC, vehicle, set-aside, and place of performance) lands in a later phase."
         actions={
           <ExportDropdown totalCount={1} tierLimit={20_000} onExport={() => toast.success('Chart export queued')} />
         }
       />
+      <div className="rounded-xl border border-brand-vermilion/30 bg-brand-vermilion/5 px-4 py-2 text-[12px] text-muted">
+        <span className="font-bold uppercase tracking-wider text-brand-vermilion-soft">Sample data</span> — the charts below are illustrative placeholders, not live warehouse figures.
+      </div>
       <FederalAwardAnalysisChart
         kpis={KPIS}
         trendData={TRENDS}
