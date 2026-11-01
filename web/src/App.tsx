@@ -27,6 +27,7 @@ import { AgencyDetailPage } from '@/pages/agencies/AgencyDetail';
 import { ExplorePage } from '@/pages/Explore';
 import { DocumentsListPage } from '@/pages/DocumentsList';
 import { NaicsPage, PscPage } from '@/pages/reference/ReferenceCodes';
+import { SavedSearchesPage } from '@/pages/SavedSearches';
 import { MarketAnalysisPage } from '@/pages/MarketAnalysis';
 import { SettingsPage } from '@/pages/Settings';
 import { QualityPage } from '@/pages/Quality';
@@ -208,7 +209,7 @@ function AppRoutes() {
 
       {/* ── Tools ────────────────────────────────────────────────────── */}
       <Route path={routes.favorites}     element={<StubPage title="Favorites"      eyebrow="Tools" />} />
-      <Route path={routes.savedSearches} element={<StubPage title="Saved Searches" eyebrow="Tools" />} />
+      <Route path={routes.savedSearches} element={<SavedSearchesPage />} />
       <Route path={routes.proposals}     element={<StubPage title="Proposals"      eyebrow="Tools" />} />
       <Route path={routes.proposal}      element={<StubPage title="Proposal"       eyebrow="Detail" />} />
       <Route path={routes.foia}          element={<StubPage title="FOIA Requests"  eyebrow="Tools" />} />

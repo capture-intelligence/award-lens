@@ -1,10 +1,11 @@
 import * as React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { type ColumnDef } from '@tanstack/react-table';
 import { BookOpen } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { DataTable } from '@/components/ui/DataTable';
 import { FilterPanel, type FilterState } from '@/components/ui/FilterPanel';
+import { SaveSearchButton } from '@/components/SaveSearchButton';
 import { fmtMoney, fmtDate } from '@/lib/utils';
 import { api } from '@/lib/api';
 
@@ -35,7 +36,12 @@ interface GrantRow {
 }
 
 export function GrantOpportunitiesListPage() {
-  const [filters, setFilters] = React.useState<FilterState>({ quick: {}, search: {} });
+  const [searchParams] = useSearchParams();
+  const [filters, setFilters] = React.useState<FilterState>(() => {
+    const initQ = searchParams.get('q') ?? '';
+    const search: FilterState['search'] = initQ ? { q: { kind: 'text', value: initQ } } : {};
+    return { quick: {}, search };
+  });
   const [rows, setRows] = React.useState<GrantRow[]>([]);
   const [loading, setLoading] = React.useState(true);
 
@@ -103,6 +109,7 @@ export function GrantOpportunitiesListPage() {
         eyebrow="Business Development"
         title="Federal Grant Opportunities"
         description="Open federal grant opportunities from Grants.gov, refreshed daily and sorted soonest-closing first."
+        actions={<SaveSearchButton entity="grants" query={{ q: debouncedQ }} />}
       />
 
       <div className="flex items-center gap-2">

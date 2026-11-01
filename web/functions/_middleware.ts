@@ -53,6 +53,7 @@ const CF_WORKER_PREFIXES = [
   '/pipeline',
   '/documents',
   '/ref',
+  '/saved-searches',
   '/ai',
 ] as const;
 

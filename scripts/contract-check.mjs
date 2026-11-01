@@ -193,6 +193,13 @@ const contracts = [
       pop_end_date: 'string|null', naics_code: 'string|null',
     },
   },
+  {
+    // User-scoped; may be empty for a fresh user (field check then skipped).
+    name: 'saved-searches',
+    path: '/saved-searches',
+    shape: 'results',
+    fields: { id: 'string', name: 'string', entity: 'string', created_at: 'string' },
+  },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
