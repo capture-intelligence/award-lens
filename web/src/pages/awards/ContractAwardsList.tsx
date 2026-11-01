@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { Link } from 'react-router-dom';
 import { type ColumnDef } from '@tanstack/react-table';
 import { Award as AwardIcon } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -58,15 +59,15 @@ export function ContractAwardsListPage() {
       accessorKey: 'award_piid',
       header: 'Award',
       cell: ({ row }) => (
-        <span className="flex items-start gap-2 font-medium text-foreground">
-          <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md bg-brand-teal-soft/30 text-muted-soft">
+        <Link to={`/award/contract/prime/${row.original.award_id}`} className="group flex items-start gap-2 font-medium text-foreground hover:text-brand-vermilion-soft">
+          <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md bg-brand-teal-soft/30 text-muted-soft group-hover:text-brand-vermilion-soft">
             <AwardIcon className="h-3.5 w-3.5" />
           </span>
           <span>
             <span className="tabular-nums">{row.original.award_piid ?? row.original.award_id}</span>
             {row.original.award_type && <span className="ml-2 text-[11px] capitalize text-muted-soft">{row.original.award_type.toLowerCase()}</span>}
           </span>
-        </span>
+        </Link>
       ),
       meta: { minWidth: 260 },
     },

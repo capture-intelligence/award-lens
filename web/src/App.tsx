@@ -19,6 +19,7 @@ import { ContractOpportunityDetailPage } from '@/pages/opportunities/ContractOpp
 import { GrantOpportunitiesListPage } from '@/pages/opportunities/GrantOpportunitiesList';
 import { GrantOpportunityDetailPage } from '@/pages/opportunities/GrantOpportunityDetail';
 import { ContractAwardsListPage } from '@/pages/awards/ContractAwardsList';
+import { AwardDetailPage } from '@/pages/awards/AwardDetail';
 import { AwardeesListPage } from '@/pages/awardees/AwardeesList';
 import { AwardeeDetailPage } from '@/pages/awardees/AwardeeDetail';
 import { AgenciesListPage } from '@/pages/agencies/AgenciesList';
@@ -156,7 +157,7 @@ function AppRoutes() {
       <Route path={routes.vehicle}             element={<StubPage title="Vehicle" eyebrow="Detail" />} />
       <Route path={routes.contractAwards}      element={<ContractAwardsListPage />} />
       <Route path={routes.contractAwardIDV}    element={<StubPage title="IDV Award" eyebrow="Detail" />} />
-      <Route path={routes.contractAwardPrime}  element={<StubPage title="Prime Contract" eyebrow="Detail" />} />
+      <Route path={routes.contractAwardPrime}  element={<AwardDetailPage />} />
       <Route path={routes.contractAwardSub}    element={<StubPage title="Subcontract" eyebrow="Detail" />} />
       <Route path={routes.grantAwards}         element={<StubPage title="Federal Grant Awards" eyebrow="Market Intelligence" />} />
       <Route path={routes.grantAward}          element={<StubPage title="Grant Award" eyebrow="Detail" />} />

@@ -150,6 +150,18 @@ const contracts = [
       current_value: 'number|null', pop_end_date: 'string|null',
       awarding_org_name: 'string|null', vendor_name: 'string|null',
     },
+    captureId: (row) => row.award_id,
+  },
+  {
+    name: 'awards/:id',
+    path: (id) => `/awards/${encodeURIComponent(id)}`,
+    needsId: 'awards',
+    shape: 'object',
+    fields: {
+      award_id: 'string', award_piid: 'string|null', vendor_name: 'string|null',
+      awarding_org_name: 'string|null', current_value: 'number|null',
+      pop_end_date: 'string|null', naics_code: 'string|null',
+    },
   },
 ];
 
