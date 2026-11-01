@@ -58,7 +58,10 @@ jobs:
 
   # ── 2. Cloudflare Pages dashboard ──────────────────────────────────────
   pages:
-    if: ${{ github.event_name != 'workflow_dispatch' || contains(github.event.inputs.targets, 'pages') }}
+    # Manual-dispatch only. Prod's dashboard is CaptureRadar (deployed from the
+    # captureradar branch via `pnpm run deploy`), NOT the @awards/web app built
+    # here — so a push to main must NOT auto-deploy Pages or it clobbers prod.
+    if: ${{ github.event_name == 'workflow_dispatch' && contains(github.event.inputs.targets, 'pages') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -92,7 +95,9 @@ jobs:
 
   # ── 3. Oracle VM sidecar — push only the files that changed ────────────
   sidecar:
-    if: ${{ github.event_name != 'workflow_dispatch' || contains(github.event.inputs.targets, 'sidecar') }}
+    # Manual-dispatch only — a push to main shouldn't re-push sidecar scripts and
+    # restart the VM timers (including the dead SAM timers) as a side effect.
+    if: ${{ github.event_name == 'workflow_dispatch' && contains(github.event.inputs.targets, 'sidecar') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
