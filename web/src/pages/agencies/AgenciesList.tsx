@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { Link } from 'react-router-dom';
 import { type ColumnDef } from '@tanstack/react-table';
 import { Landmark } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -53,15 +54,15 @@ export function AgenciesListPage() {
       accessorKey: 'canonical_name',
       header: 'Name',
       cell: ({ row }) => (
-        <span className="flex items-center gap-2 font-medium text-foreground">
-          <span className="grid h-7 w-7 place-items-center rounded-md bg-brand-teal-soft/30 text-muted-soft">
+        <Link to={`/agency/${row.original.org_id}`} className="group flex items-center gap-2 font-medium text-foreground hover:text-brand-vermilion-soft">
+          <span className="grid h-7 w-7 place-items-center rounded-md bg-brand-teal-soft/30 text-muted-soft group-hover:text-brand-vermilion-soft">
             <Landmark className="h-3.5 w-3.5" />
           </span>
           <span>
             {row.original.canonical_name}
             {row.original.short_name && <span className="ml-2 text-[11px] text-muted-soft">{row.original.short_name}</span>}
           </span>
-        </span>
+        </Link>
       ),
       meta: { minWidth: 340 },
     },

@@ -109,6 +109,15 @@ const contracts = [
       org_id: 'string', canonical_name: 'string', short_name: 'string|null',
       org_type: 'string|null', num_awards: 'number', total_value: 'number',
     },
+    captureId: (row) => row.org_id,
+  },
+  {
+    name: 'organizations/:id',
+    path: (id) => `/organizations/${encodeURIComponent(id)}`,
+    needsId: 'organizations',
+    shape: 'object',
+    nested: { organization: { org_id: 'string', canonical_name: 'string', num_awards: 'number', total_value: 'number' } },
+    arrays: ['top_awards', 'top_vendors'],
   },
   {
     // Backs the Explore page + Award Analytics charts. Heavy (≤5K rows) in

@@ -23,6 +23,7 @@ import { AwardDetailPage } from '@/pages/awards/AwardDetail';
 import { AwardeesListPage } from '@/pages/awardees/AwardeesList';
 import { AwardeeDetailPage } from '@/pages/awardees/AwardeeDetail';
 import { AgenciesListPage } from '@/pages/agencies/AgenciesList';
+import { AgencyDetailPage } from '@/pages/agencies/AgencyDetail';
 import { ExplorePage } from '@/pages/Explore';
 import { MarketAnalysisPage } from '@/pages/MarketAnalysis';
 import { SettingsPage } from '@/pages/Settings';
@@ -166,7 +167,7 @@ function AppRoutes() {
       <Route path={routes.awardees} element={<AwardeesListPage />} />
       <Route path={routes.awardee}  element={<AwardeeDetailPage />} />
       <Route path={routes.agencies} element={<AgenciesListPage />} />
-      <Route path={routes.agency}   element={<StubPage title="Agency" eyebrow="Detail" />} />
+      <Route path={routes.agency}   element={<AgencyDetailPage />} />
       <Route path={routes.people}   element={<StubPage title="Federal People" eyebrow="Market Intelligence" />} />
       <Route path={routes.person}   element={<StubPage title="Person" eyebrow="Detail" />} />
 
