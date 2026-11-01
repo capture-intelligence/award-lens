@@ -151,6 +151,15 @@ const contracts = [
     },
   },
   {
+    name: 'documents',
+    path: '/documents?limit=1',
+    shape: 'results',
+    fields: {
+      attachment_id: 'string', file_name: 'string|null', file_url: 'string|null',
+      solicitation_id: 'string|null', sow_summary: 'string|null',
+    },
+  },
+  {
     name: 'awards',
     path: '/awards?limit=1',
     shape: 'results',
