@@ -985,6 +985,122 @@ app.delete('/me/favorites/:entity_type/:entity_id', async (c) => {
   return c.json({ ok: true });
 });
 
+// ---------- Pipelines + Pursuits (per-user BD capture board) ----------
+// A pipeline is a named board; a pursuit is a card that moves across capture
+// stages. Everything is scoped to the signed-in user: every query filters by
+// user_id, and a pursuit can only ever attach to a pipeline the same user owns.
+const PURSUIT_STAGES = ['identified', 'qualifying', 'capturing', 'proposal', 'submitted', 'won', 'lost'];
+
+app.get('/me/pipelines', async (c) => {
+  const u = c.var.user;
+  if (!u) return c.json({ error: 'unauthenticated' }, 401);
+  // Each board carries its pursuit count so the UI can show it without a second call.
+  const r = await c.env.DB.prepare(
+    `SELECT p.id, p.name, p.created_at,
+            (SELECT COUNT(*) FROM pursuit WHERE pipeline_id = p.id AND user_id = ?) AS pursuit_count
+     FROM pipeline p WHERE p.user_id = ? ORDER BY p.created_at DESC LIMIT 200`,
+  ).bind(u.user_id, u.user_id).all();
+  return c.json({ count: r.results.length, results: r.results });
+});
+
+app.post('/me/pipelines', async (c) => {
+  const u = c.var.user;
+  if (!u) return c.json({ error: 'unauthenticated' }, 401);
+  const body = await c.req.json().catch(() => null) as { name?: string } | null;
+  if (!body || !body.name) return c.json({ error: 'name required' }, 400);
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  await c.env.DB.prepare('INSERT INTO pipeline (id, user_id, name, created_at) VALUES (?, ?, ?, ?)')
+    .bind(id, u.user_id, String(body.name).slice(0, 200), now).run();
+  return c.json({ id, name: body.name, created_at: now, pursuit_count: 0 }, 201);
+});
+
+app.delete('/me/pipelines/:id', async (c) => {
+  const u = c.var.user;
+  if (!u) return c.json({ error: 'unauthenticated' }, 401);
+  const id = c.req.param('id');
+  // Delete the board and its cards; both filters include user_id so a user can
+  // only ever remove their own.
+  await c.env.DB.prepare('DELETE FROM pursuit WHERE pipeline_id = ? AND user_id = ?').bind(id, u.user_id).run();
+  await c.env.DB.prepare('DELETE FROM pipeline WHERE id = ? AND user_id = ?').bind(id, u.user_id).run();
+  return c.json({ ok: true });
+});
+
+app.get('/me/pursuits', async (c) => {
+  const u = c.var.user;
+  if (!u) return c.json({ error: 'unauthenticated' }, 401);
+  const pipelineId = c.req.query('pipeline_id');
+  if (!pipelineId) return c.json({ error: 'pipeline_id required' }, 400);
+  // Confirm the board is this user's before returning its cards.
+  const owns = await c.env.DB.prepare('SELECT 1 FROM pipeline WHERE id = ? AND user_id = ?').bind(pipelineId, u.user_id).first();
+  if (!owns) return c.json({ error: 'not found' }, 404);
+  const r = await c.env.DB.prepare(
+    `SELECT id, pipeline_id, entity_type, entity_id, title, stage, notes, created_at, updated_at
+     FROM pursuit WHERE pipeline_id = ? AND user_id = ? ORDER BY created_at ASC LIMIT 1000`,
+  ).bind(pipelineId, u.user_id).all();
+  return c.json({ count: r.results.length, results: r.results });
+});
+
+app.post('/me/pursuits', async (c) => {
+  const u = c.var.user;
+  if (!u) return c.json({ error: 'unauthenticated' }, 401);
+  const body = await c.req.json().catch(() => null) as
+    { pipeline_id?: string; title?: string; entity_type?: string; entity_id?: string; stage?: string } | null;
+  if (!body || !body.pipeline_id || !body.title) return c.json({ error: 'pipeline_id and title required' }, 400);
+  // The pursuit can only attach to a pipeline this user owns.
+  const owns = await c.env.DB.prepare('SELECT 1 FROM pipeline WHERE id = ? AND user_id = ?').bind(body.pipeline_id, u.user_id).first();
+  if (!owns) return c.json({ error: 'pipeline not found' }, 404);
+  const stage = body.stage && PURSUIT_STAGES.includes(body.stage) ? body.stage : 'identified';
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  await c.env.DB.prepare(
+    `INSERT INTO pursuit (id, user_id, pipeline_id, entity_type, entity_id, title, stage, notes, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+  ).bind(
+    id, u.user_id, body.pipeline_id,
+    body.entity_type ? String(body.entity_type).slice(0, 60) : null,
+    body.entity_id ? String(body.entity_id).slice(0, 200) : null,
+    String(body.title).slice(0, 300), stage, now, now,
+  ).run();
+  return c.json({ id, pipeline_id: body.pipeline_id, entity_type: body.entity_type ?? null, entity_id: body.entity_id ?? null, title: body.title, stage, notes: null, created_at: now, updated_at: now }, 201);
+});
+
+// PATCH and PUT both apply a partial update (stage/title/notes); only the fields
+// present in the body change. WHERE id = ? AND user_id = ? scopes to the owner.
+async function updatePursuit(c: import('hono').Context<{ Bindings: Env; Variables: AuthVars }>) {
+  const u = c.var.user;
+  if (!u) return c.json({ error: 'unauthenticated' }, 401);
+  const id = c.req.param('id');
+  const body = await c.req.json().catch(() => null) as { stage?: string; title?: string; notes?: string } | null;
+  if (!body) return c.json({ error: 'body required' }, 400);
+  const sets: string[] = [];
+  const binds: unknown[] = [];
+  if (body.stage !== undefined) {
+    if (!PURSUIT_STAGES.includes(body.stage)) return c.json({ error: 'invalid stage' }, 400);
+    sets.push('stage = ?'); binds.push(body.stage);
+  }
+  if (body.title !== undefined) { sets.push('title = ?'); binds.push(String(body.title).slice(0, 300)); }
+  if (body.notes !== undefined) { sets.push('notes = ?'); binds.push(body.notes === null ? null : String(body.notes).slice(0, 4000)); }
+  if (sets.length === 0) return c.json({ error: 'nothing to update' }, 400);
+  sets.push('updated_at = ?'); binds.push(new Date().toISOString());
+  binds.push(id, u.user_id);
+  await c.env.DB.prepare(`UPDATE pursuit SET ${sets.join(', ')} WHERE id = ? AND user_id = ?`).bind(...binds).run();
+  const row = await c.env.DB.prepare(
+    'SELECT id, pipeline_id, entity_type, entity_id, title, stage, notes, created_at, updated_at FROM pursuit WHERE id = ? AND user_id = ?',
+  ).bind(id, u.user_id).first();
+  if (!row) return c.json({ error: 'not found' }, 404);
+  return c.json(row);
+}
+app.patch('/me/pursuits/:id', updatePursuit);
+app.put('/me/pursuits/:id', updatePursuit);
+
+app.delete('/me/pursuits/:id', async (c) => {
+  const u = c.var.user;
+  if (!u) return c.json({ error: 'unauthenticated' }, 401);
+  await c.env.DB.prepare('DELETE FROM pursuit WHERE id = ? AND user_id = ?').bind(c.req.param('id'), u.user_id).run();
+  return c.json({ ok: true });
+});
+
 // ---------- Ingestion run history ----------
 
 app.get('/runs', async (c) => {
