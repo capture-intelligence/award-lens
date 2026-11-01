@@ -17,6 +17,7 @@ import { DashboardHomePage } from '@/pages/DashboardHome';
 import { ContractOpportunitiesListPage } from '@/pages/opportunities/ContractOpportunitiesList';
 import { ContractOpportunityDetailPage } from '@/pages/opportunities/ContractOpportunityDetail';
 import { GrantOpportunitiesListPage } from '@/pages/opportunities/GrantOpportunitiesList';
+import { ContractAwardsListPage } from '@/pages/awards/ContractAwardsList';
 import { AwardeesListPage } from '@/pages/awardees/AwardeesList';
 import { AwardeeDetailPage } from '@/pages/awardees/AwardeeDetail';
 import { AgenciesListPage } from '@/pages/agencies/AgenciesList';
@@ -152,7 +153,7 @@ function AppRoutes() {
       <Route path={routes.marketAnalysis}      element={<MarketAnalysisPage />} />
       <Route path={routes.vehicles}            element={<StubPage title="Contract Vehicles" eyebrow="Market Intelligence" />} />
       <Route path={routes.vehicle}             element={<StubPage title="Vehicle" eyebrow="Detail" />} />
-      <Route path={routes.contractAwards}      element={<StubPage title="Federal Contract Awards" eyebrow="Market Intelligence" />} />
+      <Route path={routes.contractAwards}      element={<ContractAwardsListPage />} />
       <Route path={routes.contractAwardIDV}    element={<StubPage title="IDV Award" eyebrow="Detail" />} />
       <Route path={routes.contractAwardPrime}  element={<StubPage title="Prime Contract" eyebrow="Detail" />} />
       <Route path={routes.contractAwardSub}    element={<StubPage title="Subcontract" eyebrow="Detail" />} />

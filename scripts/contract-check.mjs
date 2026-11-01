@@ -130,6 +130,16 @@ const contracts = [
       opportunity_url: 'string|null', days_to_close: 'number|null',
     },
   },
+  {
+    name: 'awards',
+    path: '/awards?limit=1',
+    shape: 'results',
+    fields: {
+      award_id: 'string', award_piid: 'string|null', award_type: 'string|null',
+      current_value: 'number|null', pop_end_date: 'string|null',
+      awarding_org_name: 'string|null', vendor_name: 'string|null',
+    },
+  },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
