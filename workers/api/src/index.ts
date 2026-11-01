@@ -102,7 +102,7 @@ app.get('/', (c) => c.json({
 const SESSION_GATED_PREFIXES = [
   '/awards', '/vendors', '/organizations', '/runs', '/stats',
   '/exclusions', '/opportunities', '/reconciliation', '/schedule',
-  '/sam-api', '/health', '/views', '/documents', '/ref', '/saved-searches',
+  '/sam-api', '/health', '/views', '/documents', '/ref', '/saved-searches', '/me',
 ];
 app.use('*', async (c, next) => {
   const path = c.req.path;
@@ -951,6 +951,37 @@ app.delete('/saved-searches/:id', async (c) => {
   if (!u) return c.json({ error: 'unauthenticated' }, 401);
   // AND user_id = ? ensures a user can only delete their own.
   await c.env.DB.prepare('DELETE FROM saved_search WHERE id = ? AND user_id = ?').bind(c.req.param('id'), u.user_id).run();
+  return c.json({ ok: true });
+});
+
+// ---------- Favorites (per-user bookmarks of any entity) ----------
+// Under /me/* so the API path doesn't collide with the /favorites page route.
+app.get('/me/favorites', async (c) => {
+  const u = c.var.user;
+  if (!u) return c.json({ error: 'unauthenticated' }, 401);
+  const et = c.req.query('entity_type');
+  const r = et
+    ? await c.env.DB.prepare('SELECT id, entity_type, entity_id, created_at FROM favorite WHERE user_id = ? AND entity_type = ? ORDER BY created_at DESC LIMIT 500').bind(u.user_id, et).all()
+    : await c.env.DB.prepare('SELECT id, entity_type, entity_id, created_at FROM favorite WHERE user_id = ? ORDER BY created_at DESC LIMIT 500').bind(u.user_id).all();
+  return c.json({ count: r.results.length, results: r.results });
+});
+
+app.post('/me/favorites', async (c) => {
+  const u = c.var.user;
+  if (!u) return c.json({ error: 'unauthenticated' }, 401);
+  const body = await c.req.json().catch(() => null) as { entity_type?: string; entity_id?: string } | null;
+  if (!body || !body.entity_type || !body.entity_id) return c.json({ error: 'entity_type and entity_id required' }, 400);
+  // INSERT OR IGNORE against the unique (user, type, id) index — idempotent.
+  await c.env.DB.prepare('INSERT OR IGNORE INTO favorite (id, user_id, entity_type, entity_id, created_at) VALUES (?, ?, ?, ?, ?)')
+    .bind(crypto.randomUUID(), u.user_id, String(body.entity_type).slice(0, 60), String(body.entity_id).slice(0, 200), new Date().toISOString()).run();
+  return c.json({ ok: true, entity_type: body.entity_type, entity_id: body.entity_id });
+});
+
+app.delete('/me/favorites/:entity_type/:entity_id', async (c) => {
+  const u = c.var.user;
+  if (!u) return c.json({ error: 'unauthenticated' }, 401);
+  await c.env.DB.prepare('DELETE FROM favorite WHERE user_id = ? AND entity_type = ? AND entity_id = ?')
+    .bind(u.user_id, c.req.param('entity_type'), c.req.param('entity_id')).run();
   return c.json({ ok: true });
 });
 
