@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import { SaveSearchButton } from '@/components/SaveSearchButton';
 import { FileText, ExternalLink, Sparkles } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { FilterPanel, type FilterState } from '@/components/ui/FilterPanel';
@@ -36,7 +37,12 @@ function fmtBytes(b: number | null): string {
 }
 
 export function DocumentsListPage() {
-  const [filters, setFilters] = React.useState<FilterState>({ quick: {}, search: {} });
+  const [searchParams] = useSearchParams();
+  const [filters, setFilters] = React.useState<FilterState>(() => {
+    const initQ = searchParams.get('q') ?? '';
+    const search: FilterState['search'] = initQ ? { q: { kind: 'text', value: initQ } } : {};
+    return { quick: {}, search };
+  });
   const [rows, setRows] = React.useState<DocRow[]>([]);
   const [loading, setLoading] = React.useState(true);
 
@@ -64,6 +70,7 @@ export function DocumentsListPage() {
         eyebrow="Market Intelligence"
         title="Documents"
         description="Solicitation attachments from the CDC contract pipeline, with AI-generated statement-of-work summaries where available."
+        actions={<SaveSearchButton entity="documents" query={{ q: debouncedQ }} />}
       />
 
       <div className="flex items-center gap-2">

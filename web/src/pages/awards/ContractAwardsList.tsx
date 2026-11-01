@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import { SaveSearchButton } from '@/components/SaveSearchButton';
 import { type ColumnDef } from '@tanstack/react-table';
 import { Award as AwardIcon } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -29,7 +30,12 @@ interface AwardRow {
 }
 
 export function ContractAwardsListPage() {
-  const [filters, setFilters] = React.useState<FilterState>({ quick: {}, search: {} });
+  const [searchParams] = useSearchParams();
+  const [filters, setFilters] = React.useState<FilterState>(() => {
+    const initQ = searchParams.get('q') ?? '';
+    const search: FilterState['search'] = initQ ? { q: { kind: 'text', value: initQ } } : {};
+    return { quick: {}, search };
+  });
   const [rows, setRows] = React.useState<AwardRow[]>([]);
   const [loading, setLoading] = React.useState(true);
 
@@ -83,6 +89,7 @@ export function ContractAwardsListPage() {
         eyebrow="Market Intelligence"
         title="Federal Contract Awards"
         description="Prime contract awards in the warehouse (USAspending), highest value and latest period-of-performance first."
+        actions={<SaveSearchButton entity="awards" query={{ q: debouncedQ }} />}
       />
 
       <div className="flex items-center gap-2">
