@@ -643,13 +643,19 @@ app.get('/awards', async (c) => {
   const org = c.req.query('awarding_org');
   const vendor = c.req.query('vendor');
   const minValue = Number(c.req.query('min_value') ?? 0);
+  const maxValue = Number(c.req.query('max_value') ?? 0);
+  // Top-bar picker scope (admins browse unscoped, so honor the picker here).
+  const awardingAgency = c.req.query('awarding_agency')?.trim();
+  const centerCode = c.req.query('center_code')?.trim();
   const limit = Math.min(Number(c.req.query('limit') ?? 50), 500);
 
   // Cache the unscoped (admin), no-filter hot path — the Contract Awards list.
   // v_award_current is a current-version rollup scanned over the whole award
   // table per call. Searched/filtered/scoped calls fall through to D1, and the
-  // view_id/filter_id scopes are never cached (per-user access checks).
-  const canCache = scope.kind === 'unscoped' && !q && !org && !vendor && !(minValue > 0);
+  // view_id/filter_id scopes are never cached (per-user access checks). Any
+  // top-bar filter (agency / center / value band) also bypasses the cache.
+  const canCache = scope.kind === 'unscoped' && !q && !org && !vendor
+    && !(minValue > 0) && !(maxValue > 0) && !awardingAgency && !centerCode;
   const cacheKey = `awards:v1:unscoped:l${limit}`;
   if (canCache) {
     const cached = await c.env.META.get(cacheKey, 'json') as { count: number; results: unknown[] } | null;
@@ -673,6 +679,42 @@ app.get('/awards', async (c) => {
   if (minValue > 0) {
     userClauses.push('va.current_value >= ?');
     userParams.push(minValue);
+  }
+  if (maxValue > 0) {
+    userClauses.push('va.current_value <= ?');
+    userParams.push(maxValue);
+  }
+  // Agency scope by canonical_name — subquery (no JOIN) so it composes with
+  // any scope kind. Redundant-but-harmless for a non-admin already scoped to
+  // this agency; the decisive case is an admin browsing unscoped.
+  if (awardingAgency) {
+    userClauses.push(`va.award_id IN (
+      SELECT a2.award_id FROM award a2
+      JOIN organization o2 ON o2.org_id = a2.awarding_org_id
+      WHERE o2.canonical_name = ?
+    )`);
+    userParams.push(awardingAgency);
+  }
+  // Center scope — mirrors /explore + decorate(): a per-award override beats
+  // the lowest-priority federal-account → center routing.
+  if (centerCode) {
+    userClauses.push(`va.award_id IN (
+      SELECT a2.award_id FROM award a2
+      JOIN cdc_center_override cco ON cco.award_piid = a2.award_piid
+      WHERE cco.center_code = ?
+      UNION
+      SELECT award_id FROM (
+        SELECT afa.award_id, cc.center_code,
+               ROW_NUMBER() OVER (PARTITION BY afa.award_id ORDER BY cc.priority ASC) AS rn
+        FROM award_federal_account afa
+        JOIN cdc_center cc ON cc.federal_account_code = afa.federal_account_code
+        WHERE afa.award_id NOT IN (
+          SELECT a3.award_id FROM award a3
+          JOIN cdc_center_override cco2 ON cco2.award_piid = a3.award_piid
+        )
+      ) WHERE rn = 1 AND center_code = ?
+    )`);
+    userParams.push(centerCode, centerCode);
   }
 
   const { sql, params } = composeAwardQuery({
@@ -736,8 +778,54 @@ app.get('/vendors', async (c) => {
 
   const q = c.req.query('q');
   const limit = Math.min(Number(c.req.query('limit') ?? 50), 500);
+  // Top-bar picker scope (admins are unscoped, so honor it explicitly below).
+  const awardingAgency = c.req.query('awarding_agency')?.trim();
+  const centerCode = c.req.query('center_code')?.trim();
 
   if (scope.kind === 'unscoped') {
+    // Top-bar agency/center picker active: aggregate vendor rollups over only
+    // the awards in that agency/center — same shape as the scoped branch below,
+    // minus the view join. Not cached (varies by agency / center / q / limit).
+    if (awardingAgency || centerCode) {
+      const vWhere: string[] = [];
+      const vParams: unknown[] = [];
+      if (awardingAgency) { vWhere.push('va.awarding_org_name = ?'); vParams.push(awardingAgency); }
+      if (centerCode) {
+        vWhere.push(`va.award_id IN (
+          SELECT a2.award_id FROM award a2
+          JOIN cdc_center_override cco ON cco.award_piid = a2.award_piid
+          WHERE cco.center_code = ?
+          UNION
+          SELECT award_id FROM (
+            SELECT afa.award_id, cc.center_code,
+                   ROW_NUMBER() OVER (PARTITION BY afa.award_id ORDER BY cc.priority ASC) AS rn
+            FROM award_federal_account afa
+            JOIN cdc_center cc ON cc.federal_account_code = afa.federal_account_code
+            WHERE afa.award_id NOT IN (
+              SELECT a3.award_id FROM award a3
+              JOIN cdc_center_override cco2 ON cco2.award_piid = a3.award_piid
+            )
+          ) WHERE rn = 1 AND center_code = ?
+        )`);
+        vParams.push(centerCode, centerCode);
+      }
+      if (q) { vWhere.push('v.legal_name LIKE ?'); vParams.push(`%${q}%`); }
+      const scopedSql = `
+        SELECT v.vendor_id, v.uei, v.legal_name,
+               COUNT(va.award_id)                 AS num_awards,
+               COALESCE(SUM(va.current_value), 0) AS total_value,
+               MIN(va.pop_start_date)             AS first_award_date,
+               MAX(va.pop_end_date)               AS last_pop_end
+        FROM v_award_current va
+        JOIN vendor v ON v.vendor_id = va.vendor_id
+        ${vWhere.length ? 'WHERE ' + vWhere.join(' AND ') : ''}
+        GROUP BY v.vendor_id, v.uei, v.legal_name
+        ORDER BY total_value DESC
+        LIMIT ?`;
+      const sr = await c.env.DB.prepare(scopedSql).bind(...vParams, limit).all();
+      return c.json({ count: sr.results.length, results: sr.results });
+    }
+
     // v_vendor_rollup aggregates over the whole award table (~6.5K D1
     // row-reads/call). The default awardees load (no search term) is the hot
     // path and only changes after the daily import — cache it per-limit for an
@@ -874,6 +962,15 @@ app.get('/documents', async (c) => {
   const where: string[] = [];
   const params: unknown[] = [];
   if (q) { where.push('(sa.file_name LIKE ? OR s.title LIKE ?)'); params.push(`%${q}%`, `%${q}%`); }
+  // Top-bar agency picker — documents inherit their solicitation's agency
+  // (CDC pipeline sits in sub_agency/office). Rows with no solicitation drop
+  // out under the LIKE, which is correct when scoping to a specific agency.
+  const awardingAgency = c.req.query('awarding_agency')?.trim();
+  if (awardingAgency) {
+    where.push('(s.agency LIKE ? OR s.sub_agency LIKE ? OR s.office LIKE ?)');
+    const a = `%${awardingAgency}%`;
+    params.push(a, a, a);
+  }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const r = await c.env.DB.prepare(`
     SELECT sa.attachment_id, sa.file_name, sa.file_type, sa.size_bytes, sa.file_url,
@@ -2897,6 +2994,13 @@ app.get('/opportunities', async (c) => {
     params.push(`%${q}%`, `%${q}%`, `%${q}%`);
   }
   if (agency) { filters.push('agency_code LIKE ?'); params.push(`%${agency}%`); }
+  // Top-bar agency picker — match the canonical agency name against either the
+  // Grants.gov agency name or code (CDC appears as the full name and "HHS-CDC").
+  const awardingAgency = c.req.query('awarding_agency')?.trim();
+  if (awardingAgency) {
+    filters.push('(agency_name LIKE ? OR agency_code LIKE ?)');
+    params.push(`%${awardingAgency}%`, `%${awardingAgency}%`);
+  }
   if (status && status !== 'any') { filters.push('status = ?'); params.push(status); }
   if (activeOnly) { filters.push(`(close_date IS NULL OR date(close_date) >= date('now'))`); }
 
@@ -2967,6 +3071,14 @@ app.get('/pipeline/solicitations', async (c) => {
   }
   if (noticeType) { filters.push('s.notice_type = ?'); params.push(noticeType); }
   if (setAside)   { filters.push('s.set_aside = ?');   params.push(setAside); }
+  // Top-bar agency picker — SAM stores agency across agency/sub_agency/office,
+  // so match the canonical name against all three (CDC sits in sub_agency).
+  const awardingAgency = c.req.query('awarding_agency')?.trim();
+  if (awardingAgency) {
+    filters.push('(s.agency LIKE ? OR s.sub_agency LIKE ? OR s.office LIKE ?)');
+    const a = `%${awardingAgency}%`;
+    params.push(a, a, a);
+  }
   if (openOnly) {
     filters.push("(s.response_deadline IS NULL OR date(s.response_deadline) >= date('now'))");
   }
