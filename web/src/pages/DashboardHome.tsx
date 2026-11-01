@@ -213,55 +213,58 @@ function RecommendedOpportunities() {
 }
 
 // ─── Calendar widget ──────────────────────────────────────────────────────
+interface Deadline { kind: 'Grant' | 'Contract'; date: string; days: number | null; title: string; href: string; }
+
 function CalendarWidget() {
+  const [items, setItems] = React.useState<Deadline[] | null>(null);
+  React.useEffect(() => {
+    let alive = true;
+    Promise.allSettled([
+      api.get<{ results: Array<{ opportunity_id: string; title: string; close_date: string | null; days_to_close: number | null }> }>('/opportunities', { active: 'true', limit: '50' }),
+      api.get<{ results: Array<{ solicitation_id: string; title: string; response_deadline: string | null; days_to_deadline: number | null }> }>('/pipeline/solicitations', { open_only: 'true', limit: '50' }),
+    ]).then(([g, c]) => {
+      if (!alive) return;
+      const out: Deadline[] = [];
+      if (g.status === 'fulfilled') for (const o of g.value.results ?? []) if (o.close_date) out.push({ kind: 'Grant', date: o.close_date, days: o.days_to_close, title: o.title, href: `/opportunity/grant/${o.opportunity_id}` });
+      if (c.status === 'fulfilled') for (const s of c.value.results ?? []) if (s.response_deadline) out.push({ kind: 'Contract', date: s.response_deadline, days: s.days_to_deadline, title: s.title, href: `/opportunity/contract/${s.solicitation_id}` });
+      out.sort((a, b) => a.date.localeCompare(b.date));
+      setItems(out.slice(0, 10));
+    }).catch(() => { if (alive) setItems([]); });
+    return () => { alive = false; };
+  }, []);
+
   return (
     <Card>
       <CardHeader
-        title="Business Development Calendar"
-        eyebrow="Upcoming"
-        description="Solicitation deadlines, pursuit milestones, and pipeline review dates."
-        cta={<Link to={routes.activities} className="inline-flex items-center gap-1 text-[12px] text-muted-soft hover:text-foreground">
-          Open calendar <ArrowRight className="h-3 w-3" />
+        title="Upcoming deadlines"
+        eyebrow="Calendar"
+        description="The soonest grant close dates and contract response deadlines across the warehouse."
+        cta={<Link to={routes.grantOpps} className="inline-flex items-center gap-1 text-[12px] text-muted-soft hover:text-foreground">
+          See all <ArrowRight className="h-3 w-3" />
         </Link>}
       />
-      <div className="px-4 pb-4">
-        <MiniCalendar />
-      </div>
+      {items == null ? (
+        <div className="px-4 py-6 text-sm text-muted">Loading…</div>
+      ) : items.length === 0 ? (
+        <div className="px-4 pb-4"><EmptyState compact icon={Calendar} title="No upcoming deadlines." message="New grant and contract deadlines appear here as opportunities post." /></div>
+      ) : (
+        <ul className="flex flex-col divide-y divide-border/50">
+          {items.map((d, i) => (
+            <li key={i} className="group">
+              <Link to={d.href} className="block px-4 py-2.5 transition-colors hover:bg-brand-teal-soft/15">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="truncate text-[13px] font-medium text-foreground group-hover:text-brand-vermilion-soft">{d.title}</span>
+                  {d.days != null && d.days >= 0 && (
+                    <span className={`shrink-0 rounded-full px-1.5 py-px text-[10px] font-bold ${d.days <= 14 ? 'bg-brand-vermilion/15 text-brand-vermilion-soft' : 'bg-brand-teal-soft/20 text-muted'}`}>{d.days}d</span>
+                  )}
+                </div>
+                <div className="mt-0.5 text-[11px] text-muted-soft">{d.kind} · due {fmtDate(d.date)}</div>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
     </Card>
-  );
-}
-
-function MiniCalendar() {
-  const days = Array.from({ length: 35 }, (_, i) => i - 3);  // simple 5x7 grid
-  const today = new Date().getDate();
-  return (
-    <div className="grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-border/60 bg-border/30 text-[11px]">
-      {['S','M','T','W','T','F','S'].map((d, i) => (
-        <div key={i} className="bg-brand-teal-deep/85 px-2 py-1.5 text-center font-bold uppercase tracking-wider text-muted-soft">
-          {d}
-        </div>
-      ))}
-      {days.map((d, i) => {
-        const inMonth = d > 0 && d <= 30;
-        const isToday = d === today;
-        const hasEvent = inMonth && [3, 7, 11, 14, 18, 22, 25, 28].includes(d);
-        return (
-          <div
-            key={i}
-            className={`min-h-[60px] bg-brand-teal-deep/35 p-1.5 ${!inMonth && 'opacity-40'} ${isToday && 'ring-2 ring-inset ring-brand-vermilion'}`}
-          >
-            <div className={`text-[10px] font-semibold ${isToday ? 'text-brand-vermilion-soft' : 'text-foreground'}`}>
-              {inMonth ? d : ''}
-            </div>
-            {hasEvent && (
-              <div className="mt-1 truncate rounded bg-brand-vermilion/20 px-1 py-px text-[9px] text-brand-vermilion-soft">
-                Solicit. due
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
   );
 }
 
