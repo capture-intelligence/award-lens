@@ -102,7 +102,7 @@ app.get('/', (c) => c.json({
 const SESSION_GATED_PREFIXES = [
   '/awards', '/vendors', '/organizations', '/runs', '/stats',
   '/exclusions', '/opportunities', '/reconciliation', '/schedule',
-  '/sam-api', '/health', '/views', '/documents', '/ref',
+  '/sam-api', '/health', '/views', '/documents', '/ref', '/saved-searches',
 ];
 app.use('*', async (c, next) => {
   const path = c.req.path;
@@ -918,6 +918,40 @@ app.get('/ref/psc', async (c) => {
   const payload = { count: r.results.length, results: r.results };
   c.executionCtx.waitUntil(c.env.META.put('psc:v1', JSON.stringify(payload), { expirationTtl: 3600 }).catch(() => {}));
   return c.json(payload);
+});
+
+// ---------- Saved searches (per-user BD workflow) ----------
+// All routes are strictly scoped to the signed-in user: every query filters by
+// user_id so one user can never see or delete another's saved searches.
+app.get('/saved-searches', async (c) => {
+  const u = c.var.user;
+  if (!u) return c.json({ error: 'unauthenticated' }, 401);
+  const r = await c.env.DB.prepare(
+    'SELECT id, name, entity, query_json, created_at FROM saved_search WHERE user_id = ? ORDER BY created_at DESC LIMIT 200',
+  ).bind(u.user_id).all();
+  return c.json({ count: r.results.length, results: r.results });
+});
+
+app.post('/saved-searches', async (c) => {
+  const u = c.var.user;
+  if (!u) return c.json({ error: 'unauthenticated' }, 401);
+  const body = await c.req.json().catch(() => null) as { name?: string; entity?: string; query_json?: unknown } | null;
+  if (!body || !body.name || !body.entity) return c.json({ error: 'name and entity required' }, 400);
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const queryJson = body.query_json == null ? null : (typeof body.query_json === 'string' ? body.query_json : JSON.stringify(body.query_json));
+  await c.env.DB.prepare(
+    'INSERT INTO saved_search (id, user_id, name, entity, query_json, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+  ).bind(id, u.user_id, String(body.name).slice(0, 200), String(body.entity).slice(0, 60), queryJson, now).run();
+  return c.json({ id, name: body.name, entity: body.entity, query_json: queryJson, created_at: now }, 201);
+});
+
+app.delete('/saved-searches/:id', async (c) => {
+  const u = c.var.user;
+  if (!u) return c.json({ error: 'unauthenticated' }, 401);
+  // AND user_id = ? ensures a user can only delete their own.
+  await c.env.DB.prepare('DELETE FROM saved_search WHERE id = ? AND user_id = ?').bind(c.req.param('id'), u.user_id).run();
+  return c.json({ ok: true });
 });
 
 // ---------- Ingestion run history ----------
