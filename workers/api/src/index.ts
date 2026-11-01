@@ -645,6 +645,17 @@ app.get('/awards', async (c) => {
   const minValue = Number(c.req.query('min_value') ?? 0);
   const limit = Math.min(Number(c.req.query('limit') ?? 50), 500);
 
+  // Cache the unscoped (admin), no-filter hot path — the Contract Awards list.
+  // v_award_current is a current-version rollup scanned over the whole award
+  // table per call. Searched/filtered/scoped calls fall through to D1, and the
+  // view_id/filter_id scopes are never cached (per-user access checks).
+  const canCache = scope.kind === 'unscoped' && !q && !org && !vendor && !(minValue > 0);
+  const cacheKey = `awards:v1:unscoped:l${limit}`;
+  if (canCache) {
+    const cached = await c.env.META.get(cacheKey, 'json') as { count: number; results: unknown[] } | null;
+    if (cached) return c.json(cached);
+  }
+
   const userClauses: string[] = [];
   const userParams: unknown[] = [];
   if (q) {
@@ -677,7 +688,9 @@ app.get('/awards', async (c) => {
   });
 
   const result = await c.env.DB.prepare(sql).bind(...params).all();
-  return c.json({ count: result.results.length, results: result.results });
+  const payload = { count: result.results.length, results: result.results };
+  if (canCache) c.executionCtx.waitUntil(c.env.META.put(cacheKey, JSON.stringify(payload), { expirationTtl: 3600 }).catch(() => {}));
+  return c.json(payload);
 });
 
 app.get('/awards/:id', async (c) => {
