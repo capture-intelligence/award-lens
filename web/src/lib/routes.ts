@@ -23,8 +23,11 @@ export const routes = {
   dibbs:              '/opportunity/dibbs',
 
   // Pursuit Management
-  pipelines:          '/pipeline',
-  pipelineNew:        '/pipeline/new',
+  // NB: '/pipelines' (plural) — NOT '/pipeline', which the Pages proxy forwards
+  // to the worker (/pipeline/* solicitation endpoints). The plural page route
+  // doesn't match that prefix, so the SPA serves it.
+  pipelines:          '/pipelines',
+  pipelineNew:        '/pipelines/new',
   pursuits:           '/pursuit',
   pursuit:            '/pursuit/:id',
   activities:         '/activity',

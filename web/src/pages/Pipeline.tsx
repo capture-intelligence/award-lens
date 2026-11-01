@@ -1,379 +1,373 @@
 import * as React from 'react';
-import { Briefcase, Clock, Sparkles, AlertTriangle, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
-import { Card, Stat } from '@/components/ui/Card';
-import { Badge } from '@/components/ui/Badge';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/Table';
+import { Briefcase, Plus, Trash2, ChevronLeft, ChevronRight, Layers, X } from 'lucide-react';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { TableSkeleton, StatSkeleton } from '@/components/ui/Skeleton';
 import { api, ApiError } from '@/lib/api';
 import { fmtDate } from '@/lib/utils';
-import { PageHeader } from '@/components/ui/PageHeader';
+import { toast } from 'sonner';
 
-interface Solicitation {
-  solicitation_id: string;
-  sol_number: string | null;
-  notice_type: string;
+/**
+ * Pipelines — the per-user BD capture board. A pipeline is a named board; a
+ * pursuit is a card that moves across capture stages. Wired to the user-scoped
+ * /me/pipelines + /me/pursuits CRUD (every query filtered by user_id server-
+ * side). Stage moves use chevron buttons rather than drag-and-drop — simpler
+ * and keyboard-friendly — and apply optimistically with a revert on failure.
+ */
+
+interface Pipeline {
+  id: string;
+  name: string;
+  created_at: string;
+  pursuit_count: number;
+}
+
+interface Pursuit {
+  id: string;
+  pipeline_id: string;
+  entity_type: string | null;
+  entity_id: string | null;
   title: string;
-  posted_date: string | null;
-  response_deadline: string | null;
-  agency: string | null;
-  sub_agency: string | null;
-  office: string | null;
-  naics_codes: string | null;
-  set_aside: string | null;
-  link: string | null;
-  attachment_count: number;
-  extracted_count: number;
-  summarized_count: number;
-  days_to_deadline: number | null;
+  stage: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
-interface Stats {
-  total_solicitations: number;
-  open_now: number;
-  due_in_14d: number;
-  summarized_attachments: number;
-  notice_types: Array<{ notice_type: string; n: number }>;
-  set_asides:   Array<{ set_aside: string; n: number }>;
-}
-
-interface AttachmentDetail {
-  attachment_id: string;
-  file_name: string | null;
-  file_url: string | null;
-  file_type: string | null;
-  extracted_chars: number | null;
-  extract_error: string | null;
-  sow_summary: string | null;
-  summarized_at: number | null;
-}
-
-interface Detail {
-  solicitation: Solicitation & { description: string | null; raw_json: string | null };
-  attachments: AttachmentDetail[];
-}
+// The capture ladder, in order. Keys must match the worker's PURSUIT_STAGES.
+const STAGES: Array<{ key: string; label: string }> = [
+  { key: 'identified', label: 'Identified' },
+  { key: 'qualifying', label: 'Qualifying' },
+  { key: 'capturing',  label: 'Capturing' },
+  { key: 'proposal',   label: 'Proposal' },
+  { key: 'submitted',  label: 'Submitted' },
+  { key: 'won',        label: 'Won' },
+  { key: 'lost',       label: 'Lost' },
+];
+const STAGE_KEYS = STAGES.map((s) => s.key);
 
 export function PipelinePage() {
-  const [stats, setStats] = React.useState<Stats | null>(null);
-  const [rows, setRows] = React.useState<Solicitation[] | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
-  const [q, setQ] = React.useState('');
-  const [noticeType, setNoticeType] = React.useState<string | null>(null);
-  const [setAside,   setSetAside]   = React.useState<string | null>(null);
-  const [openOnly,   setOpenOnly]   = React.useState(true);
-  const [expanded,   setExpanded]   = React.useState<string | null>(null);
-  const [details,    setDetails]    = React.useState<Record<string, Detail>>({});
+  const [pipelines, setPipelines] = React.useState<Pipeline[] | null>(null);
+  const [selectedId, setSelectedId] = React.useState<string | null>(null);
+  const [pursuits, setPursuits] = React.useState<Pursuit[] | null>(null);
+  const [newName, setNewName] = React.useState('');
+  const [creating, setCreating] = React.useState(false);
 
-  // Initial stats fetch
+  // Load the user's boards once; preselect the first.
   React.useEffect(() => {
     let alive = true;
-    api.get<Stats>('/pipeline/stats')
-       .then((s) => { if (alive) setStats(s); })
-       .catch((e) => { if (alive) setError(e instanceof ApiError ? `Stats API ${e.status}` : 'Stats failed'); });
+    api.get<{ results: Pipeline[] }>('/me/pipelines')
+      .then((d) => {
+        if (!alive) return;
+        const list = d.results ?? [];
+        setPipelines(list);
+        setSelectedId((cur) => cur ?? list[0]?.id ?? null);
+      })
+      .catch(() => { if (alive) setPipelines([]); });
     return () => { alive = false; };
   }, []);
 
-  // Filtered list — refetch when filters change. Debounce search by 300ms.
+  // Load the selected board's cards whenever the selection changes.
   React.useEffect(() => {
+    if (!selectedId) { setPursuits(null); return; }
     let alive = true;
-    const t = setTimeout(async () => {
-      try {
-        const params = new URLSearchParams();
-        if (q.trim())   params.set('q', q.trim());
-        if (noticeType) params.set('notice_type', noticeType);
-        if (setAside)   params.set('set_aside',   setAside);
-        params.set('open_only', String(openOnly));
-        const r = await api.get<{ results: Solicitation[] }>(`/pipeline/solicitations?${params}`);
-        if (alive) setRows(r.results ?? []);
-      } catch (e) {
-        if (alive) setError(e instanceof ApiError ? `API ${e.status}` : 'Failed to load');
-      }
-    }, q ? 300 : 0);
-    return () => { alive = false; clearTimeout(t); };
-  }, [q, noticeType, setAside, openOnly]);
+    setPursuits(null);
+    api.get<{ results: Pursuit[] }>('/me/pursuits', { pipeline_id: selectedId })
+      .then((d) => { if (alive) setPursuits(d.results ?? []); })
+      .catch(() => { if (alive) setPursuits([]); });
+    return () => { alive = false; };
+  }, [selectedId]);
 
-  async function toggleExpand(id: string) {
-    if (expanded === id) { setExpanded(null); return; }
-    setExpanded(id);
-    if (!details[id]) {
-      try {
-        const d = await api.get<Detail>(`/pipeline/solicitations/${id}`);
-        setDetails((prev) => ({ ...prev, [id]: d }));
-      } catch (e) {
-        // Silent fail — row stays open with a "couldn't load" note
-        setDetails((prev) => ({ ...prev, [id]: { solicitation: null as unknown as Detail['solicitation'], attachments: [] } }));
-      }
+  const createPipeline = async () => {
+    const name = newName.trim();
+    if (!name) return;
+    setCreating(true);
+    try {
+      const p = await api.post<Pipeline>('/me/pipelines', { name });
+      setPipelines((cur) => [{ ...p, pursuit_count: 0 }, ...(cur ?? [])]);
+      setSelectedId(p.id);
+      setNewName('');
+      toast.success('Pipeline created');
+    } catch {
+      toast.error('Could not create pipeline');
+    } finally {
+      setCreating(false);
     }
+  };
+
+  const deletePipeline = async (id: string) => {
+    const p = pipelines?.find((x) => x.id === id);
+    if (!window.confirm(`Delete "${p?.name ?? 'this pipeline'}" and all its pursuits? This can't be undone.`)) return;
+    try {
+      await api.del(`/me/pipelines/${id}`);
+      setPipelines((cur) => {
+        const next = (cur ?? []).filter((x) => x.id !== id);
+        if (selectedId === id) setSelectedId(next[0]?.id ?? null);
+        return next;
+      });
+      toast.success('Pipeline deleted');
+    } catch {
+      toast.error('Could not delete pipeline');
+    }
+  };
+
+  const addPursuit = async (title: string) => {
+    const t = title.trim();
+    if (!t || !selectedId) return;
+    try {
+      const p = await api.post<Pursuit>('/me/pursuits', { pipeline_id: selectedId, title: t });
+      setPursuits((cur) => [...(cur ?? []), p]);
+      bumpCount(selectedId, +1);
+    } catch {
+      toast.error('Could not add pursuit');
+    }
+  };
+
+  const movePursuit = async (pursuit: Pursuit, dir: -1 | 1) => {
+    const idx = STAGE_KEYS.indexOf(pursuit.stage);
+    const nextIdx = idx + dir;
+    if (nextIdx < 0 || nextIdx >= STAGE_KEYS.length) return;
+    const nextStage = STAGE_KEYS[nextIdx];
+    // Optimistic: move the card now, revert if the write fails.
+    setPursuits((cur) => (cur ?? []).map((x) => (x.id === pursuit.id ? { ...x, stage: nextStage } : x)));
+    try {
+      await api.put(`/me/pursuits/${pursuit.id}`, { stage: nextStage });
+    } catch (e) {
+      setPursuits((cur) => (cur ?? []).map((x) => (x.id === pursuit.id ? { ...x, stage: pursuit.stage } : x)));
+      toast.error(e instanceof ApiError ? `Move failed (${e.status})` : 'Move failed');
+    }
+  };
+
+  const deletePursuit = async (pursuit: Pursuit) => {
+    const prev = pursuits;
+    setPursuits((cur) => (cur ?? []).filter((x) => x.id !== pursuit.id));
+    bumpCount(pursuit.pipeline_id, -1);
+    try {
+      await api.del(`/me/pursuits/${pursuit.id}`);
+    } catch {
+      setPursuits(prev ?? []);
+      bumpCount(pursuit.pipeline_id, +1);
+      toast.error('Could not delete pursuit');
+    }
+  };
+
+  function bumpCount(pipelineId: string, delta: number) {
+    setPipelines((cur) => (cur ?? []).map((p) => (p.id === pipelineId ? { ...p, pursuit_count: Math.max(0, p.pursuit_count + delta) } : p)));
   }
 
+  const selected = pipelines?.find((p) => p.id === selectedId) ?? null;
+
   return (
-    <div className="space-y-8">
+    <div className="flex flex-col gap-6 pb-12">
       <PageHeader
-        eyebrow="Explore"
-        title="Pipeline"
-        description="Open CDC solicitations from SAM.gov, with AI-generated summaries of the attached SOW/RFP documents."
+        eyebrow="Business Development"
+        title="Pipelines"
+        description="Your capture boards. Track each pursuit across stages — from identified through proposal to won or lost."
       />
 
-      {error && (
-        <div className="rounded-xl border border-brand-vermilion/40 bg-brand-vermilion/15 px-4 py-3 text-sm text-brand-vermilion-soft">
-          {error}
-        </div>
-      )}
-
-      {/* Stat cards */}
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {stats === null ? (
-          <><StatSkeleton /><StatSkeleton /><StatSkeleton /><StatSkeleton /></>
+      {/* Board picker + create */}
+      <section className="flex flex-col gap-3">
+        {pipelines == null ? (
+          <div className="px-1 py-2 text-sm text-muted">Loading…</div>
         ) : (
-          <>
-            <Card><Stat label="Open now"           value={String(stats.open_now ?? 0)}              icon={Briefcase} /></Card>
-            <Card><Stat label="Due in 14 days"     value={String(stats.due_in_14d ?? 0)}            icon={Clock} /></Card>
-            <Card><Stat label="With AI summary"    value={String(stats.summarized_attachments ?? 0)} icon={Sparkles} /></Card>
-            <Card><Stat label="Total solicitations" value={String(stats.total_solicitations ?? 0)} /></Card>
-          </>
-        )}
-      </section>
-
-      {/* Filter chips */}
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            type="search"
-            placeholder="Search title or solicitation number…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            className="min-w-[260px] flex-1 rounded-md border border-border bg-brand-teal-deep/40 px-3 py-2 text-sm text-foreground placeholder:text-muted-soft outline-none focus:border-brand-vermilion/60"
-          />
-          <label className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm text-muted-soft">
-            <input
-              type="checkbox"
-              checked={openOnly}
-              onChange={(e) => setOpenOnly(e.target.checked)}
-              className="h-4 w-4 accent-brand-vermilion"
-            />
-            Open only
-          </label>
-        </div>
-
-        {stats && stats.notice_types.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs uppercase tracking-wide text-muted-soft">Notice type:</span>
-            <FilterChip label="All" active={noticeType === null} onClick={() => setNoticeType(null)} />
-            {stats.notice_types.map((t) => (
-              <FilterChip
-                key={t.notice_type}
-                label={`${t.notice_type} (${t.n})`}
-                active={noticeType === t.notice_type}
-                onClick={() => setNoticeType(t.notice_type)}
-              />
-            ))}
-          </div>
-        )}
-
-        {stats && stats.set_asides.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs uppercase tracking-wide text-muted-soft">Set-aside:</span>
-            <FilterChip label="All" active={setAside === null} onClick={() => setSetAside(null)} />
-            {stats.set_asides.map((s) => (
-              <FilterChip
-                key={s.set_aside}
-                label={`${s.set_aside} (${s.n})`}
-                active={setAside === s.set_aside}
-                onClick={() => setSetAside(s.set_aside)}
-              />
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* Table */}
-      <Card className="overflow-hidden p-0">
-        {rows === null ? (
-          <TableSkeleton rows={8} />
-        ) : rows.length === 0 ? (
-          <EmptyState
-            icon={AlertTriangle}
-            title="No solicitations match"
-            message="Try clearing filters or expanding the date range."
-          />
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-8" />
-                <TableHead>Title</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Deadline</TableHead>
-                <TableHead>Set-aside</TableHead>
-                <TableHead>Docs</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((s) => (
-                <React.Fragment key={s.solicitation_id}>
-                  <TableRow
-                    className="cursor-pointer hover:bg-brand-teal-deep/40"
-                    onClick={() => toggleExpand(s.solicitation_id)}
-                  >
-                    <TableCell>
-                      {expanded === s.solicitation_id
-                        ? <ChevronDown  className="h-4 w-4 text-muted-soft" />
-                        : <ChevronRight className="h-4 w-4 text-muted-soft" />}
-                    </TableCell>
-                    <TableCell className="font-medium">
-                      <div className="flex flex-col gap-0.5">
-                        <span>{s.title}</span>
-                        <span className="text-xs text-muted-soft">
-                          {s.sol_number ?? '(no sol#)'} · {s.office ?? s.sub_agency ?? s.agency ?? '—'}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell><span className="text-xs">{s.notice_type}</span></TableCell>
-                    <TableCell>
-                      {s.response_deadline
-                        ? <DeadlineCell date={s.response_deadline} days={s.days_to_deadline} />
-                        : <span className="text-muted-soft">—</span>}
-                    </TableCell>
-                    <TableCell><span className="text-xs">{s.set_aside ?? '—'}</span></TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs">{s.attachment_count}</span>
-                        {s.summarized_count > 0 && (
-                          <Badge variant="success" className="text-[10px]">
-                            <Sparkles className="mr-1 h-2.5 w-2.5" />
-                            {s.summarized_count} AI
-                          </Badge>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                  {expanded === s.solicitation_id && (
-                    <TableRow className="bg-brand-teal-deep/30">
-                      <TableCell colSpan={6} className="px-6 py-4">
-                        <DetailPanel
-                          detail={details[s.solicitation_id]}
-                          fallbackLink={s.link}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </React.Fragment>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </Card>
-    </div>
-  );
-}
-
-function FilterChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={
-        'rounded-full border px-3 py-1 text-xs transition ' +
-        (active
-          ? 'border-brand-vermilion/60 bg-brand-vermilion/20 text-brand-vermilion-soft'
-          : 'border-border bg-transparent text-muted-soft hover:border-foreground/30')
-      }
-    >
-      {label}
-    </button>
-  );
-}
-
-function DeadlineCell({ date, days }: { date: string; days: number | null }) {
-  const tone =
-    days === null   ? 'text-muted-soft' :
-    days < 0        ? 'text-muted-soft line-through' :
-    days <= 7       ? 'text-brand-vermilion' :
-    days <= 14      ? 'text-brand-amber-soft' :
-                      'text-foreground';
-  return (
-    <div className="flex flex-col">
-      <span className={`text-sm ${tone}`}>{fmtDate(date)}</span>
-      {days !== null && days >= 0 && (
-        <span className={`text-[10px] ${tone}`}>
-          {days === 0 ? 'today' : days === 1 ? '1 day' : `${days} days`}
-        </span>
-      )}
-    </div>
-  );
-}
-
-function DetailPanel({ detail, fallbackLink }: { detail: Detail | undefined; fallbackLink: string | null }) {
-  if (!detail) return <div className="text-sm text-muted-soft">Loading…</div>;
-  if (!detail.solicitation && detail.attachments.length === 0) {
-    return <div className="text-sm text-muted-soft">Couldn't load detail.</div>;
-  }
-  const summarized = detail.attachments.filter((a) => a.sow_summary);
-  const others     = detail.attachments.filter((a) => !a.sow_summary);
-
-  return (
-    <div className="space-y-4">
-      {summarized.length === 0 && (
-        <div className="rounded-md border border-border bg-brand-teal-deep/20 px-4 py-3 text-sm text-muted-soft">
-          No AI summary yet for this solicitation. Attachments may still be in the extraction pipeline.
-        </div>
-      )}
-
-      {summarized.map((a) => (
-        <div key={a.attachment_id} className="rounded-md border border-border bg-brand-teal-deep/40 p-4">
-          <div className="mb-2 flex items-baseline justify-between gap-3">
-            <div className="text-sm font-medium">
-              <Sparkles className="mr-1 inline h-3.5 w-3.5 text-brand-vermilion" />
-              {a.file_name ?? a.attachment_id}
-            </div>
-            {a.file_url && (
-              <a
-                href={a.file_url}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1 text-xs text-muted-soft hover:text-foreground"
+            {pipelines.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setSelectedId(p.id)}
+                className={
+                  'inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ' +
+                  (p.id === selectedId
+                    ? 'border-brand-vermilion/60 bg-brand-vermilion/15 text-foreground'
+                    : 'border-border bg-brand-teal-deep/30 text-muted-soft hover:bg-brand-teal-deep/50')
+                }
               >
-                Source PDF <ExternalLink className="h-3 w-3" />
-              </a>
+                <Briefcase className="h-3.5 w-3.5" />
+                {p.name}
+                <span className="rounded-full bg-brand-teal-deep/60 px-1.5 text-[11px] tabular-nums text-muted-soft">{p.pursuit_count}</span>
+              </button>
+            ))}
+            {selected && (
+              <button
+                type="button"
+                onClick={() => deletePipeline(selected.id)}
+                aria-label="Delete current pipeline"
+                title={`Delete "${selected.name}"`}
+                className="inline-flex items-center rounded-md border border-border bg-brand-teal-deep/40 p-1.5 text-muted-soft transition-colors hover:bg-brand-vermilion/15 hover:text-brand-vermilion-soft"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
             )}
           </div>
-          <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-            {a.sow_summary}
-          </div>
-        </div>
-      ))}
+        )}
 
-      {others.length > 0 && (
-        <details className="text-sm text-muted-soft">
-          <summary className="cursor-pointer">{others.length} other attachment{others.length === 1 ? '' : 's'} (no summary)</summary>
-          <ul className="mt-2 space-y-1 pl-4">
-            {others.map((a) => (
-              <li key={a.attachment_id} className="text-xs">
-                {a.file_name ?? a.attachment_id}
-                {a.extract_error && <span className="ml-2 text-brand-vermilion-soft">({a.extract_error.slice(0, 60)})</span>}
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-
-      {fallbackLink && (
-        <a
-          href={fallbackLink}
-          target="_blank"
-          rel="noreferrer"
-          className="flex items-center gap-1 text-xs text-muted-soft hover:text-foreground"
+        {/* Inline create */}
+        <form
+          onSubmit={(e) => { e.preventDefault(); createPipeline(); }}
+          className="flex items-center gap-2"
         >
-          View on SAM.gov <ExternalLink className="h-3 w-3" />
-        </a>
+          <input
+            type="text"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder="New pipeline name…"
+            maxLength={200}
+            className="w-full max-w-xs rounded-md border border-border bg-brand-teal-deep/40 px-3 py-1.5 text-sm text-foreground placeholder:text-muted-soft outline-none focus:border-brand-vermilion/60"
+          />
+          <button
+            type="submit"
+            disabled={creating || !newName.trim()}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-brand-teal-deep/40 px-3 py-1.5 text-[13px] font-medium text-foreground transition-colors hover:bg-brand-teal-soft/30 disabled:opacity-40"
+          >
+            <Plus className="h-3.5 w-3.5" /> New pipeline
+          </button>
+        </form>
+      </section>
+
+      {/* Board */}
+      {pipelines != null && pipelines.length === 0 ? (
+        <EmptyState icon={Layers} title="No pipelines yet." message="Create your first capture board above, then add pursuits to track across stages." />
+      ) : selected ? (
+        <KanbanBoard
+          pursuits={pursuits}
+          onAdd={addPursuit}
+          onMove={movePursuit}
+          onDelete={deletePursuit}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function KanbanBoard({
+  pursuits, onAdd, onMove, onDelete,
+}: {
+  pursuits: Pursuit[] | null;
+  onAdd: (title: string) => void;
+  onMove: (p: Pursuit, dir: -1 | 1) => void;
+  onDelete: (p: Pursuit) => void;
+}) {
+  const [addTitle, setAddTitle] = React.useState('');
+
+  if (pursuits == null) {
+    return <div className="px-1 py-6 text-sm text-muted">Loading pursuits…</div>;
+  }
+
+  const byStage = (key: string) => pursuits.filter((p) => p.stage === key);
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* Add a pursuit (lands in "Identified") */}
+      <form
+        onSubmit={(e) => { e.preventDefault(); onAdd(addTitle); setAddTitle(''); }}
+        className="flex items-center gap-2"
+      >
+        <input
+          type="text"
+          value={addTitle}
+          onChange={(e) => setAddTitle(e.target.value)}
+          placeholder="Add a pursuit (title)…"
+          maxLength={300}
+          className="w-full max-w-md rounded-md border border-border bg-brand-teal-deep/40 px-3 py-1.5 text-sm text-foreground placeholder:text-muted-soft outline-none focus:border-brand-vermilion/60"
+        />
+        <button
+          type="submit"
+          disabled={!addTitle.trim()}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-brand-teal-deep/40 px-3 py-1.5 text-[13px] font-medium text-foreground transition-colors hover:bg-brand-teal-soft/30 disabled:opacity-40"
+        >
+          <Plus className="h-3.5 w-3.5" /> Add pursuit
+        </button>
+      </form>
+
+      {pursuits.length === 0 && (
+        <div className="rounded-md border border-border bg-brand-teal-deep/20 px-4 py-3 text-sm text-muted-soft">
+          No pursuits on this board yet. Add one above — it starts in <span className="text-foreground">Identified</span>.
+        </div>
       )}
+
+      {/* 7 stage columns, horizontally scrollable on small screens */}
+      <div className="flex gap-3 overflow-x-auto pb-2">
+        {STAGES.map((stage, colIdx) => {
+          const cards = byStage(stage.key);
+          return (
+            <div key={stage.key} className="flex w-64 shrink-0 flex-col gap-2">
+              <div className="flex items-center justify-between px-1">
+                <span className={
+                  'text-[11px] font-bold uppercase tracking-[0.12em] ' +
+                  (stage.key === 'won' ? 'text-brand-teal-soft' : stage.key === 'lost' ? 'text-muted' : 'text-muted-soft')
+                }>
+                  {stage.label}
+                </span>
+                <span className="text-[11px] tabular-nums text-muted">{cards.length}</span>
+              </div>
+              <div className="flex min-h-[60px] flex-col gap-2 rounded-xl border border-border bg-brand-teal-deep/15 p-2">
+                {cards.map((p) => (
+                  <PursuitCard
+                    key={p.id}
+                    pursuit={p}
+                    canLeft={colIdx > 0}
+                    canRight={colIdx < STAGES.length - 1}
+                    onMove={onMove}
+                    onDelete={onDelete}
+                  />
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function PursuitCard({
+  pursuit, canLeft, canRight, onMove, onDelete,
+}: {
+  pursuit: Pursuit;
+  canLeft: boolean;
+  canRight: boolean;
+  onMove: (p: Pursuit, dir: -1 | 1) => void;
+  onDelete: (p: Pursuit) => void;
+}) {
+  return (
+    <div className="group rounded-lg border border-border bg-brand-teal-deep/40 p-2.5">
+      <div className="mb-1.5 text-sm font-medium leading-snug text-foreground">{pursuit.title}</div>
+      <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-soft">
+        {pursuit.entity_type && (
+          <span className="rounded-full bg-brand-teal-soft/20 px-1.5 py-px uppercase tracking-wide">{pursuit.entity_type}</span>
+        )}
+        <span>added {fmtDate(pursuit.created_at)}</span>
+      </div>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            disabled={!canLeft}
+            onClick={() => onMove(pursuit, -1)}
+            aria-label="Move to previous stage"
+            className="inline-flex items-center rounded border border-border bg-brand-teal-deep/50 p-1 text-muted-soft transition-colors hover:text-foreground disabled:opacity-30"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            disabled={!canRight}
+            onClick={() => onMove(pursuit, 1)}
+            aria-label="Move to next stage"
+            className="inline-flex items-center rounded border border-border bg-brand-teal-deep/50 p-1 text-muted-soft transition-colors hover:text-foreground disabled:opacity-30"
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={() => onDelete(pursuit)}
+          aria-label="Delete pursuit"
+          className="inline-flex items-center rounded p-1 text-muted-soft opacity-0 transition-opacity hover:text-brand-vermilion-soft group-hover:opacity-100"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
     </div>
   );
 }

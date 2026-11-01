@@ -54,6 +54,7 @@ const CF_WORKER_PREFIXES = [
   '/documents',
   '/ref',
   '/saved-searches',
+  '/me',
   '/ai',
 ] as const;
 

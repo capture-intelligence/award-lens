@@ -206,6 +206,13 @@ const contracts = [
     shape: 'results',
     fields: { id: 'string', entity_type: 'string', entity_id: 'string', created_at: 'string' },
   },
+  {
+    // User-scoped; may be empty for a fresh user (field check then skipped).
+    name: 'me/pipelines',
+    path: '/me/pipelines',
+    shape: 'results',
+    fields: { id: 'string', name: 'string', created_at: 'string', pursuit_count: 'number' },
+  },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
