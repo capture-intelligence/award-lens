@@ -864,6 +864,30 @@ app.get('/organizations/:id', async (c) => {
   return c.json(payload);
 });
 
+// Documents: solicitation attachments (PDFs) with their AI SOW summary when
+// available, joined to the parent solicitation for context. Public data,
+// auth-gated by the global middleware. Supports keyword search over the file
+// name + solicitation title. Summarized docs sort first.
+app.get('/documents', async (c) => {
+  const q = c.req.query('q');
+  const limit = Math.min(Number(c.req.query('limit') ?? 200), 500);
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (q) { where.push('(sa.file_name LIKE ? OR s.title LIKE ?)'); params.push(`%${q}%`, `%${q}%`); }
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const r = await c.env.DB.prepare(`
+    SELECT sa.attachment_id, sa.file_name, sa.file_type, sa.size_bytes, sa.file_url,
+           sa.sow_summary, sa.summarized_at, sa.extract_error,
+           sa.solicitation_id, s.title AS solicitation_title, s.sol_number
+    FROM solicitation_attachment sa
+    LEFT JOIN solicitation s ON s.solicitation_id = sa.solicitation_id
+    ${whereSql}
+    ORDER BY sa.summarized_at DESC NULLS LAST, sa.fetched_at DESC
+    LIMIT ?
+  `).bind(...params, limit).all();
+  return c.json({ count: r.results.length, results: r.results });
+});
+
 // ---------- Ingestion run history ----------
 
 app.get('/runs', async (c) => {
