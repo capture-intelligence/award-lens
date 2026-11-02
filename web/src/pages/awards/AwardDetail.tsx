@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Award as AwardIcon, Share2, Bell, Building2, Sparkles } from 'lucide-react';
 import { FavoriteStar } from '@/components/FavoriteStar';
+import { AddToPipelineButton } from '@/components/AddToPipelineButton';
 import { EntityDetailLayout, type TabDef } from '@/components/ui/EntityDetailLayout';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { fmtDate, fmtMoney } from '@/lib/utils';
@@ -98,6 +99,7 @@ export function AwardDetailPage() {
         <>
           <IconButton icon={Share2} label="Share" />
           <FavoriteStar entity_type="award" entity_id={a.award_id} />
+          <AddToPipelineButton entity_type="award" entity_id={a.award_id} title={a.award_piid ?? a.award_id} />
           <IconButton icon={Bell}   label="Notify" />
         </>
       }

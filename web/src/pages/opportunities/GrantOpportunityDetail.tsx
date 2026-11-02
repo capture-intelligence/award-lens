@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useParams } from 'react-router-dom';
 import { ExternalLink, BookOpen, Share2, Bell, Sparkles } from 'lucide-react';
 import { FavoriteStar } from '@/components/FavoriteStar';
+import { AddToPipelineButton } from '@/components/AddToPipelineButton';
 import { EntityDetailLayout, type TabDef } from '@/components/ui/EntityDetailLayout';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { fmtDate, fmtMoney } from '@/lib/utils';
@@ -103,6 +104,7 @@ export function GrantOpportunityDetailPage() {
         <>
           <IconButton icon={Share2} label="Share" />
           <FavoriteStar entity_type="grant" entity_id={g.opportunity_id} />
+          <AddToPipelineButton entity_type="grant" entity_id={g.opportunity_id} title={g.title} />
           <IconButton icon={Bell}   label="Notify" />
         </>
       }
